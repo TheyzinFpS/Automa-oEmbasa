@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import threading
-import time
 import traceback
 from datetime import datetime
 
@@ -53,56 +52,34 @@ class API:
             return False
 
     def _emitir_reset_progresso(self):
-        self._evaluate_js_safe(
-            """
-            try {
-              if (typeof window.resetarProgresso === "function") {
-                window.resetarProgresso();
-              }
-            } catch (e) {}
+        self._emitir_funcao_js("resetarProgresso")
+
+    def _emitir_funcao_js(self, nome_funcao: str, *args) -> bool:
+        payload_nome = json.dumps(str(nome_funcao or ""))
+        payload_args = ", ".join(
+            json.dumps(arg, ensure_ascii=False)
+            for arg in args
+        )
+
+        return self._evaluate_js_safe(
+            f"""
+            try {{
+              const fn = window[{payload_nome}];
+              if (typeof fn === "function") {{
+                fn({payload_args});
+              }}
+            }} catch (e) {{}}
             """
         )
 
     def _emitir_log(self, mensagem: str, classe: str = ""):
-        payload_msg = json.dumps(str(mensagem or ""))
-        payload_class = json.dumps(str(classe or ""))
-
-        self._evaluate_js_safe(
-            f"""
-            try {{
-              if (typeof window.log === "function") {{
-                window.log({payload_msg}, {payload_class});
-              }}
-            }} catch (e) {{}}
-            """
-        )
+        self._emitir_funcao_js("log", str(mensagem or ""), str(classe or ""))
 
     def _emitir_status(self, texto: str, classe: str):
-        payload_texto = json.dumps(str(texto or ""))
-        payload_classe = json.dumps(str(classe or ""))
-
-        self._evaluate_js_safe(
-            f"""
-            try {{
-              if (typeof window.setStatus === "function") {{
-                window.setStatus({payload_texto}, {payload_classe});
-              }}
-            }} catch (e) {{}}
-            """
-        )
+        self._emitir_funcao_js("setStatus", str(texto or ""), str(classe or ""))
 
     def _emitir_preencher_resultado(self, resultado: dict):
-        payload = json.dumps(resultado or {}, ensure_ascii=False)
-
-        self._evaluate_js_safe(
-            f"""
-            try {{
-              if (typeof window.preencherResultado === "function") {{
-                window.preencherResultado({payload});
-              }}
-            }} catch (e) {{}}
-            """
-        )
+        self._emitir_funcao_js("preencherResultado", resultado or {})
 
     def _emitir_progresso(
         self,
@@ -111,24 +88,14 @@ class API:
         mensagem: str | None = None,
         percentual: int | float | None = None,
     ):
-        payload = json.dumps(
+        self._emitir_funcao_js(
+            "atualizarProgresso",
             {
                 "etapa": str(etapa or ""),
                 "status": str(status or ""),
                 "mensagem": "" if mensagem is None else str(mensagem),
                 "percentual": percentual,
             },
-            ensure_ascii=False,
-        )
-
-        self._evaluate_js_safe(
-            f"""
-            try {{
-              if (typeof window.atualizarProgresso === "function") {{
-                window.atualizarProgresso({payload});
-              }}
-            }} catch (e) {{}}
-            """
         )
 
     def _instalar_logger_tempo_real(self):

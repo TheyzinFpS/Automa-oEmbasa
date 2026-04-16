@@ -1,0 +1,111 @@
+GUIA RAPIDO DE GIT - PROJETO EMBASA
+
+Repositorio remoto:
+https://github.com/TheyzinFpS/Automa-oEmbasa
+
+Pasta local do projeto:
+C:\Users\Taylor\Desktop\programando
+
+
+1. VER O ESTADO DO PROJETO
+
+Use para conferir quais arquivos foram alterados:
+
+& 'C:\Program Files\Git\cmd\git.exe' -C 'C:\Users\Taylor\Desktop\programando' status
+
+
+2. SALVAR NOVAS ALTERACOES NO GITHUB
+
+Passo 1 - adicionar arquivos alterados:
+
+& 'C:\Program Files\Git\cmd\git.exe' -C 'C:\Users\Taylor\Desktop\programando' add .
+
+Passo 2 - criar o commit com mensagem:
+
+& 'C:\Program Files\Git\cmd\git.exe' -C 'C:\Users\Taylor\Desktop\programando' commit -m "descreva aqui a alteracao"
+
+Exemplos de mensagem:
+- "integra VF02 real e ajusta FB03"
+- "corrige validacao de cidade"
+- "melhora logs e progresso em tempo real"
+
+Passo 3 - enviar para o GitHub:
+
+& 'C:\Program Files\Git\cmd\git.exe' -C 'C:\Users\Taylor\Desktop\programando' push
+
+
+3. BAIXAR ALTERACOES DO GITHUB PARA A MAQUINA
+
+Use quando houver mudancas feitas no GitHub ou em outro computador:
+
+& 'C:\Program Files\Git\cmd\git.exe' -C 'C:\Users\Taylor\Desktop\programando' pull
+
+
+4. VER O HISTORICO DE COMMITS
+
+& 'C:\Program Files\Git\cmd\git.exe' -C 'C:\Users\Taylor\Desktop\programando' log --oneline --decorate --graph -n 20
+
+
+5. VER QUAIS LINHAS FORAM ALTERADAS
+
+Antes do commit:
+
+& 'C:\Program Files\Git\cmd\git.exe' -C 'C:\Users\Taylor\Desktop\programando' diff
+
+Depois do commit:
+
+& 'C:\Program Files\Git\cmd\git.exe' -C 'C:\Users\Taylor\Desktop\programando' show
+
+
+6. CRIAR UMA BRANCH PARA TESTES
+
+Exemplo para testar somente o F110:
+
+& 'C:\Program Files\Git\cmd\git.exe' -C 'C:\Users\Taylor\Desktop\programando' checkout -b teste-f110
+
+Enviar a branch para o GitHub:
+
+& 'C:\Program Files\Git\cmd\git.exe' -C 'C:\Users\Taylor\Desktop\programando' push -u origin teste-f110
+
+
+7. VOLTAR PARA A BRANCH PRINCIPAL
+
+& 'C:\Program Files\Git\cmd\git.exe' -C 'C:\Users\Taylor\Desktop\programando' checkout main
+
+
+8. BAIXAR UMA BRANCH QUE JA EXISTE NO GITHUB
+
+& 'C:\Program Files\Git\cmd\git.exe' -C 'C:\Users\Taylor\Desktop\programando' fetch
+& 'C:\Program Files\Git\cmd\git.exe' -C 'C:\Users\Taylor\Desktop\programando' checkout nome-da-branch
+
+
+9. COMANDO RECOMENDADO PARA O DIA A DIA
+
+Fluxo mais comum:
+
+status -> add -> commit -> push
+
+Na pratica:
+
+& 'C:\Program Files\Git\cmd\git.exe' -C 'C:\Users\Taylor\Desktop\programando' status
+& 'C:\Program Files\Git\cmd\git.exe' -C 'C:\Users\Taylor\Desktop\programando' add .
+& 'C:\Program Files\Git\cmd\git.exe' -C 'C:\Users\Taylor\Desktop\programando' commit -m "mensagem da alteracao"
+& 'C:\Program Files\Git\cmd\git.exe' -C 'C:\Users\Taylor\Desktop\programando' push
+
+
+10. CUIDADOS IMPORTANTES
+
+- Nao subir senhas, tokens ou credenciais da empresa.
+- Nao subir arquivos locais sensiveis como embasa_settings.json, se tiver dados reais.
+- Antes de grandes mudancas, fazer um commit.
+- Para testes arriscados, criar branch separada.
+- Se algo quebrar, olhar primeiro o historico com git log.
+
+
+11. SE O GIT NAO FOR RECONHECIDO NO TERMINAL
+
+Use o caminho completo:
+
+& 'C:\Program Files\Git\cmd\git.exe'
+
+Ou feche e abra o terminal/VS Code novamente.

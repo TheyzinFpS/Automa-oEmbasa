@@ -24,6 +24,14 @@ STAGE_ORDER = [
     "VF02_RESALVAR",
     "F110",
 ]
+STAGE_INDEX = {stage: index for index, stage in enumerate(STAGE_ORDER)}
+CONTEXTO_CHAVES = (
+    "cliente",
+    "faturamento",
+    "doc_fat",
+    "boleto",
+    "identificacao_pagamento",
+)
 
 
 def resultado_padrao(ok, etapa, mensagem, dados=None, erro_tecnico=None):
@@ -57,10 +65,7 @@ class SAPController:
             return
 
     def _indice_etapa(self, etapa):
-        try:
-            return STAGE_ORDER.index(str(etapa or "").strip().upper())
-        except ValueError:
-            return -1
+        return STAGE_INDEX.get(str(etapa or "").strip().upper(), -1)
 
     def _deve_executar(self, etapa, iniciar_em):
         indice_etapa = self._indice_etapa(etapa)
@@ -82,6 +87,24 @@ class SAPController:
             iniciar_em = "XD03"
 
         return iniciar_em, contexto
+
+    def _criar_contexto(self, contexto_checkpoint):
+        return {
+            chave: contexto_checkpoint.get(chave)
+            for chave in CONTEXTO_CHAVES
+        }
+
+    def _falha_checkpoint_ausente(self, etapa, campo, dados, contexto):
+        return self._falha(
+            etapa=etapa,
+            mensagem=(
+                f"Nao foi possivel retomar o fluxo: {campo} ausente no checkpoint."
+            ),
+            erro_tecnico=f"Checkpoint sem {campo}.",
+            dados=dados,
+            contexto=contexto,
+            resume_from=etapa,
+        )
 
     def _montar_dados_publicos(self, dados, contexto):
         retorno = {
@@ -143,15 +166,7 @@ class SAPController:
                 **TESTE_F110_CONTEXTO,
             }
 
-        contexto = {
-            "cliente": contexto_checkpoint.get("cliente"),
-            "faturamento": contexto_checkpoint.get("faturamento"),
-            "doc_fat": contexto_checkpoint.get("doc_fat"),
-            "boleto": contexto_checkpoint.get("boleto"),
-            "identificacao_pagamento": contexto_checkpoint.get(
-                "identificacao_pagamento"
-            ),
-        }
+        contexto = self._criar_contexto(contexto_checkpoint)
 
         try:
             self.logger.add(-1, "Conectando ao SAP...", publico=True)
@@ -212,14 +227,7 @@ class SAPController:
                 publico=True,
             )
         elif not contexto.get("cliente"):
-            return self._falha(
-                etapa="XD03",
-                mensagem="Nao foi possivel retomar o fluxo: cliente ausente no checkpoint.",
-                erro_tecnico="Checkpoint sem cliente.",
-                dados=dados,
-                contexto=contexto,
-                resume_from="XD03",
-            )
+            return self._falha_checkpoint_ausente("XD03", "cliente", dados, contexto)
 
         if self._deve_executar("VA01", iniciar_em):
             resultado_va01 = criar_pedido(
@@ -266,13 +274,11 @@ class SAPController:
                 or contexto.get("doc_fat")
             )
         elif iniciar_em != "F110" and not contexto.get("faturamento"):
-            return self._falha(
-                etapa="VF01",
-                mensagem="Nao foi possivel retomar o fluxo: faturamento ausente no checkpoint.",
-                erro_tecnico="Checkpoint sem faturamento.",
-                dados=dados,
-                contexto=contexto,
-                resume_from="VF01",
+            return self._falha_checkpoint_ausente(
+                "VF01",
+                "faturamento",
+                dados,
+                contexto,
             )
 
         if self._deve_executar("VF02_CAPTURA", iniciar_em):
@@ -316,13 +322,11 @@ class SAPController:
             contexto["doc_fat"] = resultado_vf02["dados"]["doc_fat"]
             contexto["faturamento"] = resultado_vf02["dados"]["faturamento"]
         elif iniciar_em != "F110" and not contexto.get("doc_fat"):
-            return self._falha(
-                etapa="VF02_CAPTURA",
-                mensagem="Nao foi possivel retomar o fluxo: doc_fat ausente no checkpoint.",
-                erro_tecnico="Checkpoint sem doc_fat.",
-                dados=dados,
-                contexto=contexto,
-                resume_from="VF02_CAPTURA",
+            return self._falha_checkpoint_ausente(
+                "VF02_CAPTURA",
+                "doc_fat",
+                dados,
+                contexto,
             )
 
         if not ENABLE_F110_NO_FLUXO:

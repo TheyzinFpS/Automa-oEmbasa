@@ -1,6 +1,7 @@
 import json
 import os
 from copy import deepcopy
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -26,10 +27,12 @@ DEFAULT_SETTINGS = {
 }
 
 
+@lru_cache(maxsize=1)
 def get_project_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+@lru_cache(maxsize=1)
 def get_runtime_root() -> Path:
     local_appdata = os.environ.get("LOCALAPPDATA")
 

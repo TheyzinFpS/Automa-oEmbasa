@@ -68,9 +68,9 @@ class ClienteCache:
 
         return created_at < datetime.now() - timedelta(days=self.ttl_days)
 
-    def _purge_expired(self):
+    def _purge_expired(self, save_changes=True):
         if not self.cache:
-            return
+            return False
 
         ativos = {
             documento: dados
@@ -86,9 +86,14 @@ class ClienteCache:
             )
             ativos = dict(ordenados[: self.max_entries])
 
-        if ativos != self.cache:
+        changed = ativos != self.cache
+
+        if changed:
             self.cache = ativos
-            self._save()
+            if save_changes:
+                self._save()
+
+        return changed
 
     def get(self, documento):
         if not self.enabled:
@@ -110,7 +115,7 @@ class ClienteCache:
         if not self.enabled:
             return
 
-        self.cache[documento] = {
+        registro = {
             "cliente": dados["cliente"],
             "tipo_documento": dados["tipo_documento"],
             "documento": documento,
@@ -118,13 +123,20 @@ class ClienteCache:
             "timestamp": datetime.now().isoformat(timespec="seconds"),
         }
 
-        self._purge_expired()
-        self._save()
+        changed = self.cache.get(documento) != registro
+        self.cache[documento] = registro
+        purged = self._purge_expired(save_changes=False)
+
+        if changed or purged:
+            self._save()
 
     def exists(self, documento):
         return self.get(documento) is not None
 
     def clear(self):
+        if not self.cache:
+            return
+
         self.cache = {}
         self._save()
 

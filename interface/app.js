@@ -36,6 +36,15 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const THEME_STORAGE_KEY = "embasa-theme";
+const ETAPA_ID_INDEX_MAP = new Map(ETAPAS.map((etapa, index) => [etapa.id, index]));
+const STATUS_ATIVOS = new Set([
+  "processando", "processing", "running", "ativo", "active", "iniciando", "iniciado"
+]);
+const STATUS_CONCLUIDOS = new Set([
+  "concluido", "concluida", "done", "success", "sucesso", "finalizado", "finalizada"
+]);
+const STATUS_ERRO = new Set(["erro", "error", "falha", "failed"]);
+const EMPTY_LOG_MARKUP = '<div class="log-empty">Os logs do fluxo aparecerao aqui.</div>';
 
 const state = {
   valueMode: "auto",
@@ -52,7 +61,8 @@ const state = {
   resumeCheckpoint: null,
   etapasConstruidas: false,
   footerDateText: "",
-  footerTimeText: ""
+  footerTimeText: "",
+  statusSnapshot: ""
 };
 
 const domCache = new Map();
@@ -523,6 +533,13 @@ function selectBaseStatus(status) {
 }
 
 function setStatus(texto, classe) {
+  const nextSnapshot = `${classe}::${texto}`;
+
+  if (state.statusSnapshot === nextSnapshot) {
+    return;
+  }
+
+  state.statusSnapshot = nextSnapshot;
   const pill = el("statusPill");
   pill.textContent = texto;
   pill.className = `status-pill ${classe}`;
@@ -715,12 +732,22 @@ function registrarValidacaoInterativa() {
 }
 
 function updateLogCount() {
-  el("logCount").textContent = String(state.logCount);
+  const counter = el("logCount");
+  const nextValue = String(state.logCount);
+
+  if (counter.textContent !== nextValue) {
+    counter.textContent = nextValue;
+  }
 }
 
 function renderLogEmptyState() {
   const box = el("logBox");
-  box.innerHTML = '<div class="log-empty">Os logs do fluxo aparecerao aqui.</div>';
+
+  if (state.logCount === 0 && box.innerHTML === EMPTY_LOG_MARKUP) {
+    return;
+  }
+
+  box.innerHTML = EMPTY_LOG_MARKUP;
 }
 
 function getEtapaIndexById(idOuCodigo) {
@@ -730,7 +757,11 @@ function getEtapaIndexById(idOuCodigo) {
     return -1;
   }
 
-  return ETAPAS.findIndex((etapa) => etapa.id === chave || etapa.codigo === chave);
+  if (ETAPA_ID_INDEX_MAP.has(chave)) {
+    return ETAPA_ID_INDEX_MAP.get(chave);
+  }
+
+  return ETAPAS.findIndex((etapa) => etapa.codigo === chave);
 }
 
 function getEtapaDescricao(status, mensagem) {
@@ -747,15 +778,15 @@ function getEtapaDescricao(status, mensagem) {
 function normalizarStatusTempoReal(status) {
   const valor = String(status || "").trim().toLowerCase();
 
-  if (["processando", "processing", "running", "ativo", "active", "iniciando", "iniciado"].includes(valor)) {
+  if (STATUS_ATIVOS.has(valor)) {
     return "active";
   }
 
-  if (["concluido", "concluida", "done", "success", "sucesso", "finalizado", "finalizada"].includes(valor)) {
+  if (STATUS_CONCLUIDOS.has(valor)) {
     return "done";
   }
 
-  if (["erro", "error", "falha", "failed"].includes(valor)) {
+  if (STATUS_ERRO.has(valor)) {
     return "error";
   }
 
@@ -815,7 +846,7 @@ function construirEtapas() {
     return;
   }
 
-  etapasRoot.innerHTML = "";
+  const fragment = document.createDocumentFragment();
 
   ETAPAS.forEach((etapa, index) => {
     const item = document.createElement("div");
@@ -831,9 +862,10 @@ function construirEtapas() {
         <small>Aguardando execucao</small>
       </div>
     `;
-    etapasRoot.appendChild(item);
+    fragment.appendChild(item);
   });
 
+  etapasRoot.replaceChildren(fragment);
   state.etapasConstruidas = true;
 }
 
@@ -877,7 +909,11 @@ function setEtapa(index, status = "pending", percentual = null, mensagem = "") {
   }
 
   if (fill) {
-    fill.style.width = `${novoProgresso}%`;
+    const nextWidth = `${novoProgresso}%`;
+
+    if (fill.style.width !== nextWidth) {
+      fill.style.width = nextWidth;
+    }
   }
 }
 
@@ -927,7 +963,7 @@ function limparLogs() {
 function log(msg, classe = "") {
   const box = el("logBox");
 
-  if (box.querySelector(".log-empty")) {
+  if (state.logCount === 0 && box.firstElementChild?.classList.contains("log-empty")) {
     box.innerHTML = "";
   }
 
@@ -1278,7 +1314,7 @@ document.addEventListener("click", (event) => {
   const baseStatusButton = el("baseStatusButton");
   const popover = el("logPopover");
   const balloon = el("logBalloon");
-  const card = document.querySelector(".contact-card");
+  const card = el("contactCard");
   const modal = el("contactModal");
 
   if (menu && valueButton && !menu.contains(event.target) && !valueButton.contains(event.target)) {

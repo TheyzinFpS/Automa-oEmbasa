@@ -4,9 +4,9 @@ from backend.utils.timing import paced_sleep
 
 
 def wait_for_element(session, element_id, timeout=8, interval=0.2):
-    start = time.time()
+    deadline = time.monotonic() + timeout
 
-    while time.time() - start < timeout:
+    while time.monotonic() < deadline:
         try:
             return session.findById(element_id)
         except Exception:
@@ -16,9 +16,9 @@ def wait_for_element(session, element_id, timeout=8, interval=0.2):
 
 
 def wait_until_not_exists(session, element_id, timeout=8):
-    start = time.time()
+    deadline = time.monotonic() + timeout
 
-    while time.time() - start < timeout:
+    while time.monotonic() < deadline:
         try:
             session.findById(element_id)
             time.sleep(0.2)

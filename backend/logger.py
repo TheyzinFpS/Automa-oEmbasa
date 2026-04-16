@@ -1,5 +1,4 @@
 from datetime import datetime
-from pathlib import Path
 
 from backend.security import mask_sensitive_text
 from backend.settings import get_runtime_root, get_setting
@@ -9,6 +8,9 @@ class Logger:
     def __init__(self):
         self.logs = []
         self.public_logs = []
+        self.mask_documents_in_logs = bool(
+            get_setting("security", "mask_documents_in_logs", default=True)
+        )
         self.log_dir = get_runtime_root() / "logs"
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.log_file_path = self.log_dir / "processo_tecnico.log"
@@ -30,7 +32,7 @@ class Logger:
     def add(self, etapa, msg, nivel="INFO", publico=False):
         safe_msg = str(msg or "")
 
-        if get_setting("security", "mask_documents_in_logs", default=True):
+        if self.mask_documents_in_logs:
             safe_msg = mask_sensitive_text(safe_msg)
 
         log = {
@@ -59,5 +61,5 @@ class Logger:
         return self.public_logs if public_only else self.logs
 
     def clear(self):
-        self.logs = []
-        self.public_logs = []
+        self.logs.clear()
+        self.public_logs.clear()

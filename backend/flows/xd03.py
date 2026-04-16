@@ -142,8 +142,9 @@ def buscar_cliente(session, dados, logger, progress_callback=None):
             8,
         )
 
-        if cache_cliente.exists(doc):
-            cliente_cache = cache_cliente.get(doc)
+        cliente_cache = cache_cliente.get(doc)
+
+        if cliente_cache:
             logger.add(
                 0,
                 f"Cliente encontrado no cache: {cliente_cache['cliente']}",
