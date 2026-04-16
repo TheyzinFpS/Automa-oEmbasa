@@ -1,0 +1,202 @@
+CONTEXTO TECNICO - EMBASA SAP DESKTOP
+Data: 2026-04-15
+
+1. OBJETIVO DO PROJETO
+- Aplicacao desktop em Python + pywebview para automacao SAP.
+- Interface HTML/CSS/JS integrada ao backend Python.
+- Exibir validacoes, logs visiveis e progresso em tempo real.
+- Rodar em ambiente corporativo, com distribuicao pela pasta de rede do setor.
+
+2. ESTADO ATUAL REAL DO PROJETO
+- Build PyInstaller funcionando.
+- Frontend funcional e integrado.
+- Popup simples na abertura se nao existir sessao SAP pronta.
+- CPF/CNPJ com formatacao visual no front e envio limpo ao SAP.
+- Endereco do empreendimento integrado ao fluxo.
+- Logs publicos reduzidos para o usuario final.
+- Cache local de cliente existente.
+- Mascara de documento em logs tecnicos.
+- Fluxo integrado ate o re-salvamento da VF02.
+
+3. ETAPAS SAP INTEGRADAS NO CODIGO ATUAL
+- CONEXAO -> sessao SAP validada por scripting
+- XD03 -> busca cliente
+- VA01 -> cria pedido
+- VF01 -> cria documento de faturamento
+- VF02 -> captura doc_fat
+- FB03 -> ajuste contabil
+- VF02 -> re-salva faturamento
+
+4. ETAPA AINDA PENDENTE PARA FECHAR O FLUXO
+- F110 -> geracao do boleto ainda precisa consolidacao final e validacao real
+
+5. NOVA MELHORIA IMPORTANTE FEITA NESTA ETAPA
+- O progresso da aba de processos deixou de depender apenas de concluido/erro final.
+- Agora cada transacao SAP envia progresso parcial durante a propria execucao.
+- O front passou a usar etapas internas unicas:
+  - `XD03`
+  - `VA01`
+  - `VF01`
+  - `VF02_CAPTURA`
+  - `FB03`
+  - `VF02_RESALVAR`
+  - `F110`
+- A barra visual de cada etapa agora avanca por percentual conforme os marcos reais da funcao no SAP.
+- A etapa seguinte so avanca quando a anterior conclui com sucesso.
+
+6. RETOMADA APOS FALHA
+- Foi criado checkpoint de retomada no controller.
+- Quando uma etapa falha:
+  - a etapa fica vermelha no front
+  - os dados ja preenchidos permanecem na tela
+  - os dados ja obtidos do SAP permanecem no resultado parcial
+  - aparece uma caixa de retomada com o botao:
+    `Continuar do ponto de parada`
+- Depois de corrigir o problema no SAP, o operador pode continuar da etapa que falhou sem refazer o fluxo inteiro.
+- Estado atual da retomada:
+  - funciona dentro da sessao atual da interface
+  - nao foi feita persistencia de checkpoint apos fechar o app
+
+7. ARQUITETURA ATUAL
+- `main.py`
+  - ponto de entrada
+  - popup de bloqueio se o SAP nao estiver pronto
+  - cria janela pywebview
+- `interface.py`
+  - ponte entre frontend e backend
+  - envia logs e progresso em tempo real para o JS
+  - agora tambem repassa checkpoint de retomada
+- `backend/controller.py`
+  - orquestra o fluxo completo
+  - agora entende `resume_checkpoint`
+  - guarda contexto minimo:
+    - `cliente`
+    - `pedido`
+    - `faturamento`
+    - `doc_fat`
+- `backend/sap_connection.py`
+  - valida e conecta na sessao SAP pronta
+- `backend/flows/`
+  - implementacoes por transacao SAP
+  - agora com progresso parcial por etapa
+- `interface/app.js`
+  - validacoes, UI, progresso visual, temas, logs e interacoes
+  - agora com:
+    - percentual por etapa
+    - caixa de retomada
+    - botao para continuar do ponto de parada
+
+8. ARQUIVOS PRINCIPAIS ALTERADOS NESTA ETAPA
+- `backend/controller.py`
+- `backend/flows/xd03.py`
+- `backend/flows/va01.py`
+- `backend/flows/vf01.py`
+- `backend/flows/vf02.py`
+- `interface.py`
+- `interface/app.js`
+- `interface/index.html`
+- `interface/style.css`
+
+9. ORDEM DE LEITURA RECOMENDADA PARA O OUTRO CHAT
+1. `docs/CONTEXTO_OUTRO_CHAT_2026-04-15.txt`
+2. `main.py`
+3. `interface.py`
+4. `backend/controller.py`
+5. `backend/sap_connection.py`
+6. `backend/flows/xd03.py`
+7. `backend/flows/va01.py`
+8. `backend/flows/vf01.py`
+9. `backend/flows/vf02.py`
+10. `interface/app.js`
+11. `interface/index.html`
+12. `interface/style.css`
+
+10. COMANDOS PARA RODAR EM DESENVOLVIMENTO
+- Se PowerShell estiver liberado:
+  - `powershell -ExecutionPolicy Bypass -File .\setup_env.ps1`
+  - `.\.venv\Scripts\python.exe .\main.py`
+- Se PowerShell estiver bloqueado:
+  - `python -m venv .venv`
+  - `.\.venv\Scripts\python.exe -m pip install --upgrade pip`
+  - `.\.venv\Scripts\python.exe -m pip install -r requirements-unificado.txt`
+  - `.\.venv\Scripts\python.exe .\main.py`
+
+11. COMANDO PARA REBUILDAR O EXECUTAVEL SEM POWERSHELL
+- `.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean .\main.spec`
+
+12. LOCALIZACOES IMPORTANTES EM EXECUCAO
+- Runtime local: `%LOCALAPPDATA%\EMBASA`
+- Config local opcional: `%LOCALAPPDATA%\EMBASA\embasa_settings.json`
+- Cache local: `%LOCALAPPDATA%\EMBASA\cache\cliente_cache.json`
+- Log tecnico: `%LOCALAPPDATA%\EMBASA\logs\processo_tecnico.log`
+
+13. CONFIGURACAO DE DELAY PARA TESTES
+- Arquivo: `%LOCALAPPDATA%\EMBASA\embasa_settings.json`
+- Estrutura:
+  {
+    "automation": {
+      "observation_delay_seconds": 1.0
+    }
+  }
+- Isso desacelera os passos observaveis sem depender de editar varios `sleep`.
+
+14. COMPORTAMENTO IMPORTANTE JA IMPLEMENTADO
+- O app abre somente se existir uma sessao SAP pronta para uso.
+- Se o SAP nao estiver pronto, aparece popup simples e a interface principal nao abre.
+- O progresso visual do front recebe eventos de percentual durante a execucao das etapas integradas.
+- Os logs publicos do usuario final continuam curtos e claros.
+- Em falha, o front exibe caixa de retomada e mantem os dados ja coletados.
+
+15. O QUE O OUTRO CHAT DEVE EVITAR QUEBRAR
+- Padrao de retorno:
+  `{ ok, etapa, mensagem, dados, erro_tecnico }`
+- Separacao entre log publico e log tecnico
+- Cache local minimo de cliente
+- Validacoes progressivas do frontend
+- Popup de bloqueio quando SAP nao esta pronto
+- Novo checkpoint de retomada
+- Novo modelo de progresso parcial por etapa
+- Build PyInstaller atual
+
+16. PRIORIDADES DEFINIDAS PARA AS PROXIMAS ETAPAS
+- Fechar o fluxo funcional com F110
+- Padronizar erros SAP por etapa
+- Refinar ainda mais o progresso parcial nas etapas restantes se necessario
+- Separar bem distribuicao pela rede e dados locais do usuario
+- Criar rotina simples de versao/publicacao
+- Validar concorrencia com varios usuarios no compartilhamento
+- Revisar waits SAP criticos para depender mais de elemento/status e menos de tempo fixo
+
+17. FAZER EM ALGUM MOMENTO
+- Banco de dados leve para relacao documento -> cliente SAP
+- Painel administrativo central
+- API web central somente depois da automacao local estabilizar
+- Tela de diagnostico tecnico
+- Testes automatizados para regras nao-SAP
+- Documentacao curta de operacao/publicacao/rollback
+
+18. UTILITARIOS DESEJAVEIS
+- Modo simulador sem SAP real
+- Botao para gerar diagnostico
+- Historico simples do ultimo processamento
+- Limpeza de cache local
+- Validador de ambiente na abertura
+- Arquivo central de configuracao na pasta de rede
+
+19. SEGURANCA E OPERACAO
+- Nao gravar documentos completos em logs visiveis
+- Nao usar a pasta de rede para logs, cache ou temporarios por usuario
+- Restringir quem publica versoes e altera configuracoes centrais
+- Separar log operacional de log tecnico
+- Proteger futuro arquivo central de manutencao
+
+20. OBSERVACAO IMPORTANTE SOBRE PASTA DE REDE
+- Tratar a pasta compartilhada como canal de distribuicao e configuracao.
+- Manter dados sensiveis, cache, logs e temporarios na maquina local de cada usuario.
+
+21. VALIDACOES FEITAS NESTA MAQUINA
+- `python -m py_compile` passou para os arquivos Python alterados.
+- A sintaxe JavaScript nao foi validada com `node --check` porque o `node` nao esta disponivel nesta maquina.
+
+22. PROMPT SUGERIDO PARA O OUTRO CHAT
+Leia primeiro `docs/CONTEXTO_OUTRO_CHAT_2026-04-15.txt`. Depois analise `main.py`, `interface.py`, `backend/controller.py`, `backend/sap_connection.py`, `backend/flows/xd03.py`, `backend/flows/va01.py`, `backend/flows/vf01.py`, `backend/flows/vf02.py`, `interface/app.js`, `interface/index.html` e `interface/style.css`. Considere que o projeto ja possui popup de bloqueio quando o SAP nao esta pronto, logs publicos reduzidos, cache local de cliente, build PyInstaller funcionando, progresso parcial por etapa na interface e checkpoint de retomada apos falha dentro da sessao atual. Continue sem quebrar o padrao de retorno, sem mover dados operacionais para a pasta de rede e preservando a separacao entre log tecnico e log publico.

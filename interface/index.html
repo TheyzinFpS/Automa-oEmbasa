@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EMBASA - Automa&ccedil;&atilde;o SAP</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <div class="top-actions">
+      <button id="themeToggle" class="theme-toggle" type="button" onclick="toggleTheme()">
+        <span id="themeIcon" class="theme-icon">T</span>
+        <span id="themeLabel">Modo escuro</span>
+      </button>
+    </div>
+
+    <header class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow hero-kicker">Automa&ccedil;&atilde;o SAP Desktop</p>
+
+        <div class="brand-lockup centered">
+          <div class="brand-logo-frame">
+            <div
+              id="brandLogo"
+              class="brand-logo-mark logo-animated"
+              role="img"
+              aria-label="Logo da EMBASA"
+            ></div>
+          </div>
+        </div>
+
+        <div class="hero-bottom-meta">
+          <div class="hero-signature">
+            <p class="hero-signature-title">API Desenvolvida por Augusto Taylor</p>
+            <p class="hero-signature-sub">Ger&ecirc;ncia de Tesouraria - FAFTF</p>
+          </div>
+
+          <div class="hero-runtime">
+            <span id="footerDate">Data --/--/----</span>
+            <span id="footerTime">Hora --:--:--</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.0</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-kpis">
+        <div>
+          <span>Fluxo principal</span>
+          <strong>XD03 &rarr; VA01 &rarr; VF01 &rarr; VF02 &rarr; FB03 &rarr; VF02 &rarr; F110</strong>
+        </div>
+
+        <div id="baseStatusCard" class="hero-status-card status-active">
+          <div class="hero-status-copy">
+            <span>Status da base</span>
+            <strong id="baseStatusText">&#10003; ATIVO</strong>
+            <small id="baseStatusSub">Ambiente apto para opera&ccedil;&atilde;o e testes.</small>
+          </div>
+
+          <div class="status-card-selector">
+            <span class="status-control-label">Sistema informado</span>
+
+            <button
+              id="baseStatusButton"
+              class="base-status-toggle"
+              type="button"
+              aria-haspopup="true"
+              aria-expanded="false"
+              aria-controls="baseStatusMenu"
+              onclick="toggleBaseStatusMenu(event)"
+            >
+              <span id="baseStatusButtonText">Sistema ativo</span>
+              <span class="chevron">&#9662;</span>
+            </button>
+
+            <div id="baseStatusMenu" class="base-status-menu hidden">
+              <button
+                id="baseStatusOptionActive"
+                type="button"
+                onclick="selectBaseStatus('active')"
+              >
+                &#10003; Sistema ativo
+              </button>
+
+              <button
+                id="baseStatusOptionMaintenance"
+                class="maintenance"
+                type="button"
+                onclick="selectBaseStatus('maintenance')"
+              >
+                &#9888; Sistema em manuten&ccedil;&atilde;o
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="panel form-panel">
+        <div class="panel-head compact">
+          <div>
+            <h2>Automatiza&ccedil;&atilde;o de Pedidos SAP</h2>
+          </div>
+          <div id="docBadge" class="doc-badge neutral">CPF/CNPJ</div>
+        </div>
+
+        <label class="field">
+          <span>Documento</span>
+          <input
+            id="doc"
+            type="text"
+            inputmode="numeric"
+            maxlength="18"
+            placeholder="Digite CPF ou CNPJ"
+            oninput="formatarDoc(this)"
+          />
+        </label>
+
+        <div class="doc-meta">
+          <p id="docHint">Digite 11 d&iacute;gitos para CPF ou 14 para CNPJ.</p>
+          <p id="digitCounter">0 de 11 d&iacute;gitos</p>
+        </div>
+        <p id="docError" class="field-message hidden"></p>
+
+        <label class="field">
+          <span>Tipo de solicita&ccedil;&atilde;o</span>
+          <input id="tipo" type="hidden" value="" />
+
+          <div class="custom-select-shell">
+            <button
+              id="tipoButton"
+              class="select-toggle"
+              type="button"
+              aria-haspopup="true"
+              aria-expanded="false"
+              aria-controls="tipoMenu"
+              onclick="toggleTipoMenu(event)"
+            >
+              <span id="tipoButtonText">Selecione</span>
+              <span class="chevron">&#9662;</span>
+            </button>
+
+            <div id="tipoMenu" class="value-menu hidden">
+              <button type="button" onclick="selecionarTipo('', 'Selecione')">
+                Selecione
+              </button>
+              <button type="button" onclick="selecionarTipo('viabilidade', 'Viabilidade')">
+                Viabilidade
+              </button>
+              <button type="button" onclick="selecionarTipo('agua', '\u00c1gua')">
+                &Aacute;gua
+              </button>
+              <button type="button" onclick="selecionarTipo('esgoto', 'Esgoto')">
+                Esgoto
+              </button>
+            </div>
+          </div>
+          <p id="tipoError" class="field-message hidden"></p>
+        </label>
+
+        <label class="field">
+          <div class="field-row">
+            <span>Valor da solicita&ccedil;&atilde;o</span>
+            <span id="valueModeCurrent" class="field-chip">Valor da tabela</span>
+          </div>
+
+          <div class="value-shell">
+            <input
+              id="valor"
+              type="text"
+              inputmode="numeric"
+              readonly
+              placeholder="Selecione o tipo ou use um valor customizado"
+            />
+
+            <button
+              id="valueModeButton"
+              class="value-mode-toggle"
+              type="button"
+              aria-haspopup="true"
+              aria-expanded="false"
+              aria-controls="valueMenu"
+              onclick="toggleValueMenu(event)"
+            >
+              <span class="chevron">&#9662;</span>
+            </button>
+
+            <div id="valueMenu" class="value-menu hidden">
+              <button type="button" onclick="selecionarModoValor('auto')">
+                Valor da tabela
+              </button>
+              <button type="button" onclick="selecionarModoValor('custom')">
+                Valor customizado
+              </button>
+            </div>
+          </div>
+
+          <p id="valorHint" class="field-hint">
+            Valor definido automaticamente pelo tipo selecionado.
+          </p>
+          <p id="valorError" class="field-message hidden"></p>
+        </label>
+
+        <section class="accordion-section">
+          <button
+            id="empreendimentoToggle"
+            class="accordion-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="empreendimentoContent"
+            onclick="toggleEmpreendimento()"
+          >
+            <span>Dados do empreendimento</span>
+            <span class="chevron accordion-chevron">&#9662;</span>
+          </button>
+
+          <div id="empreendimentoContent" class="accordion-shell collapsed">
+            <div class="accordion-inner">
+              <div class="address-grid">
+                <label class="field field-span-2">
+                  <span>Empreendimento</span>
+                  <input
+                    id="enderecoEmpreendimento"
+                    type="text"
+                    maxlength="160"
+                    placeholder="Nome do empreendimento"
+                  />
+                  <p id="enderecoEmpreendimentoError" class="field-message hidden"></p>
+                </label>
+
+                <label class="field field-span-2">
+                  <span>Rua</span>
+                  <input
+                    id="enderecoRua"
+                    type="text"
+                    maxlength="160"
+                    placeholder="Informe a rua"
+                  />
+                  <p id="enderecoRuaError" class="field-message hidden"></p>
+                </label>
+
+                <label class="field">
+                  <div class="field-row">
+                    <span>N&uacute;mero</span>
+                    <button
+                      id="semNumeroButton"
+                      class="inline-toggle"
+                      type="button"
+                      onclick="toggleSemNumero()"
+                    >
+                      S/N
+                    </button>
+                  </div>
+                  <div class="number-shell">
+                    <input
+                      id="enderecoNumero"
+                      type="text"
+                      maxlength="20"
+                      placeholder="Informe o n&uacute;mero"
+                    />
+                  </div>
+                  <p id="enderecoNumeroError" class="field-message hidden"></p>
+                </label>
+
+                <label class="field">
+                  <span>CEP</span>
+                  <input
+                    id="enderecoCep"
+                    type="text"
+                    inputmode="numeric"
+                    maxlength="9"
+                    placeholder="00000-000"
+                    oninput="formatarCep(this)"
+                  />
+                  <p id="enderecoCepError" class="field-message hidden"></p>
+                </label>
+
+                <label class="field">
+                  <span>Bairro</span>
+                  <input
+                    id="enderecoBairro"
+                    type="text"
+                    maxlength="120"
+                    placeholder="Informe o bairro"
+                  />
+                  <p id="enderecoBairroError" class="field-message hidden"></p>
+                </label>
+
+                <label class="field field-span-2">
+                  <span>Complemento</span>
+                  <input
+                    id="enderecoComplemento"
+                    type="text"
+                    maxlength="160"
+                    placeholder="Apartamento, lote, quadra ou refer&ecirc;ncia"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>Cidade</span>
+                  <input
+                    id="enderecoCidade"
+                    type="text"
+                    maxlength="120"
+                    placeholder="Informe a cidade"
+                  />
+                  <p id="enderecoCidadeError" class="field-message hidden"></p>
+                </label>
+
+                <label class="field">
+                  <span>Estado</span>
+                  <input
+                    id="enderecoEstado"
+                    type="text"
+                    maxlength="2"
+                    value="BA"
+                    placeholder="UF"
+                    readonly
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <button id="submitButton" class="primary-action" onclick="gerarBoleto()">
+          Gerar Boleto
+        </button>
+
+      </section>
+
+      <section class="panel monitor-panel">
+        <div class="panel-head">
+          <div>
+            <p class="section-kicker">Monitoramento</p>
+            <h2>Andamento do processo</h2>
+          </div>
+          <div id="statusPill" class="status-pill idle">Aguardando</div>
+        </div>
+
+        <div id="etapas" class="etapas"></div>
+
+        <div id="resultBox" class="result-box hidden">
+          <div>
+            <span>Cliente</span>
+            <strong id="resultCliente">--</strong>
+          </div>
+          <div>
+            <span>Pedido</span>
+            <strong id="resultPedido">--</strong>
+          </div>
+          <div>
+            <span>Doc. fat</span>
+            <strong id="resultDocFat">--</strong>
+          </div>
+          <div>
+            <span>Boleto</span>
+            <strong id="resultBoleto">--</strong>
+          </div>
+        </div>
+
+        <div id="resumeBox" class="resume-box hidden">
+          <div class="resume-copy">
+            <span>Retomada disponivel</span>
+            <strong id="resumeTitle"></strong>
+            <small id="resumeMessage"></small>
+          </div>
+
+          <button
+            id="resumeButton"
+            class="ghost-action resume-action"
+            type="button"
+            onclick="retomarFluxo()"
+          >
+            Continuar do ponto de parada
+          </button>
+        </div>
+
+        <div class="monitor-actions">
+          <div class="monitor-actions-left">
+            <button class="ghost-action" type="button" onclick="limparPainel()">
+              Limpar painel
+            </button>
+
+            <button class="support-button" type="button" onclick="openContactModal()">
+              Fale Conosco
+            </button>
+          </div>
+
+          <div class="log-balloon-shell">
+            <button
+              id="logBalloon"
+              class="log-balloon"
+              type="button"
+              aria-expanded="false"
+              onclick="toggleLogsPopover(event)"
+            >
+              <span class="log-balloon-label">Logs</span>
+              <span id="logCount" class="log-balloon-count">0</span>
+            </button>
+
+            <div id="logPopover" class="log-popover hidden">
+              <div class="log-popover-head">
+                <strong>Logs operacionais</strong>
+                <button type="button" class="log-close" onclick="closeLogsPopover()">Fechar</button>
+              </div>
+
+              <div id="logBox" class="log-box">
+                <div class="log-empty">Os logs do fluxo aparecer&atilde;o aqui.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+  </div>
+
+  <div id="contactModal" class="contact-modal hidden">
+    <div class="contact-backdrop" onclick="closeContactModal()"></div>
+
+    <div class="contact-card">
+      <div class="contact-head">
+        <div>
+          <p class="section-kicker">Atendimento interno</p>
+          <h2>Fale Conosco</h2>
+        </div>
+
+        <button type="button" class="log-close" onclick="closeContactModal()">Fechar</button>
+      </div>
+
+      <div id="contactFormContent">
+        <label class="field">
+          <span>Matr&iacute;cula</span>
+          <input id="contactMatricula" type="text" maxlength="30" />
+        </label>
+
+        <label class="field">
+          <span>Nome</span>
+          <input id="contactNome" type="text" maxlength="120" />
+        </label>
+
+        <label class="field">
+          <span>Lota&ccedil;&atilde;o</span>
+          <input id="contactLotacao" type="text" maxlength="120" />
+        </label>
+
+        <label class="field">
+          <span>Setor</span>
+          <input id="contactSetor" type="text" maxlength="120" />
+        </label>
+
+        <label class="field">
+          <div class="field-row">
+            <span>Descri&ccedil;&atilde;o</span>
+            <span id="contactCharCount" class="field-chip">0 / 600</span>
+          </div>
+          <textarea
+            id="contactDescricao"
+            class="contact-textarea"
+            maxlength="600"
+            placeholder="Descreva o atendimento necess&aacute;rio."
+            oninput="updateContactCharCount()"
+          ></textarea>
+        </label>
+
+        <label class="field">
+          <span>Imagens</span>
+          <input
+            id="contactImagens"
+            class="file-input"
+            type="file"
+            accept="image/*"
+            multiple
+            onchange="handleContactImages()"
+          />
+        </label>
+
+        <div id="contactImageList" class="image-list empty">
+          Nenhuma imagem adicionada.
+        </div>
+
+        <div id="contactFeedback" class="contact-feedback hidden"></div>
+
+        <button
+          id="contactSubmitButton"
+          class="primary-action"
+          type="button"
+          onclick="submitContactForm()"
+        >
+          Enviar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,63 @@
+from datetime import datetime
+from pathlib import Path
+
+from backend.security import mask_sensitive_text
+from backend.settings import get_runtime_root, get_setting
+
+
+class Logger:
+    def __init__(self):
+        self.logs = []
+        self.public_logs = []
+        self.log_dir = get_runtime_root() / "logs"
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        self.log_file_path = self.log_dir / "processo_tecnico.log"
+
+    def _write_to_file(self, log):
+        line = (
+            f"[{log['timestamp']}] "
+            f"[{log['nivel']}] "
+            f"[ETAPA {log['etapa']}] "
+            f"{log['msg']}\n"
+        )
+
+        try:
+            with self.log_file_path.open("a", encoding="utf-8") as log_file:
+                log_file.write(line)
+        except OSError:
+            return
+
+    def add(self, etapa, msg, nivel="INFO", publico=False):
+        safe_msg = str(msg or "")
+
+        if get_setting("security", "mask_documents_in_logs", default=True):
+            safe_msg = mask_sensitive_text(safe_msg)
+
+        log = {
+            "etapa": etapa,
+            "msg": safe_msg,
+            "nivel": nivel,
+            "timestamp": datetime.now().strftime("%H:%M:%S"),
+        }
+
+        self.logs.append(log)
+        self._write_to_file(log)
+
+        if publico:
+            self.public_logs.append(log)
+
+    def info(self, etapa, msg, publico=False):
+        self.add(etapa, msg, "INFO", publico=publico)
+
+    def erro(self, etapa, msg, publico=False):
+        self.add(etapa, msg, "ERRO", publico=publico)
+
+    def debug(self, etapa, msg, publico=False):
+        self.add(etapa, msg, "DEBUG", publico=publico)
+
+    def get_logs(self, public_only=True):
+        return self.public_logs if public_only else self.logs
+
+    def clear(self):
+        self.logs = []
+        self.public_logs = []
