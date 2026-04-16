@@ -1,77 +1,18 @@
 import re
-import time
 
+from backend.flows.common import (
+    aguardar_status_mudar,
+    ler_propriedade,
+    ler_status,
+    notificar_progresso,
+    resultado_padrao,
+)
 from backend.utils.sap_waits import element_exists, wait_for_element
 from backend.utils.timing import paced_sleep
 
 
 _STATUS_BAR = "wnd[0]/sbar"
 _CAMPO_DOCUMENTO_FATURAMENTO = "wnd[0]/usr/ctxtVBRK-VBELN"
-
-
-def resultado_padrao(ok, etapa, mensagem, dados=None, erro_tecnico=None):
-    return {
-        "ok": ok,
-        "etapa": etapa,
-        "mensagem": mensagem,
-        "dados": dados,
-        "erro_tecnico": erro_tecnico,
-    }
-
-
-def _notificar(progress_callback, status, mensagem=None, percentual=None):
-    if not callable(progress_callback):
-        return
-
-    try:
-        progress_callback("VF01", status, mensagem, percentual)
-    except Exception:
-        return
-
-
-def _ler_propriedade(componente, *nomes):
-    for nome in nomes:
-        try:
-            valor = getattr(componente, nome)
-        except Exception:
-            continue
-
-        if valor is not None:
-            return str(valor)
-
-    return ""
-
-
-def _ler_status(session):
-    try:
-        barra = session.findById(_STATUS_BAR)
-        texto = _ler_propriedade(barra, "Text", "text").strip()
-        tipo = _ler_propriedade(barra, "MessageType", "messageType").strip().upper()
-        return texto, tipo
-    except Exception:
-        return "", ""
-
-
-def _aguardar_status_mudar(session, status_anterior="", timeout=10):
-    inicio = time.time()
-    ultimo_texto = status_anterior
-    ultimo_tipo = ""
-
-    while time.time() - inicio < timeout:
-        texto_atual, tipo_atual = _ler_status(session)
-
-        if texto_atual and texto_atual != status_anterior:
-            return texto_atual, tipo_atual
-
-        if texto_atual:
-            ultimo_texto = texto_atual
-            ultimo_tipo = tipo_atual
-
-        time.sleep(0.2)
-
-    return ultimo_texto, ultimo_tipo
-
-
 def _extrair_numero_faturamento(texto):
     numeros = re.findall(r"\b\d{6,12}\b", str(texto or ""))
     if not numeros:
@@ -230,7 +171,13 @@ def criar_doc_faturamento(session, logger, progress_callback=None):
     try:
         logger.add(2, "Criando documento de faturamento na VF01...", publico=True)
 
-        _notificar(progress_callback, "processando", "Abrindo transacao VF01...", progresso_atual)
+        notificar_progresso(
+            progress_callback,
+            "VF01",
+            "processando",
+            "Abrindo transacao VF01...",
+            progresso_atual,
+        )
         session.findById("wnd[0]/tbar[0]/okcd").text = "/nVF01"
         session.findById("wnd[0]").sendVKey(0)
 
@@ -238,11 +185,22 @@ def criar_doc_faturamento(session, logger, progress_callback=None):
         paced_sleep(0.4)
 
         progresso_atual = 82
-        _notificar(progress_callback, "processando", "Salvando documento de faturamento...", progresso_atual)
-        status_antes, _ = _ler_status(session)
+        notificar_progresso(
+            progress_callback,
+            "VF01",
+            "processando",
+            "Salvando documento de faturamento...",
+            progresso_atual,
+        )
+        status_antes, _ = ler_status(session, status_bar_id=_STATUS_BAR)
         session.findById("wnd[0]/tbar[0]/btn[11]").press()
 
-        status_depois, tipo_status = _aguardar_status_mudar(session, status_antes, timeout=10)
+        status_depois, tipo_status = aguardar_status_mudar(
+            session,
+            status_antes,
+            timeout=10,
+            status_bar_id=_STATUS_BAR,
+        )
         faturamento = _extrair_numero_faturamento(status_depois)
 
         if not faturamento:
@@ -263,7 +221,13 @@ def criar_doc_faturamento(session, logger, progress_callback=None):
         logger.add(2, f"Documento de faturamento criado: {faturamento}", publico=True)
 
         progresso_atual = 90
-        _notificar(progress_callback, "processando", "Validando detalhes do faturamento...", progresso_atual)
+        notificar_progresso(
+            progress_callback,
+            "VF01",
+            "processando",
+            "Validando detalhes do faturamento...",
+            progresso_atual,
+        )
 
         mensagem_detalhada = ""
         if _abrir_detalhe_status(session):
@@ -280,7 +244,13 @@ def criar_doc_faturamento(session, logger, progress_callback=None):
                 )
 
                 logger.add(2, mensagem_usuario, publico=True)
-                _notificar(progress_callback, "erro", mensagem_usuario, progresso_atual)
+                notificar_progresso(
+                    progress_callback,
+                    "VF01",
+                    "erro",
+                    mensagem_usuario,
+                    progresso_atual,
+                )
 
                 return resultado_padrao(
                     ok=False,
@@ -297,10 +267,22 @@ def criar_doc_faturamento(session, logger, progress_callback=None):
             _fechar_janela_detalhe(session)
 
         progresso_atual = 97
-        _notificar(progress_callback, "processando", "Retornando para a tela inicial...", progresso_atual)
+        notificar_progresso(
+            progress_callback,
+            "VF01",
+            "processando",
+            "Retornando para a tela inicial...",
+            progresso_atual,
+        )
         _retornar_tela_inicial(session)
 
-        _notificar(progress_callback, "concluido", "Faturamento criado com sucesso.", 100)
+        notificar_progresso(
+            progress_callback,
+            "VF01",
+            "concluido",
+            "Faturamento criado com sucesso.",
+            100,
+        )
 
         return resultado_padrao(
             ok=True,
@@ -316,7 +298,13 @@ def criar_doc_faturamento(session, logger, progress_callback=None):
 
     except Exception as e:
         logger.add(2, f"Erro VF01: {e}", nivel="ERRO")
-        _notificar(progress_callback, "erro", "Falha ao criar faturamento na VF01.", progresso_atual)
+        notificar_progresso(
+            progress_callback,
+            "VF01",
+            "erro",
+            "Falha ao criar faturamento na VF01.",
+            progresso_atual,
+        )
 
         try:
             _fechar_janela_detalhe(session)

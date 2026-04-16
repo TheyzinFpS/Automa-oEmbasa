@@ -66,6 +66,7 @@ const state = {
 };
 
 const domCache = new Map();
+const ETAPA_NODE_CACHE = [];
 
 function el(id) {
   if (domCache.has(id)) {
@@ -234,7 +235,7 @@ function salvarTema(theme) {
   }
 }
 
-function atualizarLogoPorTema(theme) {
+function atualizarLogoPorTema() {
   const logo = el("brandLogo");
 
   if (!logo) {
@@ -246,6 +247,37 @@ function atualizarLogoPorTema(theme) {
   window.requestAnimationFrame(() => {
     logo.classList.add("logo-animated");
   });
+}
+
+function setMenuOpen(menuId, buttonId, aberto) {
+  const menu = el(menuId);
+  const button = el(buttonId);
+
+  if (!menu || !button) {
+    return;
+  }
+
+  menu.classList.toggle("hidden", !aberto);
+  button.classList.toggle("open", aberto);
+  button.setAttribute("aria-expanded", String(aberto));
+}
+
+function closeMenu(menuId, buttonId) {
+  setMenuOpen(menuId, buttonId, false);
+}
+
+function toggleMenu(menuId, buttonId, event) {
+  if (event) {
+    event.stopPropagation();
+  }
+
+  const menu = el(menuId);
+
+  if (!menu) {
+    return;
+  }
+
+  setMenuOpen(menuId, buttonId, menu.classList.contains("hidden"));
 }
 
 function atualizarEscalaLogo() {
@@ -499,32 +531,15 @@ function setBaseStatus(status) {
 }
 
 function openBaseStatusMenu() {
-  const menu = el("baseStatusMenu");
-  const button = el("baseStatusButton");
-
-  menu.classList.remove("hidden");
-  button.classList.add("open");
-  button.setAttribute("aria-expanded", "true");
+  setMenuOpen("baseStatusMenu", "baseStatusButton", true);
 }
 
 function closeBaseStatusMenu() {
-  const menu = el("baseStatusMenu");
-  const button = el("baseStatusButton");
-
-  menu.classList.add("hidden");
-  button.classList.remove("open");
-  button.setAttribute("aria-expanded", "false");
+  closeMenu("baseStatusMenu", "baseStatusButton");
 }
 
 function toggleBaseStatusMenu(event) {
-  event.stopPropagation();
-  const menu = el("baseStatusMenu");
-
-  if (menu.classList.contains("hidden")) {
-    openBaseStatusMenu();
-  } else {
-    closeBaseStatusMenu();
-  }
+  toggleMenu("baseStatusMenu", "baseStatusButton", event);
 }
 
 function selectBaseStatus(status) {
@@ -587,32 +602,15 @@ function atualizarTipo() {
 }
 
 function abrirMenuTipo() {
-  const menu = el("tipoMenu");
-  const button = el("tipoButton");
-
-  menu.classList.remove("hidden");
-  button.classList.add("open");
-  button.setAttribute("aria-expanded", "true");
+  setMenuOpen("tipoMenu", "tipoButton", true);
 }
 
 function fecharMenuTipo() {
-  const menu = el("tipoMenu");
-  const button = el("tipoButton");
-
-  menu.classList.add("hidden");
-  button.classList.remove("open");
-  button.setAttribute("aria-expanded", "false");
+  closeMenu("tipoMenu", "tipoButton");
 }
 
 function toggleTipoMenu(event) {
-  event.stopPropagation();
-  const menu = el("tipoMenu");
-
-  if (menu.classList.contains("hidden")) {
-    abrirMenuTipo();
-  } else {
-    fecharMenuTipo();
-  }
+  toggleMenu("tipoMenu", "tipoButton", event);
 }
 
 function selecionarTipo(tipo, label) {
@@ -647,32 +645,15 @@ function atualizarModoValorUI() {
 }
 
 function abrirMenuValor() {
-  const menu = el("valueMenu");
-  const button = el("valueModeButton");
-
-  menu.classList.remove("hidden");
-  button.classList.add("open");
-  button.setAttribute("aria-expanded", "true");
+  setMenuOpen("valueMenu", "valueModeButton", true);
 }
 
 function fecharMenuValor() {
-  const menu = el("valueMenu");
-  const button = el("valueModeButton");
-
-  menu.classList.add("hidden");
-  button.classList.remove("open");
-  button.setAttribute("aria-expanded", "false");
+  closeMenu("valueMenu", "valueModeButton");
 }
 
 function toggleValueMenu(event) {
-  event.stopPropagation();
-  const menu = el("valueMenu");
-
-  if (menu.classList.contains("hidden")) {
-    abrirMenuValor();
-  } else {
-    fecharMenuValor();
-  }
+  toggleMenu("valueMenu", "valueModeButton", event);
 }
 
 function selecionarModoValor(mode) {
@@ -846,6 +827,7 @@ function construirEtapas() {
     return;
   }
 
+  ETAPA_NODE_CACHE.length = 0;
   const fragment = document.createDocumentFragment();
 
   ETAPAS.forEach((etapa, index) => {
@@ -862,6 +844,13 @@ function construirEtapas() {
         <small>Aguardando execucao</small>
       </div>
     `;
+
+    ETAPA_NODE_CACHE[index] = {
+      item,
+      fill: item.querySelector(".etapa-progress-fill"),
+      small: item.querySelector("small")
+    };
+
     fragment.appendChild(item);
   });
 
@@ -892,7 +881,8 @@ function setEtapa(index, status = "pending", percentual = null, mensagem = "") {
   state.etapasProgresso[index] = novoProgresso;
   state.etapasMensagens[index] = mensagem || "";
 
-  const etapaElement = el(`etapa-${index}`);
+  const refs = ETAPA_NODE_CACHE[index];
+  const etapaElement = refs?.item || el(`etapa-${index}`);
 
   if (!etapaElement) {
     return;
@@ -901,8 +891,8 @@ function setEtapa(index, status = "pending", percentual = null, mensagem = "") {
   etapaElement.classList.remove("pending", "active", "done", "error");
   etapaElement.classList.add(status);
 
-  const small = etapaElement.querySelector("small");
-  const fill = etapaElement.querySelector(".etapa-progress-fill");
+  const small = refs?.small || etapaElement.querySelector("small");
+  const fill = refs?.fill || etapaElement.querySelector(".etapa-progress-fill");
 
   if (small) {
     small.textContent = getEtapaDescricao(status, mensagem);

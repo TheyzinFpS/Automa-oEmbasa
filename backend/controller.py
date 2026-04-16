@@ -1,3 +1,4 @@
+from backend.flows.common import resultado_padrao
 from backend.flows.f110 import f110
 from backend.flows.va01 import criar_pedido
 from backend.flows.vf01 import criar_doc_faturamento
@@ -32,18 +33,6 @@ CONTEXTO_CHAVES = (
     "boleto",
     "identificacao_pagamento",
 )
-
-
-def resultado_padrao(ok, etapa, mensagem, dados=None, erro_tecnico=None):
-    return {
-        "ok": ok,
-        "etapa": etapa,
-        "mensagem": mensagem,
-        "dados": dados,
-        "erro_tecnico": erro_tecnico,
-    }
-
-
 class SAPController:
     def __init__(self, logger):
         self.logger = logger

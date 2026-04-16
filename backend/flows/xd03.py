@@ -1,4 +1,5 @@
 from backend.cache.cliente_cache import ClienteCache
+from backend.flows.common import notificar_progresso, resultado_padrao
 from backend.utils.sap_waits import (
     element_exists,
     press_and_wait,
@@ -31,28 +32,6 @@ def tipo_documento(doc):
     if len(doc) == 14:
         return "cnpj"
     raise ValueError("Documento invalido")
-
-
-def resultado_padrao(ok, etapa, mensagem, dados=None, erro_tecnico=None):
-    return {
-        "ok": ok,
-        "etapa": etapa,
-        "mensagem": mensagem,
-        "dados": dados,
-        "erro_tecnico": erro_tecnico,
-    }
-
-
-def _notificar(progress_callback, status, mensagem=None, percentual=None):
-    if not callable(progress_callback):
-        return
-
-    try:
-        progress_callback("XD03", status, mensagem, percentual)
-    except Exception:
-        return
-
-
 def _abrir_xd03(session, logger):
     logger.add(0, "Abrindo XD03...")
     session.findById("wnd[0]/tbar[0]/okcd").text = "/nXD03"
@@ -69,8 +48,9 @@ def _buscar(session, campo, doc, logger, tipo, progress_callback=None):
     campo_input.text = doc
 
     logger.add(0, f"Pesquisando {tipo.upper()}: {doc}")
-    _notificar(
+    notificar_progresso(
         progress_callback,
+        "XD03",
         "processando",
         f"Consultando {tipo.upper()} no SAP...",
         58,
@@ -80,8 +60,9 @@ def _buscar(session, campo, doc, logger, tipo, progress_callback=None):
 
     if element_exists(session, campo):
         logger.add(0, f"{tipo.upper()} nao encontrado")
-        _notificar(
+        notificar_progresso(
             progress_callback,
+            "XD03",
             "erro",
             f"{tipo.upper()} nao encontrado no SAP.",
             58,
@@ -96,15 +77,22 @@ def _buscar(session, campo, doc, logger, tipo, progress_callback=None):
             mensagem="Cliente nao encontrado",
         )
 
-    _notificar(progress_callback, "processando", "Confirmando resultado da busca...", 84)
+    notificar_progresso(
+        progress_callback,
+        "XD03",
+        "processando",
+        "Confirmando resultado da busca...",
+        84,
+    )
     press_and_wait(session, "wnd[2]/tbar[0]/btn[0]")
 
     campo_cliente = wait_for_element(session, _CAMPO_CLIENTE)
     codigo = campo_cliente.text.strip()
 
     if not codigo:
-        _notificar(
+        notificar_progresso(
             progress_callback,
+            "XD03",
             "erro",
             "Codigo do cliente vazio na XD03.",
             84,
@@ -135,8 +123,9 @@ def buscar_cliente(session, dados, logger, progress_callback=None):
         doc = limpar_doc(dados["doc"])
         tipo = tipo_documento(doc)
 
-        _notificar(
+        notificar_progresso(
             progress_callback,
+            "XD03",
             "processando",
             "Preparando busca do cliente...",
             8,
@@ -150,8 +139,9 @@ def buscar_cliente(session, dados, logger, progress_callback=None):
                 f"Cliente encontrado no cache: {cliente_cache['cliente']}",
                 publico=True,
             )
-            _notificar(
+            notificar_progresso(
                 progress_callback,
+                "XD03",
                 "concluido",
                 "Cliente recuperado do cache.",
                 100,
@@ -165,11 +155,18 @@ def buscar_cliente(session, dados, logger, progress_callback=None):
             )
 
         logger.add(0, "Cliente nao encontrado no cache. Consultando SAP...")
-        _notificar(progress_callback, "processando", "Abrindo transacao XD03...", 18)
+        notificar_progresso(
+            progress_callback,
+            "XD03",
+            "processando",
+            "Abrindo transacao XD03...",
+            18,
+        )
         _abrir_xd03(session, logger)
 
-        _notificar(
+        notificar_progresso(
             progress_callback,
+            "XD03",
             "processando",
             "Abrindo pesquisa de cliente...",
             34,
@@ -198,8 +195,9 @@ def buscar_cliente(session, dados, logger, progress_callback=None):
         if resultado["ok"]:
             cache_cliente.set(doc, resultado["dados"])
             logger.add(0, "Cliente salvo no cache")
-            _notificar(
+            notificar_progresso(
                 progress_callback,
+                "XD03",
                 "concluido",
                 "Cliente localizado e confirmado.",
                 100,
@@ -209,8 +207,9 @@ def buscar_cliente(session, dados, logger, progress_callback=None):
 
     except Exception as e:
         logger.add(0, f"Erro XD03: {e}")
-        _notificar(
+        notificar_progresso(
             progress_callback,
+            "XD03",
             "erro",
             "Falha ao buscar cliente no XD03.",
         )

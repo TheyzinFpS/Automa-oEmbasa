@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from backend.flows.common import notificar_progresso, resultado_padrao
 from backend.utils.sap_waits import wait_for_element
 from backend.utils.timing import paced_sleep
 
@@ -16,28 +17,6 @@ _GRID_VF02_ITENS = "wnd[0]/usr/tblSAPMV60ATCTRL_UEB_FAKT"
 _CAMPO_VF02_POSICAO = (
     "wnd[0]/usr/tblSAPMV60ATCTRL_UEB_FAKT/ctxtVBRP-POSNR[0,0]"
 )
-
-
-def resultado_padrao(ok, etapa, mensagem, dados=None, erro_tecnico=None):
-    return {
-        "ok": ok,
-        "etapa": etapa,
-        "mensagem": mensagem,
-        "dados": dados,
-        "erro_tecnico": erro_tecnico,
-    }
-
-
-def _notificar(progress_callback, etapa, status, mensagem=None, percentual=None):
-    if not callable(progress_callback):
-        return
-
-    try:
-        progress_callback(etapa, status, mensagem, percentual)
-    except Exception:
-        return
-
-
 def _retry(func, tentativas=3, pausa=0.5):
     ultimo_erro = None
 
@@ -155,7 +134,7 @@ def pos_faturamento(
 
     try:
         if etapa == "VF02_CAPTURA":
-            _notificar(
+            notificar_progresso(
                 progress_callback,
                 "VF02_CAPTURA",
                 "processando",
@@ -169,7 +148,7 @@ def pos_faturamento(
             else:
                 logger.add(3, f"Doc. faturamento reaproveitado da VF01: {doc_fat}")
 
-            _notificar(
+            notificar_progresso(
                 progress_callback,
                 "VF02_CAPTURA",
                 "concluido",
@@ -182,7 +161,7 @@ def pos_faturamento(
             raise Exception("Documento de faturamento ausente para iniciar o FB03.")
 
         if etapa == "FB03":
-            _notificar(
+            notificar_progresso(
                 progress_callback,
                 "FB03",
                 "processando",
@@ -191,7 +170,7 @@ def pos_faturamento(
             )
             _ajustar_fb03(session, doc_fat)
             logger.add(4, "Ajuste contabil concluido no FB03.", publico=True)
-            _notificar(
+            notificar_progresso(
                 progress_callback,
                 "FB03",
                 "concluido",
@@ -201,7 +180,7 @@ def pos_faturamento(
             etapa = "VF02_RESALVAR"
 
         if etapa == "VF02_RESALVAR":
-            _notificar(
+            notificar_progresso(
                 progress_callback,
                 "VF02_RESALVAR",
                 "processando",
@@ -210,7 +189,7 @@ def pos_faturamento(
             )
             _resalvar_vf02(session, doc_fat)
             logger.add(5, "Faturamento re-salvo com sucesso.", publico=True)
-            _notificar(
+            notificar_progresso(
                 progress_callback,
                 "VF02_RESALVAR",
                 "concluido",
@@ -230,7 +209,7 @@ def pos_faturamento(
 
     except Exception as exc:
         logger.add(5, f"Erro no pos-faturamento: {exc}", nivel="ERRO")
-        _notificar(
+        notificar_progresso(
             progress_callback,
             etapa,
             "erro",

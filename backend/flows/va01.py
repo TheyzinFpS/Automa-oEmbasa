@@ -1,7 +1,13 @@
-import time
 from datetime import datetime
 
-from backend.utils.sap_waits import wait_for_element, element_exists
+from backend.flows.common import (
+    aguardar_status_mudar,
+    ler_status,
+    ler_status_texto,
+    notificar_progresso,
+    resultado_padrao,
+)
+from backend.utils.sap_waits import wait_for_element
 from backend.utils.timing import paced_sleep
 
 
@@ -106,38 +112,6 @@ _TIPOS_VA01 = {
         "descricao": "APROVACAO DE PROJETO DE ESGOTAMENTO SANITARIO",
     },
 }
-
-
-def resultado_padrao(ok, etapa, mensagem, dados=None, erro_tecnico=None):
-    return {
-        "ok": ok,
-        "etapa": etapa,
-        "mensagem": mensagem,
-        "dados": dados,
-        "erro_tecnico": erro_tecnico,
-    }
-
-
-def _notificar(progress_callback, status, mensagem=None, percentual=None):
-    if not callable(progress_callback):
-        return
-    try:
-        progress_callback("VA01", status, mensagem, percentual)
-    except Exception:
-        return
-
-
-def _ler_propriedade(componente, *nomes):
-    for nome in nomes:
-        try:
-            valor = getattr(componente, nome)
-        except Exception:
-            continue
-        if valor is not None:
-            return str(valor)
-    return ""
-
-
 def _normalizar_tipo(tipo):
     tipo_normalizado = str(tipo or "").strip().lower()
     if tipo_normalizado not in _TIPOS_VA01:
@@ -174,39 +148,6 @@ def _montar_texto(tipo, endereco):
         f"{logradouro}, bairro {endereco['bairro']}, "
         f"{endereco['cidade']}-{endereco['estado']}, CEP: {endereco['cep']}."
     )
-
-
-def _ler_status(session):
-    status_bar = wait_for_element(session, _STATUS_BAR, timeout=3)
-    texto = _ler_propriedade(status_bar, "Text", "text").strip()
-    tipo = _ler_propriedade(status_bar, "MessageType", "messageType").strip().upper()
-    return texto, tipo
-
-
-def _aguardar_novo_status(session, texto_anterior="", timeout=12):
-    inicio = time.time()
-    ultimo_texto = texto_anterior
-    ultimo_tipo = ""
-
-    while time.time() - inicio < timeout:
-        try:
-            texto_atual, tipo_atual = _ler_status(session)
-        except Exception:
-            time.sleep(0.2)
-            continue
-
-        if texto_atual and texto_atual != texto_anterior:
-            return texto_atual, tipo_atual
-
-        if texto_atual:
-            ultimo_texto = texto_atual
-            ultimo_tipo = tipo_atual
-
-        time.sleep(0.2)
-
-    return ultimo_texto, ultimo_tipo
-
-
 def _pressionar_se_existir(session, element_id):
     try:
         session.findById(element_id).press()
@@ -237,14 +178,6 @@ def _confirmar_popup_cancelamento(session):
             return True
 
     return False
-
-
-def _ler_status_texto(session):
-    try:
-        barra = session.findById(_STATUS_BAR)
-        return str(getattr(barra, "Text", "") or getattr(barra, "text", "") or "").strip()
-    except Exception:
-        return ""
 
 
 def _esta_na_va01(session):
@@ -282,7 +215,10 @@ def _limpar_contexto_antes_va01(session, logger=None):
             break
 
     if logger:
-        logger.add(1, f"Status antes de abrir VA01: {_ler_status_texto(session)}")
+        logger.add(
+            1,
+            f"Status antes de abrir VA01: {ler_status_texto(session, status_bar_id=_STATUS_BAR)}",
+        )
 
 
 def _abrir_va01_via_comando(session):
@@ -314,7 +250,7 @@ def _abrir_va01(session, logger=None):
     if _esta_na_va01(session):
         return
 
-    status = _ler_status_texto(session)
+    status = ler_status_texto(session, status_bar_id=_STATUS_BAR)
     raise Exception(
         "Nao foi possivel abrir a VA01 apos a XD03. "
         f"Status SAP atual: {status or 'sem mensagem'}"
@@ -378,12 +314,17 @@ def _preencher_condicoes(session, valor_sap):
 
 
 def _salvar_sem_captura(session):
-    status_anterior, _ = _ler_status(session)
+    status_anterior, _ = ler_status(session, status_bar_id=_STATUS_BAR)
 
     session.findById("wnd[0]/tbar[0]/btn[11]").press()
     paced_sleep(0.8)
 
-    texto_status, tipo_status = _aguardar_novo_status(session, status_anterior, timeout=15)
+    texto_status, tipo_status = aguardar_status_mudar(
+        session,
+        status_anterior,
+        timeout=15,
+        status_bar_id=_STATUS_BAR,
+    )
 
     if tipo_status in {"E", "A"}:
         raise ValueError(texto_status or "SAP retornou erro ao salvar na VA01.")
@@ -422,41 +363,95 @@ def criar_pedido(session, dados, codigo_cliente, logger, progress_callback=None)
         logger.add(1, f"Cliente aplicado na VA01: {codigo_cliente}")
         logger.add(1, f"Valor SAP aplicado na VA01: {valor_sap}")
 
-        _notificar(progress_callback, "processando", "Abrindo transacao VA01...", progresso_atual)
+        notificar_progresso(
+            progress_callback,
+            "VA01",
+            "processando",
+            "Abrindo transacao VA01...",
+            progresso_atual,
+        )
         _abrir_va01(session, logger=logger)
 
         progresso_atual = 18
-        _notificar(progress_callback, "processando", "Preenchendo cabecalho da ordem...", progresso_atual)
+        notificar_progresso(
+            progress_callback,
+            "VA01",
+            "processando",
+            "Preenchendo cabecalho da ordem...",
+            progresso_atual,
+        )
         _preencher_cabecalho(session, configuracao)
 
         progresso_atual = 34
-        _notificar(progress_callback, "processando", "Aplicando dados do cliente...", progresso_atual)
+        notificar_progresso(
+            progress_callback,
+            "VA01",
+            "processando",
+            "Aplicando dados do cliente...",
+            progresso_atual,
+        )
         _preencher_cliente(session, codigo_cliente)
 
         progresso_atual = 54
-        _notificar(progress_callback, "processando", "Configurando item principal...", progresso_atual)
+        notificar_progresso(
+            progress_callback,
+            "VA01",
+            "processando",
+            "Configurando item principal...",
+            progresso_atual,
+        )
         _preencher_item_principal(session, configuracao)
 
         progresso_atual = 72
-        _notificar(progress_callback, "processando", "Inserindo texto do empreendimento...", progresso_atual)
+        notificar_progresso(
+            progress_callback,
+            "VA01",
+            "processando",
+            "Inserindo texto do empreendimento...",
+            progresso_atual,
+        )
         _preencher_texto_item(session, texto_item)
 
         progresso_atual = 86
-        _notificar(progress_callback, "processando", "Aplicando condicao PR00...", progresso_atual)
+        notificar_progresso(
+            progress_callback,
+            "VA01",
+            "processando",
+            "Aplicando condicao PR00...",
+            progresso_atual,
+        )
         _preencher_condicoes(session, valor_sap)
 
         progresso_atual = 96
-        _notificar(progress_callback, "processando", "Salvando ordem na VA01...", progresso_atual)
+        notificar_progresso(
+            progress_callback,
+            "VA01",
+            "processando",
+            "Salvando ordem na VA01...",
+            progresso_atual,
+        )
         status_sap = _salvar_sem_captura(session)
 
         logger.add(1, f"Retorno SAP VA01: {status_sap}")
         logger.add(1, "VA01 concluida com sucesso.", publico=True)
 
         progresso_atual = 99
-        _notificar(progress_callback, "processando", "Retornando para a tela inicial...", progresso_atual)
+        notificar_progresso(
+            progress_callback,
+            "VA01",
+            "processando",
+            "Retornando para a tela inicial...",
+            progresso_atual,
+        )
         _retornar_tela_inicial(session)
 
-        _notificar(progress_callback, "concluido", "VA01 concluida com sucesso.", 100)
+        notificar_progresso(
+            progress_callback,
+            "VA01",
+            "concluido",
+            "VA01 concluida com sucesso.",
+            100,
+        )
 
         resultado_sucesso = resultado_padrao(
             ok=True,
@@ -472,7 +467,13 @@ def criar_pedido(session, dados, codigo_cliente, logger, progress_callback=None)
 
     except Exception as e:
         logger.add(1, f"Erro VA01: {e}")
-        _notificar(progress_callback, "erro", "Falha na VA01.", progresso_atual)
+        notificar_progresso(
+            progress_callback,
+            "VA01",
+            "erro",
+            "Falha na VA01.",
+            progresso_atual,
+        )
 
         try:
             _limpar_contexto_antes_va01(session, logger=logger)
