@@ -3,28 +3,52 @@ from __future__ import annotations
 import json
 import threading
 import traceback
-from datetime import datetime
+from pathlib import Path
 
 import webview
 
 from backend.controller import SAPController
 from backend.documentos import analisar_doc, limpar_doc
 from backend.logger import Logger
+from backend.support_mail import process_support_request
 from backend.settings import SETTINGS
 from backend.validators import validar_dados
 from backend.valores import analisar_valor
 
 
+# Converte objetos Python para tipos seguros de enviar ao JavaScript.
+def _serializar_para_front(valor):
+    if isinstance(valor, Path):
+        return str(valor)
+
+    if isinstance(valor, dict):
+        return {
+            str(chave): _serializar_para_front(conteudo)
+            for chave, conteudo in valor.items()
+        }
+
+    if isinstance(valor, (list, tuple, set)):
+        return [_serializar_para_front(item) for item in valor]
+
+    return valor
+
+
+# API exposta ao frontend pelo pywebview: o JS chama estes metodos.
 class API:
     def __init__(self):
-        self.logger = Logger()
-        self.controller = SAPController(self.logger)
+        self._logger = Logger()
+        self._controller = SAPController(self._logger)
         self._window = None
         self._ui_lock = threading.Lock()
+        self._flow_lock = threading.Lock()
+        self._flow_running = False
+        self._cancel_event = threading.Event()
+        self._last_progress = {}
 
     def set_window(self, window):
         self._window = window
 
+    # Localiza a janela ativa do pywebview para emitir eventos ao frontend.
     def _get_window(self):
         if self._window is not None:
             return self._window
@@ -38,6 +62,7 @@ class API:
 
         return None
 
+    # Executa JavaScript na tela sem derrubar o backend caso a UI esteja indisponível.
     def _evaluate_js_safe(self, script: str) -> bool:
         window = self._get_window()
 
@@ -57,20 +82,20 @@ class API:
     def _emitir_funcao_js(self, nome_funcao: str, *args) -> bool:
         payload_nome = json.dumps(str(nome_funcao or ""))
         payload_args = ", ".join(
-            json.dumps(arg, ensure_ascii=False)
+            json.dumps(_serializar_para_front(arg), ensure_ascii=False)
             for arg in args
         )
 
-        return self._evaluate_js_safe(
-            f"""
-            try {{
-              const fn = window[{payload_nome}];
-              if (typeof fn === "function") {{
-                fn({payload_args});
-              }}
-            }} catch (e) {{}}
-            """
+        script = (
+            "try {\n"
+            f"  const fn = window[{payload_nome}];\n"
+            '  if (typeof fn === "function") {\n'
+            f"    fn({payload_args});\n"
+            "  }\n"
+            "} catch (e) {}\n"
         )
+
+        return self._evaluate_js_safe(script)
 
     def _emitir_log(self, mensagem: str, classe: str = ""):
         self._emitir_funcao_js("log", str(mensagem or ""), str(classe or ""))
@@ -79,7 +104,10 @@ class API:
         self._emitir_funcao_js("setStatus", str(texto or ""), str(classe or ""))
 
     def _emitir_preencher_resultado(self, resultado: dict):
-        self._emitir_funcao_js("preencherResultado", resultado or {})
+        self._emitir_funcao_js(
+            "preencherResultado",
+            _serializar_para_front(resultado or {}),
+        )
 
     def _emitir_progresso(
         self,
@@ -88,18 +116,21 @@ class API:
         mensagem: str | None = None,
         percentual: int | float | None = None,
     ):
+        self._last_progress = {
+            "etapa": str(etapa or ""),
+            "status": str(status or ""),
+            "mensagem": "" if mensagem is None else str(mensagem),
+            "percentual": percentual,
+        }
+
         self._emitir_funcao_js(
             "atualizarProgresso",
-            {
-                "etapa": str(etapa or ""),
-                "status": str(status or ""),
-                "mensagem": "" if mensagem is None else str(mensagem),
-                "percentual": percentual,
-            },
+            self._last_progress,
         )
 
+    # Encaminha logs publicos do backend para o balao de logs em tempo real.
     def _instalar_logger_tempo_real(self):
-        logger = self.logger
+        logger = self._logger
         add_original = logger.add
         api = self
 
@@ -114,18 +145,32 @@ class API:
         return add_original
 
     def _restaurar_logger(self, add_original):
-        self.logger.add = add_original
+        self._logger.add = add_original
 
     def _executar_fluxo_com_callback(self, dados_tratados, resume_checkpoint=None):
-        return self.controller.executar_fluxo(
+        return self._controller.executar_fluxo(
             dados_tratados,
             progress_callback=self._emitir_progresso,
             resume_checkpoint=resume_checkpoint,
+            cancel_event=self._cancel_event,
         )
 
+    # Entrada principal chamada pelo botao Gerar Boleto.
     def gerar_boleto(self, dados):
         resultado_final = {}
         concluido = threading.Event()
+
+        with self._flow_lock:
+            if self._flow_running:
+                return {
+                    "ok": False,
+                    "msg": "Já existe uma criação de boleto em andamento.",
+                    "tempo_real": True,
+                }
+
+            self._flow_running = True
+            self._cancel_event.clear()
+            self._last_progress = {}
 
         def worker():
             add_original = self._instalar_logger_tempo_real()
@@ -138,7 +183,7 @@ class API:
                 )
 
                 if not resume_mode:
-                    self.logger.clear()
+                    self._logger.clear()
                     self._emitir_reset_progresso()
                     self._emitir_status("Processando", "running")
                 else:
@@ -152,25 +197,27 @@ class API:
 
                 if erros:
                     resultado_final.update(
-                        {
-                            "ok": False,
-                            "msg": "Erros: " + ", ".join(erros),
-                            "doc_info": dados_tratados["doc_info"],
-                            "tempo_real": True,
-                        }
+                        _serializar_para_front(
+                            {
+                                "ok": False,
+                                "msg": "Erros: " + ", ".join(erros),
+                                "doc_info": dados_tratados["doc_info"],
+                                "tempo_real": True,
+                            }
+                        )
                     )
-                    self._emitir_status("Atencao", "error")
+                    self._emitir_status("Atenção", "error")
                     return
 
                 dados_tratados["valor_info"] = analisar_valor(dados.get("valor", ""))
                 dados_tratados["valor"] = dados_tratados["valor_info"]["formatado"]
 
-                self.logger.add(
+                self._logger.add(
                     -1,
                     f"Documento preparado para SAP: {dados_tratados['doc']}",
                     publico=False,
                 )
-                self.logger.add(
+                self._logger.add(
                     -1,
                     f"Valor confirmado: {dados_tratados['valor_info']['formatado']}",
                     publico=False,
@@ -180,11 +227,17 @@ class API:
                     dados_tratados,
                     resume_checkpoint=resume_checkpoint,
                 )
+                resultado = _serializar_para_front(resultado)
 
                 if not resultado["ok"]:
-                    self.logger.add(
+                    cancelado = bool(resultado.get("cancelado"))
+                    self._logger.add(
                         -1,
-                        f"Falha na etapa {resultado['etapa']}: {resultado['mensagem']}",
+                        (
+                            f"Cancelamento na etapa {resultado['etapa']}: {resultado['mensagem']}"
+                            if cancelado
+                            else f"Falha na etapa {resultado['etapa']}: {resultado['mensagem']}"
+                        ),
                         nivel="ERRO",
                         publico=True,
                     )
@@ -193,23 +246,29 @@ class API:
                         self._emitir_preencher_resultado(resultado["dados"] or {})
 
                     resultado_final.update(
-                        {
-                            "ok": False,
-                            "msg": resultado["mensagem"],
-                            "logs": self.logger.get_logs(public_only=True),
-                            "doc_info": dados_tratados["doc_info"],
-                            "resultado": resultado.get("dados") or {},
-                            "checkpoint": resultado.get("checkpoint"),
-                            "tempo_real": True,
-                        }
+                        _serializar_para_front(
+                            {
+                                "ok": False,
+                                "cancelado": cancelado,
+                                "msg": resultado["mensagem"],
+                                "logs": self._logger.get_logs(public_only=True),
+                                "doc_info": dados_tratados["doc_info"],
+                                "resultado": resultado.get("dados") or {},
+                                "checkpoint": resultado.get("checkpoint"),
+                                "tempo_real": True,
+                            }
+                        )
                     )
 
-                    self._emitir_status("Falha no processamento", "error")
+                    self._emitir_status(
+                        "Cancelado" if cancelado else "Falha no processamento",
+                        "error",
+                    )
                     return
 
                 payload_sucesso = {
                     "ok": True,
-                    "logs": self.logger.get_logs(public_only=True),
+                    "logs": self._logger.get_logs(public_only=True),
                     "resultado": resultado["dados"],
                     "doc_info": dados_tratados["doc_info"],
                     "valor_info": dados_tratados["valor_info"],
@@ -217,18 +276,18 @@ class API:
                     "tempo_real": True,
                 }
 
-                resultado_final.update(payload_sucesso)
+                resultado_final.update(_serializar_para_front(payload_sucesso))
                 self._emitir_preencher_resultado(resultado["dados"] or {})
-                self._emitir_status("Concluido", "success")
+                self._emitir_status("Concluído", "success")
 
             except Exception as e:
-                self.logger.add(
+                self._logger.add(
                     -1,
                     f"Erro inesperado: {str(e)}",
                     nivel="ERRO",
                     publico=True,
                 )
-                self.logger.add(
+                self._logger.add(
                     -1,
                     traceback.format_exc(),
                     nivel="DEBUG",
@@ -239,7 +298,9 @@ class API:
                     {
                         "ok": False,
                         "msg": "Erro inesperado no processamento.",
-                        "logs": self.logger.get_logs(public_only=True),
+                        "logs": _serializar_para_front(
+                            self._logger.get_logs(public_only=True)
+                        ),
                         "tempo_real": True,
                     }
                 )
@@ -247,58 +308,82 @@ class API:
 
             finally:
                 self._restaurar_logger(add_original)
+                with self._flow_lock:
+                    self._flow_running = False
                 concluido.set()
 
         threading.Thread(target=worker, daemon=True).start()
         concluido.wait()
 
-        return resultado_final
+        return _serializar_para_front(resultado_final)
 
-    def enviar_atendimento(self, dados):
-        matricula = str(dados.get("matricula", "")).strip()
-        nome = str(dados.get("nome", "")).strip()
-        lotacao = str(dados.get("lotacao", "")).strip()
-        setor = str(dados.get("setor", "")).strip()
-        descricao = str(dados.get("descricao", "")).strip()
-        imagens = dados.get("imagens", [])
+    # Solicita parada no proximo ponto seguro do fluxo SAP em execucao.
+    def cancelar_fluxo(self):
+        with self._flow_lock:
+            if not self._flow_running:
+                return {
+                    "ok": False,
+                    "msg": "Nenhuma criação de boleto em andamento.",
+                }
 
-        if not matricula:
-            return {"ok": False, "msg": "Informe a matricula."}
+            self._cancel_event.set()
 
-        if not nome:
-            return {"ok": False, "msg": "Informe o nome."}
+        ultima_etapa = self._last_progress.get("etapa") or "etapa ainda não informada"
+        ultima_msg = self._last_progress.get("mensagem") or "aguardando próximo ponto seguro"
+        mensagem = (
+            "Cancelamento solicitado. O processo será interrompido no próximo ponto seguro. "
+            f"Última etapa informada: {ultima_etapa}. Status: {ultima_msg}."
+        )
 
-        if not lotacao:
-            return {"ok": False, "msg": "Informe a lotacao."}
-
-        if not setor:
-            return {"ok": False, "msg": "Informe o setor."}
-
-        if not descricao:
-            return {"ok": False, "msg": "Informe a descricao do atendimento."}
-
-        if len(descricao) > 600:
-            return {
-                "ok": False,
-                "msg": "A descricao deve ter no maximo 600 caracteres.",
-            }
-
-        protocolo = datetime.now().strftime("FAFTA-%Y%m%d-%H%M%S")
+        self._logger.add(-1, mensagem, nivel="ERRO", publico=True)
+        self._emitir_log(mensagem, "error")
+        self._emitir_status("Cancelando", "error")
 
         return {
             "ok": True,
-            "msg": "Pedido de Atendimento Enviado Com Sucesso",
-            "protocolo": protocolo,
-            "imagens_recebidas": len(imagens),
+            "msg": mensagem,
+            "ultima_etapa": ultima_etapa,
+            "ultima_mensagem": ultima_msg,
         }
 
+    # Recebe os dados do Fale Conosco e delega validação/envio ao backend.
+    def enviar_atendimento(self, dados):
+        try:
+            resultado = process_support_request(dados)
+        except ValueError as exc:
+            return {"ok": False, "msg": str(exc)}
+        except Exception:
+            self._logger.add(
+                -1,
+                traceback.format_exc(),
+                nivel="DEBUG",
+                publico=False,
+            )
+            return {
+                "ok": False,
+                "msg": "Falha ao registrar o pedido de atendimento.",
+            }
+
+        return _serializar_para_front(
+            {
+                "ok": True,
+                "msg": "Seu pedido foi enviado com sucesso para o atendimento interno.",
+                "protocolo": resultado["protocolo"],
+                "snapshot_path": resultado["snapshot_path"],
+                "email_destino": resultado.get("destination_email"),
+            }
+        )
+
+    # Retorna informações técnicas usadas para diagnóstico local.
     def obter_diagnostico(self):
         from backend.flows.xd03 import cache_cliente
 
-        return {
-            "ok": True,
-            "app": SETTINGS.get("app", {}),
-            "runtime": SETTINGS.get("_meta", {}),
-            "cache": cache_cliente.stats(),
-            "log_file": str(self.logger.log_file_path),
-        }
+        return _serializar_para_front(
+            {
+                "ok": True,
+                "app": SETTINGS.get("app", {}),
+                "runtime": SETTINGS.get("_meta", {}),
+                "cache": cache_cliente.stats(),
+                "log_file": self._logger.log_file_path,
+            }
+        )

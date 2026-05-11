@@ -1,31 +1,47 @@
-# EMBASA App Organizado
+# Embasa Pedidos SAP
 
-Estrutura unificada criada a partir de:
-- `programando-completo-2026-04-13.zip` -> base principal do app (front + backend mock/orquestração)
-- `Automação.zip` -> automação SAP real ainda não integrada
+Sistema desktop em Python + pywebview para automação assistida de pedidos, faturamento e geração de boleto no SAP GUI.
 
-## O que está pronto nesta pasta
-- Front-end preservado em `interface/`
-- API pywebview preservada em `interface.py`
-- Orquestrador atual preservado em `backend/controller.py`
-- Fluxos mock atuais preservados em `backend/flows/`
-- Automação SAP extraída e separada em `sap_real/`
+## Escopo atual
 
-## Importante
-Esta pasta está ORGANIZADA, mas não totalmente INTEGRADA.
-Os arquivos em `sap_real/` ainda precisam ser adaptados para substituir os mocks de `backend/flows/`.
+- Interface desktop HTML/CSS/JS embarcada no pywebview.
+- Integração com SAP GUI Scripting.
+- Fluxo operacional: XD03, VA01, VF01, FB03, VF02 e F110.
+- Progresso em tempo real na interface.
+- Cancelamento seguro do fluxo.
+- Validação de CPF/CNPJ, tipo de solicitação, valores e dados do empreendimento.
+- Autopreenchimento de endereço por CEP.
+- Build empresarial em modo `onedir` para uso em pasta de rede.
 
-## Sugestão de integração
-- `backend/flows/xd03.py` <-> `sap_real/buscar_cliente_final.py`
-- `backend/flows/va01.py` <-> `sap_real/criar_pedido.py`
-- `backend/flows/vf01.py` <-> `sap_real/criar_doc_faturamento.py`
-- `backend/flows/vf02.py` <-> `sap_real/pos_faturamento.py`
-- `backend/flows/f110.py` <-> `sap_real/f110.py`
+## Requisitos de execução
 
-## Limpeza feita
-- `.venv` removido
-- `__pycache__` removido
-- arquivos empacotados/temporários não incluídos
+- SAP GUI instalado e com scripting habilitado.
+- Microsoft Edge WebView2 Runtime.
+- .NET Desktop Runtime.
+- Para desenvolvimento/build: Python 3.11.
 
-## Próximo passo recomendado
-Criar adaptadores em `backend/flows/` que chamem `sap_real/` e padronizar assinatura das funções para usar `session`, `dados` e `logger`.
+## Build empresarial
+
+No computador de manutenção:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build_empresarial.ps1
+```
+
+Para publicar na pasta de rede padrão:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\publicar_rede.ps1
+```
+
+O usuário final deve abrir o executável publicado na rede:
+
+```text
+EmbasaPedidosSAP.exe
+```
+
+Não copie apenas o `.exe`; o build é `onedir` e depende da pasta `_internal`.
+
+## Observação
+
+Os computadores dos usuários finais não precisam de Python, VS Code ou Git. Esses itens são necessários apenas para manutenção e geração de novas versões.

@@ -1,233 +1,260 @@
 from datetime import datetime
 
-from backend.flows.common import notificar_progresso, resultado_padrao
-from backend.utils.sap_waits import wait_for_element
-from backend.utils.timing import paced_sleep
+from backend.utils.sap_waits import wait_for_element, wait_until_ready
 
 
-_CAMPO_VF02_DOCUMENTO = "wnd[0]/usr/ctxtVBRK-VBELN"
 _CAMPO_FB03_DOCUMENTO = "wnd[0]/usr/txtRF05L-BELNR"
 _CAMPO_FB03_EMPRESA = "wnd[0]/usr/ctxtRF05L-BUKRS"
 _CAMPO_FB03_ANO = "wnd[0]/usr/txtRF05L-GJAHR"
 _GRID_FB03 = "wnd[0]/usr/cntlCTRL_CONTAINERBSEG/shellcont/shell"
 _POPUP_FB03_BANCO = "wnd[1]/usr/ctxtBSEG-HBKID"
 _POPUP_FB03_FORMA = "wnd[1]/usr/ctxtBSEG-ZLSCH"
-_BOTAO_VF02_ITENS = "wnd[0]/tbar[1]/btn[5]"
-_GRID_VF02_ITENS = "wnd[0]/usr/tblSAPMV60ATCTRL_UEB_FAKT"
-_CAMPO_VF02_POSICAO = (
-    "wnd[0]/usr/tblSAPMV60ATCTRL_UEB_FAKT/ctxtVBRP-POSNR[0,0]"
-)
-def _retry(func, tentativas=3, pausa=0.5):
+
+
+# Resposta padrao para o pos-faturamento.
+def resultado_padrao(ok, etapa, mensagem, dados=None, erro_tecnico=None):
+    return {
+        "ok": ok,
+        "etapa": etapa,
+        "mensagem": mensagem,
+        "dados": dados,
+        "erro_tecnico": erro_tecnico,
+    }
+
+
+# Envia progresso separando FB03 e VF02_RESALVAR.
+def _notificar(progress_callback, etapa, status, mensagem=None, percentual=None):
+    if not callable(progress_callback):
+        return
+
+    try:
+        progress_callback(etapa, status, mensagem, percentual)
+    except Exception:
+        return
+
+
+# Repete a ação quando o SAP demora a disponibilizar controles.
+def _retry(func, tentativas=3):
     ultimo_erro = None
 
-    for _ in range(max(1, int(tentativas))):
+    for _ in range(tentativas):
         try:
             return func()
         except Exception as exc:
             ultimo_erro = exc
-            paced_sleep(pausa)
 
-    if ultimo_erro is not None:
-        raise ultimo_erro
+    raise ultimo_erro or Exception("Falha apos varias tentativas.")
 
 
-def _retornar_para_tela_inicial(session, tentativas=3):
-    for _ in range(max(1, int(tentativas))):
+# Tenta sair da tela atual sem derrubar o fluxo em caso de falha.
+def _encerrar_tela(session, tentativas=3):
+    for _ in range(tentativas):
         try:
-            session.findById("wnd[0]/tbar[0]/btn[15]").press()
-            paced_sleep(0.2)
-            continue
-        except Exception:
-            pass
-
-        try:
-            session.findById("wnd[0]/tbar[0]/btn[12]").press()
-            paced_sleep(0.2)
-            continue
+            session.findById("wnd[0]").sendVKey(3)
+            wait_until_ready(session)
         except Exception:
             break
 
 
-def _abrir_vf02(session, documento):
-    session.findById("wnd[0]/tbar[0]/okcd").text = "/nVF02"
-    session.findById("wnd[0]").sendVKey(0)
-
-    campo = wait_for_element(session, _CAMPO_VF02_DOCUMENTO)
-    campo.text = documento
-    session.findById("wnd[0]").sendVKey(0)
-    paced_sleep(0.5)
-
-    return campo.text.strip()
-
-
-def _capturar_doc_fat_por_vf02(session, faturamento):
-    doc_fat = _abrir_vf02(session, faturamento)
-    if not doc_fat:
-        raise Exception("Nao foi possivel confirmar o documento de faturamento na VF02.")
-
-    _retornar_para_tela_inicial(session, tentativas=1)
-    return doc_fat
-
-
-def _ajustar_item_fb03(session):
-    grid = wait_for_element(session, _GRID_FB03)
-    grid.currentCellColumn = "KOBEZ"
-    grid.doubleClickCurrentCell()
-
-    session.findById("wnd[0]/tbar[1]/btn[25]").press()
-    session.findById("wnd[0]/tbar[1]/btn[8]").press()
-
-
-def _tratar_popup_fb03(session):
-    wait_for_element(session, _POPUP_FB03_BANCO).text = "BB100"
-    session.findById(_POPUP_FB03_FORMA).text = "A"
-    session.findById("wnd[1]/tbar[0]/btn[0]").press()
-    paced_sleep(0.4)
-
-
-def _ajustar_fb03(session, doc_fat):
+# Abre FB03 e ajusta banco/forma de pagamento no documento contábil.
+def _ajustar_fb03(session, faturamento, progress_callback=None):
     session.findById("wnd[0]/tbar[0]/okcd").text = "/nFB03"
     session.findById("wnd[0]").sendVKey(0)
 
-    wait_for_element(session, _CAMPO_FB03_DOCUMENTO).text = doc_fat
+    wait_for_element(session, _CAMPO_FB03_DOCUMENTO).text = str(faturamento or "").strip()
     session.findById(_CAMPO_FB03_EMPRESA).text = "EMBA"
+    session.findById(_CAMPO_FB03_EMPRESA).caretPosition = 4
     session.findById(_CAMPO_FB03_ANO).text = datetime.now().strftime("%Y")
     session.findById("wnd[0]").sendVKey(0)
-    paced_sleep(0.5)
+    wait_until_ready(session)
 
-    _retry(lambda: _ajustar_item_fb03(session), tentativas=3, pausa=0.5)
-    _retry(lambda: _tratar_popup_fb03(session), tentativas=3, pausa=0.5)
+    _notificar(
+        progress_callback,
+        "FB03",
+        "processando",
+        "Documento contábil carregado no FB03...",
+        28,
+    )
+
+    def ajustar_item():
+        grid = wait_for_element(session, _GRID_FB03)
+        grid.currentCellColumn = "KOBEZ"
+        grid.doubleClickCurrentCell()
+        wait_until_ready(session)
+
+        session.findById("wnd[0]/tbar[1]/btn[25]").press()
+        wait_until_ready(session)
+        session.findById("wnd[0]/tbar[1]/btn[8]").press()
+        wait_until_ready(session)
+
+    _retry(ajustar_item)
+
+    _notificar(
+        progress_callback,
+        "FB03",
+        "processando",
+        "Selecionando dados bancarios no FB03...",
+        62,
+    )
+
+    def tratar_popup():
+        wait_for_element(session, _POPUP_FB03_BANCO).text = "BB100"
+        session.findById(_POPUP_FB03_FORMA).text = "A"
+        session.findById("wnd[1]/tbar[0]/btn[0]").press()
+        wait_until_ready(session)
+
+    _retry(tratar_popup)
+
+    _notificar(
+        progress_callback,
+        "FB03",
+        "processando",
+        "Salvando ajuste contábil...",
+        86,
+    )
 
     session.findById("wnd[0]/tbar[0]/btn[11]").press()
-    paced_sleep(0.5)
-    _retornar_para_tela_inicial(session, tentativas=1)
+    wait_until_ready(session)
 
 
-def _resalvar_vf02(session, doc_fat):
-    _abrir_vf02(session, doc_fat)
+# Abre VF02 após o ajuste contábil e salva novamente o faturamento.
+def _resalvar_vf02(session, progress_callback=None):
+    # Após o FB03:
+    # - volta da transação atual para a tela inicial
+    # - abre VF02 por comando
+    # - dá Enter
+    # - salva
+    # - volta
+    for _ in range(2):
+        try:
+            session.findById("wnd[0]/tbar[0]/btn[12]").press()
+            wait_until_ready(session)
+        except Exception:
+            break
 
-    wait_for_element(session, _BOTAO_VF02_ITENS).press()
-    paced_sleep(0.5)
+    session.findById("wnd[0]/tbar[0]/okcd").text = "/nVF02"
+    session.findById("wnd[0]").sendVKey(0)
+    wait_for_element(session, "wnd[0]/usr", timeout=8)
+    wait_until_ready(session)
 
-    grid = wait_for_element(session, _GRID_VF02_ITENS)
-    grid.getAbsoluteRow(0).selected = True
+    _notificar(
+        progress_callback,
+        "VF02_RESALVAR",
+        "processando",
+        "Abrindo VF02 para re-salvar o faturamento...",
+        34,
+    )
 
-    campo_posicao = wait_for_element(session, _CAMPO_VF02_POSICAO)
-    campo_posicao.setFocus()
-    campo_posicao.caretPosition = 0
+    session.findById("wnd[0]").sendVKey(0)
+    wait_until_ready(session)
+
+    _notificar(
+        progress_callback,
+        "VF02_RESALVAR",
+        "processando",
+        "Confirmando dados do faturamento...",
+        68,
+    )
 
     session.findById("wnd[0]/tbar[0]/btn[11]").press()
-    paced_sleep(0.5)
-    _retornar_para_tela_inicial(session, tentativas=2)
+    wait_until_ready(session)
+
+    _notificar(
+        progress_callback,
+        "VF02_RESALVAR",
+        "processando",
+        "Retornando da VF02...",
+        90,
+    )
+
+    session.findById("wnd[0]/tbar[0]/btn[12]").press()
+    wait_until_ready(session)
 
 
+# Executa o pos-faturamento, podendo iniciar em FB03 ou retomar no re-salvamento.
 def pos_faturamento(
     session,
     faturamento,
     logger,
     progress_callback=None,
-    start_from="VF02_CAPTURA",
-    existing_doc_fat=None,
+    start_from="FB03",
 ):
-    etapa = start_from
-    doc_fat = str(existing_doc_fat or "").strip() or None
+    etapa_atual = str(start_from or "FB03").strip().upper()
+    faturamento = str(faturamento or "").strip()
+    progresso_atual = 0
 
     try:
-        if etapa == "VF02_CAPTURA":
-            notificar_progresso(
-                progress_callback,
-                "VF02_CAPTURA",
-                "processando",
-                "Confirmando documento de faturamento...",
-                18,
-            )
-
-            if not doc_fat:
-                doc_fat = _capturar_doc_fat_por_vf02(session, faturamento)
-                logger.add(3, f"Doc. faturamento confirmado: {doc_fat}", publico=True)
-            else:
-                logger.add(3, f"Doc. faturamento reaproveitado da VF01: {doc_fat}")
-
-            notificar_progresso(
-                progress_callback,
-                "VF02_CAPTURA",
-                "concluido",
-                f"Documento confirmado: {doc_fat}",
-                100,
-            )
-            etapa = "FB03"
-
-        if etapa == "FB03" and not doc_fat:
-            raise Exception("Documento de faturamento ausente para iniciar o FB03.")
-
-        if etapa == "FB03":
-            notificar_progresso(
+        if etapa_atual == "FB03":
+            progresso_atual = 12
+            _notificar(
                 progress_callback,
                 "FB03",
                 "processando",
-                "Executando ajuste contabil...",
-                20,
+                "Abrindo FB03 para ajuste contábil...",
+                progresso_atual,
             )
-            _ajustar_fb03(session, doc_fat)
-            logger.add(4, "Ajuste contabil concluido no FB03.", publico=True)
-            notificar_progresso(
+            logger.add(4, "Abrindo FB03 para ajuste contábil...")
+            _ajustar_fb03(session, faturamento, progress_callback=progress_callback)
+            logger.add(4, "Ajuste contábil concluído no FB03.", publico=True)
+            _notificar(
                 progress_callback,
                 "FB03",
                 "concluido",
-                "Ajuste contabil concluido.",
+                "Ajuste contábil salvo.",
                 100,
             )
-            etapa = "VF02_RESALVAR"
+            etapa_atual = "VF02_RESALVAR"
 
-        if etapa == "VF02_RESALVAR":
-            notificar_progresso(
+        if etapa_atual == "VF02_RESALVAR":
+            progresso_atual = 12
+            _notificar(
                 progress_callback,
                 "VF02_RESALVAR",
                 "processando",
-                "Reabrindo VF02 para re-salvar o faturamento...",
-                18,
+                "Retornando a VF02 para re-salvar o faturamento...",
+                progresso_atual,
             )
-            _resalvar_vf02(session, doc_fat)
+            logger.add(5, "Retornando a VF02 para re-salvar o faturamento...")
+            _resalvar_vf02(session, progress_callback=progress_callback)
             logger.add(5, "Faturamento re-salvo com sucesso.", publico=True)
-            notificar_progresso(
+            _notificar(
                 progress_callback,
                 "VF02_RESALVAR",
                 "concluido",
-                "VF02 re-salva com sucesso.",
+                "Faturamento re-salvo com sucesso.",
                 100,
             )
 
         return resultado_padrao(
             ok=True,
             etapa="VF02_RESALVAR",
-            mensagem="Pos-faturamento concluido com sucesso.",
+            mensagem="Pós-faturamento concluído com sucesso.",
             dados={
                 "faturamento": faturamento,
-                "doc_fat": doc_fat,
             },
         )
 
-    except Exception as exc:
-        logger.add(5, f"Erro no pos-faturamento: {exc}", nivel="ERRO")
-        notificar_progresso(
+    except Exception as e:
+        logger.add(5, f"Erro no pos-faturamento: {e}", nivel="ERRO")
+        _notificar(
             progress_callback,
-            etapa,
+            etapa_atual,
             "erro",
-            f"Falha na etapa {etapa}.",
+            "Falha no pos-faturamento.",
+            progresso_atual,
         )
 
         try:
-            _retornar_para_tela_inicial(session, tentativas=3)
+            _encerrar_tela(session)
         except Exception:
             pass
 
         return resultado_padrao(
             ok=False,
-            etapa=etapa,
+            etapa=etapa_atual,
             mensagem="Erro ao executar o pos-faturamento.",
-            erro_tecnico=str(exc),
             dados={
                 "faturamento": faturamento,
-                "doc_fat": doc_fat,
             },
+            erro_tecnico=str(e),
         )

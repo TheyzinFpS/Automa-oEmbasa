@@ -1,51 +1,83 @@
 ﻿const ETAPAS = [
+  // Ordem visual das etapas exibidas no painel de andamento.
   { id: "XD03", codigo: "XD03", titulo: "Buscar cliente" },
-  { id: "VA01", codigo: "VA01", titulo: "Criar ordem-cliente" },
-  { id: "VF01", codigo: "VF01", titulo: "Criar Doc.faturamento" },
-  { id: "VF02_CAPTURA", codigo: "VF02", titulo: "Capturar Doc.Faturamento" },
-  { id: "FB03", codigo: "FB03", titulo: "Ajustar contabil" },
+  { id: "VA01", codigo: "VA01", titulo: "Criar pedido" },
+  { id: "VF01", codigo: "VF01", titulo: "Criar doc.fat." },
+  { id: "FB03", codigo: "FB03", titulo: "Ajustar contábil" },
   { id: "VF02_RESALVAR", codigo: "VF02", titulo: "Salvar faturamento" },
-  { id: "F110", codigo: "F110", titulo: "Criacao Pagamento" }
+  { id: "F110", codigo: "F110", titulo: "Gerar pagamento" }
 ];
 
+// Valores padrão definidos pela regra de negócio atual.
 const VALORES = {
   viabilidade: "R$ 1.038,02",
   agua: "R$ 2.357,70",
   esgoto: "R$ 2.357,70"
 };
 
+// Rótulos amigáveis para o campo Tipo de solicitação.
 const TIPOS_SOLICITACAO = {
   "": "Selecione",
   viabilidade: "Viabilidade",
-  agua: "\u00c1gua",
+  agua: "Água",
   esgoto: "Esgoto"
 };
 
+// Status operacional exibido no card de status da base.
 const BASE_STATUS = {
   active: {
     text: "✓ ATIVO",
-    subtext: "Ambiente apto para operacao e testes.",
+    subtext: "Ambiente apto para operação e testes.",
     cardClass: "status-active"
   },
   maintenance: {
-    text: "Em manutencao",
+    text: "Em manutenção",
     subtext: "Ambiente com ajustes em andamento.",
     cardClass: "status-maintenance"
   }
 };
 
 const MAX_VALOR_CENTAVOS = 1000000;
+const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
+const APP_VERSION = "1.1";
+const CEP_API_BASE_URL = "https://viacep.com.br/ws";
+const CEP_DEBOUNCE_MS = 450;
+const CEP_UF_PERMITIDA = "BA";
+const SUPPORTED_CONTACT_EXTENSIONS = new Set([".jpg", ".jpeg", ".png"]);
+const SUPPORTED_CONTACT_MIME_TYPES = new Set(["image/jpeg", "image/png"]);
 const THEME_STORAGE_KEY = "embasa-theme";
-const ETAPA_ID_INDEX_MAP = new Map(ETAPAS.map((etapa, index) => [etapa.id, index]));
 const STATUS_ATIVOS = new Set([
   "processando", "processing", "running", "ativo", "active", "iniciando", "iniciado"
 ]);
 const STATUS_CONCLUIDOS = new Set([
-  "concluido", "concluida", "done", "success", "sucesso", "finalizado", "finalizada"
+  "concluido", "concluida", "concluído", "concluída", "done", "success", "sucesso", "finalizado", "finalizada"
 ]);
 const STATUS_ERRO = new Set(["erro", "error", "falha", "failed"]);
-const EMPTY_LOG_MARKUP = '<div class="log-empty">Os logs do fluxo aparecerao aqui.</div>';
+const STATUS_CANCELADO = new Set(["cancelado", "cancelada", "cancel", "canceled", "cancelled"]);
+const EMPTY_LOG_MARKUP = '<div class="log-empty">Os logs do fluxo aparecerão aqui.</div>';
+// Mapeia eventos vindos do Python para a etapa visual correspondente.
+const DISPLAY_STAGE_MAP = (() => {
+  const map = new Map();
 
+  ETAPAS.forEach((etapa, index) => {
+    const aliases = etapa.aliases || [etapa.id];
+    const segmentCount = aliases.length;
+
+    aliases.forEach((alias, segmentIndex) => {
+      map.set(alias, {
+        index,
+        alias,
+        segmentIndex,
+        segmentCount,
+        isGrouped: segmentCount > 1
+      });
+    });
+  });
+
+  return map;
+})();
+
+// Estado central da interface durante uso e execução do fluxo.
 const state = {
   valueMode: "auto",
   theme: "light",
@@ -54,6 +86,7 @@ const state = {
   baseStatus: "active",
   empreendimentoAberto: false,
   semNumero: false,
+  semCep: false,
   etapaAtual: null,
   etapasStatus: [],
   etapasProgresso: [],
@@ -62,12 +95,36 @@ const state = {
   etapasConstruidas: false,
   footerDateText: "",
   footerTimeText: "",
-  statusSnapshot: ""
+  statusSnapshot: "",
+  empreendimentosFila: [],
+  batchRunning: false,
+  flowRunning: false,
+  cancelRequested: false
 };
 
 const domCache = new Map();
 const ETAPA_NODE_CACHE = [];
+const pendingProgressEvents = [];
+const cepLookupCache = new Map();
+let pendingProgressFrame = 0;
+let cepLookupTimer = 0;
+let cepLookupController = null;
+let cepLookupSeq = 0;
+let cepLookupStatus = {
+  cep: "",
+  valid: null,
+  message: ""
+};
+let ultimoComplementoAutoCep = "";
+let ultimoEnderecoAutoCep = {
+  cep: "",
+  rua: "",
+  bairro: "",
+  cidade: "",
+  complemento: ""
+};
 
+// Cache simples de elementos DOM para evitar buscas repetidas.
 function el(id) {
   if (domCache.has(id)) {
     return domCache.get(id);
@@ -82,6 +139,7 @@ function el(id) {
   return node;
 }
 
+// Liga cada campo da tela ao seu elemento de mensagem de erro.
 const VALIDATION_FIELDS = {
   doc: { messageId: "docError" },
   tipo: { messageId: "tipoError", focusId: "tipoButton" },
@@ -94,6 +152,7 @@ const VALIDATION_FIELDS = {
   enderecoCidade: { messageId: "enderecoCidadeError", accordion: true }
 };
 
+// Normaliza percentuais enviados pelo backend para o intervalo 0-100.
 function clampPercent(value) {
   const numero = Number(value);
 
@@ -104,10 +163,12 @@ function clampPercent(value) {
   return Math.max(0, Math.min(100, Math.round(numero)));
 }
 
+// Remove mascara do documento antes de validar/enviar ao backend.
 function limparDocumento(valor) {
   return String(valor || "").replace(/\D/g, "").slice(0, 14);
 }
 
+// Aplica máscara visual de CPF/CNPJ enquanto o usuário digita.
 function formatarDocumento(valor) {
   const digitos = limparDocumento(valor);
 
@@ -133,6 +194,7 @@ function formatarDocumento(valor) {
   return `${digitos.slice(0, 2)}.${digitos.slice(2, 5)}.${digitos.slice(5, 8)}/${digitos.slice(8, 12)}-${digitos.slice(12, 14)}`;
 }
 
+// Calcula informacoes visuais do documento: tipo, contador, status e dica.
 function analisarDocumento(valor) {
   const digitos = limparDocumento(valor);
 
@@ -154,7 +216,7 @@ function analisarDocumento(valor) {
     return {
       digitos,
       formatado: formatarDocumento(digitos),
-      badge: completo ? "CPF valido" : "CPF",
+    badge: completo ? "CPF válido" : "CPF",
       hint: completo ? "CPF completo e pronto para envio ao SAP." : `CPF em preenchimento. Faltam ${faltam} digitos.`,
       contador: `${digitos.length} de 11 digitos`,
       classe: completo ? "valid" : "progress"
@@ -167,17 +229,19 @@ function analisarDocumento(valor) {
   return {
     digitos,
     formatado: formatarDocumento(digitos),
-    badge: completo ? "CNPJ valido" : "CNPJ",
+    badge: completo ? "CNPJ válido" : "CNPJ",
     hint: completo ? "CNPJ completo e pronto para envio ao SAP." : `CNPJ em preenchimento. Faltam ${faltam} digitos.`,
     contador: `${digitos.length} de 14 digitos`,
     classe: completo ? "valid" : "progress"
   };
 }
 
+// Remove formatacao monetaria mantendo somente os digitos.
 function limparValor(valor) {
   return String(valor || "").replace(/\D/g, "");
 }
 
+// Aplica máscara de CEP no padrão 00000-000.
 function formatarCepValue(valor) {
   const digitos = String(valor || "").replace(/\D/g, "").slice(0, 8);
 
@@ -188,15 +252,45 @@ function formatarCepValue(valor) {
   return `${digitos.slice(0, 5)}-${digitos.slice(5)}`;
 }
 
+// Remove números e caracteres indevidos do campo Cidade.
 function sanitizarCidade(valor) {
   return String(valor || "")
     .replace(/[^A-Za-zÀ-ÿ\s'-]/g, "")
     .replace(/\s{2,}/g, " ");
 }
 
-function formatarCep(el) {
-  el.value = formatarCepValue(el.value);
+function obterDigitosCep(valor) {
+  return String(valor || "").replace(/\D/g, "").slice(0, 8);
+}
+
+function setCepLookupStatus(cep, valid, message = "") {
+  cepLookupStatus = {
+    cep,
+    valid,
+    message
+  };
+}
+
+function setCepLoading(isLoading) {
+  const input = el("enderecoCep");
+
+  if (!input) {
+    return;
+  }
+
+  input.classList.toggle("is-loading", Boolean(isLoading));
+  input.setAttribute("aria-busy", String(Boolean(isLoading)));
+}
+
+function formatarCep(elm) {
+  if (state.semCep) {
+    elm.value = "SEM CEP";
+    return;
+  }
+
+  elm.value = formatarCepValue(elm.value);
   limparMensagemCampo("enderecoCep");
+  agendarConsultaCep();
 }
 
 function formatarCentavosParaMoeda(centavos) {
@@ -208,6 +302,7 @@ function formatarCentavosParaMoeda(centavos) {
   });
 }
 
+// Formata valor customizado em moeda respeitando o limite de R$ 10.000,00.
 function formatarValorDigitado(valor) {
   const digitos = limparValor(valor);
 
@@ -219,6 +314,7 @@ function formatarValorDigitado(valor) {
   return formatarCentavosParaMoeda(centavos);
 }
 
+// Recupera tema salvo no navegador embutido do pywebview.
 function carregarTemaSalvo() {
   try {
     return localStorage.getItem(THEME_STORAGE_KEY);
@@ -316,12 +412,62 @@ function setSemNumero(ativo) {
   input.readOnly = ativo;
   input.classList.toggle("readonly-like", ativo);
   input.value = ativo ? "S/N" : "";
-  input.placeholder = ativo ? "Sem numero" : "Informe o numero";
+  input.placeholder = ativo ? "Sem número" : "Informe o número";
   limparMensagemCampo("enderecoNumero");
 }
 
 function toggleSemNumero() {
   setSemNumero(!state.semNumero);
+}
+
+function resetarEnderecoAutoCep() {
+  ultimoComplementoAutoCep = "";
+  ultimoEnderecoAutoCep = {
+    cep: "",
+    rua: "",
+    bairro: "",
+    cidade: "",
+    complemento: ""
+  };
+}
+
+function setSemCep(ativo) {
+  state.semCep = ativo;
+
+  const input = el("enderecoCep");
+  const button = el("semCepButton");
+
+  cancelarConsultaCepPendente();
+  resetarEnderecoAutoCep();
+
+  if (button) {
+    button.classList.toggle("active", ativo);
+  }
+
+  if (input) {
+    input.readOnly = ativo;
+    input.classList.toggle("readonly-like", ativo);
+    input.value = ativo ? "SEM CEP" : "";
+    input.placeholder = ativo ? "Sem CEP" : "00000-000";
+    input.inputMode = ativo ? "text" : "numeric";
+    input.setAttribute("aria-label", ativo ? "Endereço sem CEP" : "CEP");
+  }
+
+  if (ativo) {
+    setCepLookupStatus("SEM CEP", true, "");
+    mostrarMensagemCampo(
+      "enderecoCep",
+      "Sem CEP ativo. Preencha rua, bairro e cidade manualmente.",
+      "info"
+    );
+  } else {
+    setCepLookupStatus("", null, "");
+    limparMensagemCampo("enderecoCep");
+  }
+}
+
+function toggleSemCep() {
+  setSemCep(!state.semCep);
 }
 
 function coletarEndereco() {
@@ -331,12 +477,128 @@ function coletarEndereco() {
     numero: state.semNumero
       ? "S/N"
       : el("enderecoNumero").value.trim(),
-    cep: formatarCepValue(el("enderecoCep").value.trim()),
+    cep: state.semCep ? "SEM CEP" : formatarCepValue(el("enderecoCep").value.trim()),
+    sem_cep: state.semCep,
     bairro: el("enderecoBairro").value.trim(),
     complemento: el("enderecoComplemento").value.trim(),
     cidade: sanitizarCidade(el("enderecoCidade").value.trim()),
     estado: "BA"
   };
+}
+
+function enderecoTemConteudo(endereco) {
+  return [
+    endereco.empreendimento,
+    endereco.rua,
+    endereco.numero && endereco.numero !== "S/N" ? endereco.numero : "",
+    endereco.cep,
+    endereco.bairro,
+    endereco.complemento,
+    endereco.cidade
+  ].some((valor) => String(valor || "").trim());
+}
+
+function cloneEndereco(endereco) {
+  const semCep = Boolean(endereco.sem_cep) || String(endereco.cep || "").trim().toUpperCase() === "SEM CEP";
+
+  return {
+    empreendimento: String(endereco.empreendimento || "").trim(),
+    rua: String(endereco.rua || "").trim(),
+    numero: String(endereco.numero || "").trim() || "S/N",
+    cep: semCep ? "SEM CEP" : formatarCepValue(endereco.cep || ""),
+    sem_cep: semCep,
+    bairro: String(endereco.bairro || "").trim(),
+    complemento: String(endereco.complemento || "").trim(),
+    cidade: sanitizarCidade(endereco.cidade || "").trim(),
+    estado: "BA"
+  };
+}
+
+function formatarEnderecoResumo(endereco) {
+  const cepResumo = endereco.sem_cep
+    ? "SEM CEP"
+    : (endereco.cep ? `CEP ${endereco.cep}` : "");
+  const partes = [
+    `${endereco.rua || ""}, ${endereco.numero || ""}`.trim(),
+    endereco.bairro,
+    endereco.cidade ? `${endereco.cidade}-${endereco.estado || "BA"}` : "",
+    cepResumo
+  ].filter(Boolean);
+
+  return partes.join(" | ");
+}
+
+function limparCamposEndereco() {
+  cancelarConsultaCepPendente();
+  setCepLookupStatus("", null, "");
+  resetarEnderecoAutoCep();
+  el("enderecoEmpreendimento").value = "";
+  el("enderecoRua").value = "";
+  el("enderecoCep").value = "";
+  el("enderecoBairro").value = "";
+  el("enderecoComplemento").value = "";
+  el("enderecoCidade").value = "";
+  setSemNumero(false);
+  setSemCep(false);
+  limparMensagensValidacao();
+}
+
+function renderizarFilaEmpreendimentos() {
+  const queue = el("empreendimentoQueue");
+
+  if (!queue) {
+    return;
+  }
+
+  if (!state.empreendimentosFila.length) {
+    queue.className = "batch-queue empty";
+    queue.textContent = "Nenhum empreendimento adicional na fila.";
+    return;
+  }
+
+  queue.className = "batch-queue";
+  queue.innerHTML = state.empreendimentosFila
+    .map((endereco, index) => `
+      <div class="batch-item">
+        <div>
+          <strong>${index + 1}. ${escapeHtml(endereco.empreendimento)}</strong>
+          <small>${escapeHtml(formatarEnderecoResumo(endereco))}</small>
+        </div>
+        <button type="button" onclick="removerEmpreendimentoDaFila(${index})">Remover</button>
+      </div>
+    `)
+    .join("");
+}
+
+function adicionarEmpreendimentoNaFila() {
+  const validacao = validarFormularioAntesDoFluxo();
+
+  if (!validacao) {
+    return;
+  }
+
+  state.empreendimentosFila.push(cloneEndereco(validacao.endereco));
+  renderizarFilaEmpreendimentos();
+  log(
+    `Empreendimento adicionado à fila: ${validacao.endereco.empreendimento} - ${formatarEnderecoResumo(validacao.endereco)}.`
+  );
+  limparCamposEndereco();
+  setEmpreendimentoAberto(true);
+  setStatus("Empreendimento adicionado", "success");
+}
+
+function removerEmpreendimentoDaFila(index) {
+  if (index < 0 || index >= state.empreendimentosFila.length) {
+    return;
+  }
+
+  state.empreendimentosFila.splice(index, 1);
+  renderizarFilaEmpreendimentos();
+}
+
+function limparFilaEmpreendimentos() {
+  state.empreendimentosFila = [];
+  renderizarFilaEmpreendimentos();
 }
 
 function limparMensagemCampo(fieldId) {
@@ -352,12 +614,316 @@ function limparMensagemCampo(fieldId) {
 
   if (message) {
     message.textContent = "";
-    message.classList.add("hidden");
+    message.className = "field-message hidden";
   }
 }
 
 function limparMensagensValidacao() {
   Object.keys(VALIDATION_FIELDS).forEach(limparMensagemCampo);
+}
+
+function mostrarMensagemCampo(fieldId, message, variant = "info", highlight = false) {
+  const config = VALIDATION_FIELDS[fieldId];
+  const baseElement = el(fieldId);
+  const focusTarget = el(config?.focusId || fieldId) || baseElement;
+  const field = focusTarget ? focusTarget.closest(".field") : null;
+  const messageEl = config ? el(config.messageId) : null;
+
+  if (field) {
+    field.classList.toggle("has-error", Boolean(highlight));
+  }
+
+  if (messageEl) {
+    messageEl.textContent = message;
+    messageEl.className = `field-message ${variant}`;
+  }
+}
+
+function cancelarConsultaCepPendente() {
+  if (cepLookupTimer) {
+    window.clearTimeout(cepLookupTimer);
+    cepLookupTimer = 0;
+  }
+
+  if (cepLookupController) {
+    cepLookupController.abort();
+    cepLookupController = null;
+  }
+
+  setCepLoading(false);
+}
+
+function obterComplementoViaCep(data) {
+  return [data?.complemento, data?.unidade]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join(" - ");
+}
+
+function deveAtualizarCampoEndereco(input, valorAnteriorAuto, forcarAtualizacao) {
+  const valorAtual = String(input?.value || "").trim();
+
+  return forcarAtualizacao || !valorAtual || valorAtual === String(valorAnteriorAuto || "").trim();
+}
+
+function preencherCampoEndereco(input, valor, valorAnteriorAuto, forcarAtualizacao, fieldId) {
+  const valorNormalizado = String(valor || "").trim();
+
+  if (!input || !valorNormalizado) {
+    return "";
+  }
+
+  if (deveAtualizarCampoEndereco(input, valorAnteriorAuto, forcarAtualizacao)) {
+    input.value = valorNormalizado;
+    limparMensagemCampo(fieldId);
+  }
+
+  return valorNormalizado;
+}
+
+function preencherEnderecoComCep(data, cep) {
+  const rua = el("enderecoRua");
+  const bairro = el("enderecoBairro");
+  const cidade = el("enderecoCidade");
+  const estado = el("enderecoEstado");
+  const complemento = el("enderecoComplemento");
+  const complementoApi = obterComplementoViaCep(data);
+  const cepAtual = String(cep || "").trim();
+  const forcarAtualizacao = ultimoEnderecoAutoCep.cep !== cepAtual;
+
+  const ruaAuto = preencherCampoEndereco(
+    rua,
+    data.logradouro,
+    ultimoEnderecoAutoCep.rua,
+    forcarAtualizacao,
+    "enderecoRua"
+  );
+  const bairroAuto = preencherCampoEndereco(
+    bairro,
+    data.bairro,
+    ultimoEnderecoAutoCep.bairro,
+    forcarAtualizacao,
+    "enderecoBairro"
+  );
+  const cidadeAuto = preencherCampoEndereco(
+    cidade,
+    sanitizarCidade(data.localidade || "").trim(),
+    ultimoEnderecoAutoCep.cidade,
+    forcarAtualizacao,
+    "enderecoCidade"
+  );
+
+  if (estado) {
+    estado.value = CEP_UF_PERMITIDA;
+  }
+
+  if (
+    complementoApi &&
+    deveAtualizarCampoEndereco(complemento, ultimoEnderecoAutoCep.complemento, forcarAtualizacao)
+  ) {
+    complemento.value = complementoApi;
+    ultimoComplementoAutoCep = complementoApi;
+  } else if (complemento.value.trim() === ultimoComplementoAutoCep) {
+    complemento.value = "";
+    ultimoComplementoAutoCep = "";
+  }
+
+  ultimoEnderecoAutoCep = {
+    cep: cepAtual,
+    rua: ruaAuto,
+    bairro: bairroAuto,
+    cidade: cidadeAuto,
+    complemento: complementoApi
+  };
+}
+
+async function consultarCepViaCep(cep, signal) {
+  if (cepLookupCache.has(cep)) {
+    return cepLookupCache.get(cep);
+  }
+
+  const response = await fetch(`${CEP_API_BASE_URL}/${cep}/json/`, {
+    method: "GET",
+    signal
+  });
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      code: response.status === 400 ? "invalid" : "network",
+      message: response.status === 400
+        ? "CEP inválido. Informe 8 dígitos numéricos."
+        : "Não foi possível consultar o CEP agora. Preencha o endereço manualmente."
+    };
+  }
+
+  const data = await response.json();
+
+  if (!data || typeof data !== "object") {
+    return {
+      ok: false,
+      code: "empty",
+      message: "A consulta do CEP não retornou dados. Confira o CEP informado."
+    };
+  }
+
+  if (data.erro) {
+    const resultado = {
+      ok: false,
+      code: "not_found",
+      message: "CEP não encontrado. Confira o número informado."
+    };
+
+    cepLookupCache.set(cep, resultado);
+    return resultado;
+  }
+
+  const resultado = {
+    ok: true,
+    data
+  };
+
+  cepLookupCache.set(cep, resultado);
+  return resultado;
+}
+
+async function buscarCepAutomaticamente(cep) {
+  if (state.semCep) {
+    return;
+  }
+
+  const requestId = ++cepLookupSeq;
+
+  if (cepLookupController) {
+    cepLookupController.abort();
+  }
+
+  cepLookupController = new AbortController();
+  setCepLoading(true);
+  mostrarMensagemCampo("enderecoCep", "Consultando CEP...", "info");
+
+  try {
+    const resultado = await consultarCepViaCep(cep, cepLookupController.signal);
+
+    if (requestId !== cepLookupSeq) {
+      return;
+    }
+
+    if (!resultado.ok) {
+      const bloqueiaFluxo = ["invalid", "empty", "not_found"].includes(resultado.code);
+      setCepLookupStatus(cep, bloqueiaFluxo ? false : null, resultado.message);
+      mostrarMensagemCampo(
+        "enderecoCep",
+        resultado.message,
+        bloqueiaFluxo ? "warning" : "info",
+        bloqueiaFluxo
+      );
+      return;
+    }
+
+    const data = resultado.data;
+    const uf = String(data.uf || "").trim().toUpperCase();
+
+    if (uf !== CEP_UF_PERMITIDA) {
+      const localidade = [data.localidade, uf].filter(Boolean).join("-");
+      const message = localidade
+        ? `CEP localizado em ${localidade}. Utilize um CEP da Bahia.`
+        : "CEP localizado fora da Bahia. Utilize um CEP da Bahia.";
+
+      setCepLookupStatus(cep, false, message);
+      mostrarMensagemCampo("enderecoCep", message, "warning", true);
+      return;
+    }
+
+    if (!data.logradouro && !data.bairro && !data.localidade) {
+      const message = "CEP retornou sem dados suficientes. Confira o CEP ou preencha manualmente.";
+
+      setCepLookupStatus(cep, false, message);
+      mostrarMensagemCampo("enderecoCep", message, "warning", true);
+      return;
+    }
+
+    preencherEnderecoComCep(data, cep);
+    setCepLookupStatus(cep, true, "");
+    mostrarMensagemCampo(
+      "enderecoCep",
+      `CEP localizado: ${sanitizarCidade(data.localidade || "Bahia").trim()}-BA. Campos preenchidos automaticamente.`,
+      "success"
+    );
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      return;
+    }
+
+    const message = "Erro de conexão ao consultar o CEP. Preencha o endereço manualmente.";
+    setCepLookupStatus(cep, null, message);
+    mostrarMensagemCampo("enderecoCep", message, "info");
+  } finally {
+    if (requestId === cepLookupSeq) {
+      setCepLoading(false);
+      cepLookupController = null;
+    }
+  }
+}
+
+function agendarConsultaCep(options = {}) {
+  const { immediate = false, mostrarIncompleto = false } = options;
+  const input = el("enderecoCep");
+  const cep = obterDigitosCep(input?.value);
+
+  if (state.semCep) {
+    cancelarConsultaCepPendente();
+    setCepLookupStatus("SEM CEP", true, "");
+    return;
+  }
+
+  if (cepLookupTimer) {
+    window.clearTimeout(cepLookupTimer);
+    cepLookupTimer = 0;
+  }
+
+  if (cepLookupController) {
+    cepLookupController.abort();
+    cepLookupController = null;
+  }
+
+  setCepLoading(false);
+
+  if (!cep) {
+    setCepLookupStatus("", null, "");
+    return;
+  }
+
+  if (cep.length < 8) {
+    setCepLookupStatus(cep, null, "");
+
+    if (mostrarIncompleto) {
+      mostrarMensagemCampo("enderecoCep", "CEP incompleto. Informe 8 dígitos.", "warning", true);
+    }
+
+    return;
+  }
+
+  const executar = () => buscarCepAutomaticamente(cep);
+
+  if (immediate) {
+    executar();
+    return;
+  }
+
+  cepLookupTimer = window.setTimeout(executar, CEP_DEBOUNCE_MS);
+}
+
+function registrarCepAutocomplete() {
+  const input = el("enderecoCep");
+
+  if (!input) {
+    return;
+  }
+
+  input.addEventListener("blur", () => {
+    agendarConsultaCep({ immediate: true, mostrarIncompleto: true });
+  });
 }
 
 function mostrarErroCampo(fieldId, message) {
@@ -379,7 +945,7 @@ function mostrarErroCampo(fieldId, message) {
 
   if (messageEl) {
     messageEl.textContent = message;
-    messageEl.classList.remove("hidden");
+    messageEl.className = "field-message error";
   }
 
   if (focusTarget) {
@@ -390,7 +956,7 @@ function mostrarErroCampo(fieldId, message) {
     }
   }
 
-  setStatus("Atencao", "error");
+    setStatus("Atenção", "error");
   setStatus("Aguardando", "idle");
   closeLogsPopover();
 }
@@ -400,80 +966,111 @@ function valorFoiInformado() {
   return Boolean(valor) && Number(valor) > 0;
 }
 
-function validarFormularioAntesDoFluxo() {
+function validarBaseAntesDoFluxo() {
   const docInfo = analisarDocumento(el("doc").value);
   const tipo = el("tipo").value;
-  const endereco = coletarEndereco();
-  const cepLimpo = String(endereco.cep || "").replace(/\D/g, "");
 
   if (!docInfo.digitos) {
-    mostrarErroCampo("doc", "CPF/CNPJ obrigat\u00f3rio.");
+    mostrarErroCampo("doc", "CPF/CNPJ obrigatório.");
     return null;
   }
 
   if (![11, 14].includes(docInfo.digitos.length)) {
-    mostrarErroCampo("doc", "Informe um CPF com 11 d\u00edgitos ou um CNPJ com 14 d\u00edgitos para prosseguir.");
+    mostrarErroCampo("doc", "Informe um CPF com 11 digitos ou um CNPJ com 14 digitos para prosseguir.");
     return null;
   }
 
   if (!tipo) {
-    mostrarErroCampo("tipo", "Selecione o tipo de solicita\u00e7\u00e3o. Esta \u00e9 a pr\u00f3xima etapa obrigat\u00f3ria.");
+    mostrarErroCampo("tipo", "Selecione o tipo de solicitação. Esta é a próxima etapa obrigatória.");
     return null;
   }
 
   if (!valorFoiInformado()) {
-    mostrarErroCampo("valor", "Informe o valor da solicita\u00e7\u00e3o. Esta \u00e9 a pr\u00f3xima etapa obrigat\u00f3ria.");
+    mostrarErroCampo("valor", "Informe o valor da solicitação. Esta é a próxima etapa obrigatória.");
     return null;
   }
 
+  return { docInfo, tipo };
+}
+
+function validarEnderecoAntesDoFluxo(endereco) {
+  const cepLimpo = String(endereco.cep || "").replace(/\D/g, "");
+  const semCep = Boolean(endereco.sem_cep);
+
   if (!endereco.empreendimento) {
-    mostrarErroCampo("enderecoEmpreendimento", "Informe o empreendimento. Esta \u00e9 a pr\u00f3xima etapa obrigat\u00f3ria.");
-    return null;
+    mostrarErroCampo("enderecoEmpreendimento", "Informe o empreendimento. Esta é a próxima etapa obrigatória.");
+    return false;
   }
 
   if (!endereco.rua) {
     mostrarErroCampo("enderecoRua", "Informe a rua do empreendimento para prosseguir.");
-    return null;
+    return false;
   }
 
-  if (!state.semNumero && !endereco.numero) {
-    mostrarErroCampo("enderecoNumero", "Informe o n\u00famero do endere\u00e7o ou marque S/N para prosseguir.");
-    return null;
+  if (!endereco.numero) {
+    mostrarErroCampo("enderecoNumero", "Informe o número do endereço ou marque S/N para prosseguir.");
+    return false;
   }
 
-  if (!cepLimpo) {
-    mostrarErroCampo("enderecoCep", "Informe o CEP do empreendimento. Esta \u00e9 a pr\u00f3xima etapa obrigat\u00f3ria.");
-    return null;
+  if (!semCep && !cepLimpo) {
+    mostrarErroCampo("enderecoCep", "Informe o CEP do empreendimento. Esta é a próxima etapa obrigatória.");
+    return false;
   }
 
-  if (cepLimpo.length !== 8) {
-    mostrarErroCampo("enderecoCep", "Informe um CEP v\u00e1lido com 8 d\u00edgitos para prosseguir.");
-    return null;
+  if (!semCep && cepLimpo.length !== 8) {
+    mostrarErroCampo("enderecoCep", "Informe um CEP válido com 8 dígitos para prosseguir.");
+    return false;
+  }
+
+  if (!semCep && cepLookupStatus.cep === cepLimpo && cepLookupStatus.valid === false) {
+    mostrarErroCampo(
+      "enderecoCep",
+      cepLookupStatus.message || "CEP inválido ou incompatível com o estado da Bahia."
+    );
+    return false;
   }
 
   if (!endereco.bairro) {
     mostrarErroCampo("enderecoBairro", "Informe o bairro do empreendimento para prosseguir.");
-    return null;
+    return false;
   }
 
   if (!endereco.cidade) {
     mostrarErroCampo("enderecoCidade", "Informe a cidade do empreendimento para prosseguir.");
-    return null;
+    return false;
   }
 
   if (/[^A-Za-zÀ-ÿ\s'-]/.test(endereco.cidade)) {
     mostrarErroCampo("enderecoCidade", "A cidade deve conter apenas letras.");
+    return false;
+  }
+
+  return true;
+}
+
+// Garante que todos os campos obrigatórios foram preenchidos antes do SAP rodar.
+function validarFormularioAntesDoFluxo() {
+  const base = validarBaseAntesDoFluxo();
+
+  if (!base) {
+    return null;
+  }
+
+  const endereco = coletarEndereco();
+
+  if (!validarEnderecoAntesDoFluxo(endereco)) {
     return null;
   }
 
   limparMensagensValidacao();
 
   return {
-    docInfo,
+    docInfo: base.docInfo,
     endereco
   };
 }
 
+// Aplica tema claro/escuro e atualiza textos do botao de alternancia.
 function aplicarTema(theme) {
   state.theme = theme;
   document.documentElement.dataset.theme = theme;
@@ -505,6 +1102,7 @@ function toggleTheme() {
   salvarTema(proximo);
 }
 
+// Atualiza visualmente o status operacional da base.
 function setBaseStatus(status) {
   if (!BASE_STATUS[status]) {
     return;
@@ -524,7 +1122,7 @@ function setBaseStatus(status) {
   card.classList.add(config.cardClass);
   text.textContent = config.text;
   sub.textContent = config.subtext;
-  buttonText.textContent = status === "active" ? "Sistema ativo" : "Sistema em manutencao";
+  buttonText.textContent = status === "active" ? "Sistema ativo" : "Sistema em manutenção";
 
   activeOption.classList.toggle("selected", status === "active");
   maintenanceOption.classList.toggle("selected", status === "maintenance");
@@ -560,6 +1158,7 @@ function setStatus(texto, classe) {
   pill.className = `status-pill ${classe}`;
 }
 
+// Sincroniza input, badge, contador e dica do CPF/CNPJ.
 function atualizarDocumentoUI(valorAtual) {
   const input = el("doc");
   const badge = el("docBadge");
@@ -574,11 +1173,12 @@ function atualizarDocumentoUI(valorAtual) {
   counter.textContent = info.contador;
 }
 
-function formatarDoc(el) {
+function formatarDoc(elm) {
   limparMensagemCampo("doc");
-  atualizarDocumentoUI(el.value);
+  atualizarDocumentoUI(elm.value);
 }
 
+// Atualiza tipo de solicitação e reseta valor customizado quando necessário.
 function atualizarTipo() {
   const tipo = el("tipo").value;
   const tipoMudou = Boolean(state.lastTipo) && state.lastTipo !== tipo;
@@ -620,6 +1220,7 @@ function selecionarTipo(tipo, label) {
   atualizarTipo();
 }
 
+// Alterna entre valor de tabela e valor customizado.
 function atualizarModoValorUI() {
   const input = el("valor");
   const hint = el("valorHint");
@@ -687,6 +1288,7 @@ function filtrarCidade(input) {
   limparMensagemCampo("enderecoCidade");
 }
 
+// Remove mensagens de erro conforme o usuário corrige cada campo.
 function registrarValidacaoInterativa() {
   [
     ["enderecoEmpreendimento", "input"],
@@ -738,11 +1340,60 @@ function getEtapaIndexById(idOuCodigo) {
     return -1;
   }
 
-  if (ETAPA_ID_INDEX_MAP.has(chave)) {
-    return ETAPA_ID_INDEX_MAP.get(chave);
+  if (DISPLAY_STAGE_MAP.has(chave)) {
+    return DISPLAY_STAGE_MAP.get(chave).index;
   }
 
   return ETAPAS.findIndex((etapa) => etapa.codigo === chave);
+}
+
+function getDisplayStageMeta(idOuCodigo) {
+  const chave = String(idOuCodigo || "").trim().toUpperCase();
+
+  if (!chave) {
+    return null;
+  }
+
+  if (DISPLAY_STAGE_MAP.has(chave)) {
+    return DISPLAY_STAGE_MAP.get(chave);
+  }
+
+  const directIndex = ETAPAS.findIndex((etapa) => etapa.id === chave || etapa.codigo === chave);
+
+  if (directIndex === -1) {
+    return null;
+  }
+
+  return {
+    index: directIndex,
+    alias: chave,
+    segmentIndex: 0,
+    segmentCount: 1,
+    isGrouped: false
+  };
+}
+
+function normalizeGroupedPercent(meta, status, percentual) {
+  const informed = clampPercent(percentual);
+
+  if (!meta || !meta.isGrouped) {
+    return informed;
+  }
+
+  const segmentSize = 100 / meta.segmentCount;
+  const segmentStart = meta.segmentIndex * segmentSize;
+  const segmentEnd = segmentStart + segmentSize;
+
+  if (status === "done") {
+    return Math.round(segmentEnd);
+  }
+
+  if (status === "active" || status === "error") {
+    const localPercent = informed ?? 8;
+    return Math.round(segmentStart + ((segmentEnd - segmentStart) * localPercent) / 100);
+  }
+
+  return informed;
 }
 
 function getEtapaDescricao(status, mensagem) {
@@ -751,9 +1402,9 @@ function getEtapaDescricao(status, mensagem) {
   }
 
   if (status === "active") return "Em processamento";
-  if (status === "done") return "Concluido";
+  if (status === "done") return "Concluído";
   if (status === "error") return "Falha na etapa";
-  return "Aguardando execucao";
+  return "Aguardando execução";
 }
 
 function normalizarStatusTempoReal(status) {
@@ -771,17 +1422,38 @@ function normalizarStatusTempoReal(status) {
     return "error";
   }
 
+  if (STATUS_CANCELADO.has(valor)) {
+    return "error";
+  }
+
   return "pending";
 }
 
+// Funcao chamada pelo Python para reiniciar visualmente o progresso.
 window.resetarProgresso = function resetarProgresso() {
   limparPainel();
 };
 
+// Recebe eventos em tempo real do backend e processa no próximo frame visual.
 window.atualizarProgresso = function atualizarProgresso(payloadOrEtapa, status, mensagem = "", percentual = null) {
-  processarEtapaTempoReal(payloadOrEtapa, status, mensagem, percentual);
+  const payload = typeof payloadOrEtapa === "object" && payloadOrEtapa !== null
+    ? payloadOrEtapa
+    : { etapa: payloadOrEtapa, status, mensagem, percentual };
+
+  pendingProgressEvents.push(payload);
+
+  if (!pendingProgressFrame) {
+    pendingProgressFrame = window.requestAnimationFrame(() => {
+      pendingProgressFrame = 0;
+
+      while (pendingProgressEvents.length) {
+        processarEtapaTempoReal(pendingProgressEvents.shift());
+      }
+    });
+  }
 };
 
+// Volta todas as etapas para aguardando execução.
 function resetarEtapas() {
   state.etapaAtual = null;
   state.etapasStatus = ETAPAS.map(() => "pending");
@@ -820,6 +1492,7 @@ function falharEtapa(index, mensagem = "") {
   setEtapa(index, "error", null, mensagem);
 }
 
+// Monta o HTML das etapas de progresso uma unica vez.
 function construirEtapas() {
   const etapasRoot = el("etapas");
 
@@ -841,7 +1514,7 @@ function construirEtapas() {
       <span class="etapa-code">${etapa.codigo}</span>
       <div class="etapa-copy">
         <strong>${etapa.titulo}</strong>
-        <small>Aguardando execucao</small>
+        <small>Aguardando execução</small>
       </div>
     `;
 
@@ -858,6 +1531,7 @@ function construirEtapas() {
   state.etapasConstruidas = true;
 }
 
+// Atualiza uma etapa especifica, incluindo barra verde e mensagem.
 function setEtapa(index, status = "pending", percentual = null, mensagem = "") {
   if (!Number.isInteger(index) || index < 0 || index >= ETAPAS.length) {
     return;
@@ -907,15 +1581,17 @@ function setEtapa(index, status = "pending", percentual = null, mensagem = "") {
   }
 }
 
+// Traduz o evento do backend para o comportamento visual correto da etapa.
 function processarEtapaTempoReal(payloadOrEtapa, status, mensagem = "", percentual = null) {
   const payload = typeof payloadOrEtapa === "object" && payloadOrEtapa !== null
     ? payloadOrEtapa
     : { etapa: payloadOrEtapa, status, mensagem, percentual };
 
-  const index = getEtapaIndexById(payload.etapa);
+  const meta = getDisplayStageMeta(payload.etapa);
+  const index = meta ? meta.index : -1;
   const statusNormalizado = normalizarStatusTempoReal(payload.status);
   const mensagemEtapa = String(payload.mensagem || "");
-  const percentualEtapa = clampPercent(payload.percentual);
+  const percentualEtapa = normalizeGroupedPercent(meta, statusNormalizado, payload.percentual);
 
   if (index === -1) {
     return;
@@ -928,10 +1604,15 @@ function processarEtapaTempoReal(payloadOrEtapa, status, mensagem = "", percentu
   }
 
   if (statusNormalizado === "done") {
+    if (meta?.isGrouped && meta.segmentIndex < meta.segmentCount - 1) {
+      ativarEtapa(index, percentualEtapa, mensagemEtapa);
+      return;
+    }
+
     concluirEtapa(index, mensagemEtapa);
 
     if (index === ETAPAS.length - 1) {
-      setStatus("Concluido", "success");
+      setStatus("Concluído", "success");
     }
     return;
   }
@@ -944,12 +1625,15 @@ function processarEtapaTempoReal(payloadOrEtapa, status, mensagem = "", percentu
 
   setEtapa(index, "pending", 0, mensagemEtapa);
 }
+
+// Limpa somente os logs visíveis ao usuário final.
 function limparLogs() {
   state.logCount = 0;
   updateLogCount();
   renderLogEmptyState();
 }
 
+// Adiciona uma linha ao balao de logs publicos.
 function log(msg, classe = "") {
   const box = el("logBox");
 
@@ -967,6 +1651,7 @@ function log(msg, classe = "") {
   updateLogCount();
 }
 
+// Mantem data e hora do rodape sempre atualizadas.
 function atualizarRodapeInfo() {
   const agora = new Date();
   const data = agora.toLocaleDateString("pt-BR");
@@ -974,6 +1659,7 @@ function atualizarRodapeInfo() {
 
   const novoTextoData = `Data ${data}`;
   const novoTextoHora = `Hora ${hora}`;
+  const novoTextoVersao = `Versão da API ${APP_VERSION}`;
 
   if (state.footerDateText !== novoTextoData) {
     state.footerDateText = novoTextoData;
@@ -984,15 +1670,69 @@ function atualizarRodapeInfo() {
     state.footerTimeText = novoTextoHora;
     el("footerTime").textContent = novoTextoHora;
   }
+
+  if (el("footerVersion").textContent !== novoTextoVersao) {
+    el("footerVersion").textContent = novoTextoVersao;
+  }
 }
 
+function formatarBytes(bytes) {
+  const valor = Number(bytes || 0);
+
+  if (!Number.isFinite(valor) || valor <= 0) {
+    return "0 KB";
+  }
+
+  if (valor >= 1024 * 1024) {
+    return `${(valor / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  return `${Math.max(1, Math.round(valor / 1024))} KB`;
+}
+
+function getFileExtension(name) {
+  const normalized = String(name || "").trim().toLowerCase();
+  const lastDot = normalized.lastIndexOf(".");
+  return lastDot >= 0 ? normalized.slice(lastDot) : "";
+}
+
+// Valida extensao e MIME type dos anexos do Fale Conosco.
+function isSupportedContactFile(file) {
+  const extension = getFileExtension(file?.name);
+  const mimeType = String(file?.type || "").trim().toLowerCase();
+
+  if (!SUPPORTED_CONTACT_EXTENSIONS.has(extension)) {
+    return false;
+  }
+
+  if (mimeType && !SUPPORTED_CONTACT_MIME_TYPES.has(mimeType)) {
+    return false;
+  }
+
+  return true;
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+// Preenche o card de resultado com cliente, faturamento, doc_fat e boleto.
 function preencherResultado(resultado = {}) {
   const box = el("resultBox");
 
+  const valorPedidoOuFaturamento = resultado.pedido || resultado.faturamento || "--";
+  const valorBoletoOuIdentificacao =
+    resultado.boleto || resultado.identificacao_pagamento || "--";
+
   el("resultCliente").textContent = resultado.cliente || "--";
-  el("resultPedido").textContent = resultado.pedido || "--";
+  el("resultPedido").textContent = valorPedidoOuFaturamento;
   el("resultDocFat").textContent = resultado.doc_fat || "--";
-  el("resultBoleto").textContent = resultado.boleto || "--";
+  el("resultBoleto").textContent = valorBoletoOuIdentificacao;
 
   box.classList.remove("hidden");
 }
@@ -1007,8 +1747,41 @@ function esconderResultado() {
   el("resultBoleto").textContent = "--";
 }
 
-function hideResumeBox() {
-  state.resumeCheckpoint = null;
+function cloneCheckpoint(checkpoint) {
+  if (!checkpoint) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(JSON.stringify(checkpoint));
+  } catch (error) {
+    return checkpoint;
+  }
+}
+
+function formatarListaResumoCancelamento(items) {
+  if (!Array.isArray(items) || !items.length) {
+    return "nenhum";
+  }
+
+  return items.map((item) => String(item || "").trim()).filter(Boolean).join("; ") || "nenhum";
+}
+
+function registrarResumoCancelamento(resultado = {}) {
+  const dados = resultado.resultado || {};
+  const ultimaEtapa = dados.ultima_etapa || resultado.etapa || "não informada";
+  const colocados = formatarListaResumoCancelamento(dados.dados_colocados);
+  const pendentes = formatarListaResumoCancelamento(dados.dados_pendentes);
+
+  log(`Cancelamento confirmado. Última função acessada: ${ultimaEtapa}.`, "error");
+  log(`Dados já confirmados: ${colocados}.`);
+  log(`Dados pendentes: ${pendentes}.`, "error");
+}
+
+function hideResumeBox(clearCheckpoint = true) {
+  if (clearCheckpoint) {
+    state.resumeCheckpoint = null;
+  }
 
   const box = el("resumeBox");
   if (!box) {
@@ -1020,13 +1793,14 @@ function hideResumeBox() {
   el("resumeMessage").textContent = "";
 }
 
+// Mostra opção de retomada quando o backend retorna checkpoint após falha.
 function showResumeBox(checkpoint, fallbackMessage = "") {
   if (!checkpoint || !checkpoint.resume_from) {
     hideResumeBox();
     return;
   }
 
-  state.resumeCheckpoint = checkpoint;
+  state.resumeCheckpoint = cloneCheckpoint(checkpoint);
 
   const index = getEtapaIndexById(checkpoint.resume_from);
   const etapa = index >= 0 ? ETAPAS[index] : null;
@@ -1060,15 +1834,178 @@ function toggleLogsPopover(event) {
     closeLogsPopover();
   }
 }
+
+// Abre o modal Fale Conosco e prepara os campos.
 function openContactModal() {
   resetContactForm();
-  el("contactModal").classList.remove("hidden");
+  openModal("contactModal");
   el("contactMatricula").focus();
 }
 
 function closeContactModal() {
-  el("contactModal").classList.add("hidden");
+  closeModal("contactModal");
   resetContactForm();
+}
+
+function openContactSuccessModal(message) {
+  el("contactSuccessMessage").textContent =
+    message || "Favor aguardar o retorno do atendimento interno.";
+  openModal("contactSuccessModal");
+}
+
+function closeContactSuccessModal() {
+  closeModal("contactSuccessModal");
+}
+
+const MODAL_IDS = [
+  "contactModal",
+  "contactSuccessModal",
+  "aboutModal",
+  "batchConfirmModal",
+  "cancelFlowModal"
+];
+
+function modalEstaAberto(id) {
+  const modal = el(id);
+  return modal && !modal.classList.contains("hidden");
+}
+
+// Mantem o scroll preso no modal aberto, evitando que a tela de fundo role.
+function sincronizarScrollDosModais() {
+  const existeModalAberto = MODAL_IDS.some(modalEstaAberto);
+  document.body.classList.toggle("modal-open", existeModalAberto);
+}
+
+function openModal(id) {
+  const modal = el(id);
+
+  if (!modal) {
+    return;
+  }
+
+  modal.classList.remove("hidden");
+  sincronizarScrollDosModais();
+}
+
+function closeModal(id) {
+  const modal = el(id);
+
+  if (!modal) {
+    return;
+  }
+
+  modal.classList.add("hidden");
+  sincronizarScrollDosModais();
+}
+
+function normalizarValorSobre(value, fallback = "--") {
+  const texto = String(value ?? "").trim();
+  return texto || fallback;
+}
+
+function renderAboutRows(rows) {
+  const content = el("aboutContent");
+
+  const linhas = rows
+    .map(([label, value, wide = false]) => `
+      <div class="about-row${wide ? " wide" : ""}">
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(normalizarValorSobre(value))}</strong>
+      </div>
+    `)
+    .join("");
+
+  content.innerHTML = `
+    <div class="about-summary">
+      <strong>Embasa Pedidos SAP</strong>
+      <p>
+        Ferramenta desktop interna para automação assistida de pedidos,
+        faturamento e geração de boleto no SAP GUI.
+      </p>
+    </div>
+
+    <div class="about-grid">
+      ${linhas}
+    </div>
+
+    <div class="about-section">
+      <h3>Escopo operacional</h3>
+      <ul>
+        <li>Consulta e validação de cliente na XD03.</li>
+        <li>Criação de pedido na VA01 e faturamento na VF01.</li>
+        <li>Ajustes pós-faturamento em FB03/VF02 e geração pela F110.</li>
+        <li>Progresso em tempo real, logs resumidos e retomada de fluxo.</li>
+      </ul>
+    </div>
+
+    <div class="about-section">
+      <h3>Responsável</h3>
+      <p>
+        API desenvolvida por Augusto Taylor para apoiar a Gerência de Tesouraria - FAFTA
+        na padronização e aceleração do processo operacional SAP.
+      </p>
+    </div>
+  `;
+}
+
+async function carregarDiagnosticoSobre() {
+  renderAboutRows([
+    ["Produto", "Embasa Pedidos SAP"],
+    ["Versão da API", APP_VERSION],
+    ["Status local", "Carregando diagnóstico..."],
+    ["Integração", "SAP GUI Scripting local"]
+  ]);
+
+  try {
+    if (!window.pywebview?.api?.obter_diagnostico) {
+      renderAboutRows([
+        ["Produto", "Embasa Pedidos SAP"],
+        ["Versão da API", APP_VERSION],
+        ["Status local", "Interface carregada em modo local"],
+        ["Integração", "Backend pywebview indisponível nesta abertura"],
+        ["Interface", "HTML/CSS/JS embarcado"],
+        ["Execução", "Aguardando pywebview para diagnóstico completo", true]
+      ]);
+      return;
+    }
+
+    const diagnostico = await window.pywebview.api.obter_diagnostico();
+    const app = diagnostico?.app || {};
+    const runtime = diagnostico?.runtime || {};
+    const cache = diagnostico?.cache || {};
+    const loadedFrom = Array.isArray(runtime.loaded_from)
+      ? runtime.loaded_from.join(" | ")
+      : "";
+
+    renderAboutRows([
+      ["Produto", app.name || "Embasa Pedidos SAP"],
+      ["Versão da API", app.version || APP_VERSION],
+      ["Status local", "Backend conectado"],
+      ["Integração", "pywebview + SAP GUI Scripting"],
+      ["Empresa SAP", app.company_code || "EMBA"],
+      ["Cache de clientes", `${cache.total || 0} registro(s)`],
+      ["Pasta do executável", runtime.project_root || "--", true],
+      ["Runtime local", runtime.runtime_root || "--", true],
+      ["Configuração carregada", loadedFrom || "Configuração padrão", true],
+      ["Log técnico", diagnostico?.log_file || "--", true],
+    ]);
+  } catch (error) {
+    renderAboutRows([
+      ["Produto", "Embasa Pedidos SAP"],
+      ["Versão da API", APP_VERSION],
+      ["Status local", "Falha ao carregar diagnóstico"],
+      ["Detalhe técnico", String(error), true],
+    ]);
+  }
+}
+
+function openAboutModal() {
+  openModal("aboutModal");
+  carregarDiagnosticoSobre();
+}
+
+function closeAboutModal() {
+  closeModal("aboutModal");
 }
 
 function updateContactCharCount() {
@@ -1076,20 +2013,78 @@ function updateContactCharCount() {
   el("contactCharCount").textContent = `${descricao.length} / 600`;
 }
 
-function handleContactImages() {
-  const files = Array.from(el("contactImagens").files || []);
-  const list = el("contactImageList");
+function getSelectedContactFiles() {
+  return Array.from(el("contactImagens").files || []);
+}
+
+function getContactFilesTotalBytes(files = getSelectedContactFiles()) {
+  return files.reduce((total, file) => total + Number(file.size || 0), 0);
+}
+
+function updateContactUploadMeta(files = getSelectedContactFiles()) {
+  const meta = el("contactUploadMeta");
 
   if (!files.length) {
-    list.className = "image-list empty";
-    list.textContent = "Nenhuma imagem adicionada.";
+    meta.textContent = "Nenhum arquivo selecionado.";
     return;
   }
 
+  meta.textContent = `${files.length} arquivo(s) selecionado(s) • ${formatarBytes(getContactFilesTotalBytes(files))} de 15 MB`;
+}
+
+// Valida anexos escolhidos e renderiza a lista de arquivos selecionados.
+function handleContactImages() {
+  const input = el("contactImagens");
+  const files = getSelectedContactFiles();
+  const list = el("contactImageList");
+  const totalBytes = getContactFilesTotalBytes(files);
+  const invalidFile = files.find((file) => !isSupportedContactFile(file));
+
+  if (invalidFile) {
+    input.value = "";
+    list.className = "image-list empty";
+    list.textContent = "Nenhum arquivo adicionado.";
+    updateContactUploadMeta([]);
+    showContactFeedback(
+      `Tipo de arquivo não suportado: ${invalidFile.name}. Use apenas JPG, JPEG ou PNG.`,
+      false
+    );
+    return;
+  }
+
+  if (totalBytes > MAX_CONTACT_ATTACHMENT_BYTES) {
+    input.value = "";
+    list.className = "image-list empty";
+    list.textContent = "Nenhum arquivo adicionado.";
+    updateContactUploadMeta([]);
+    showContactFeedback(
+      "Tamanho de arquivo não suportado. Os anexos excedem o limite total de 15 MB.",
+      false
+    );
+    return;
+  }
+
+  if (!files.length) {
+    list.className = "image-list empty";
+    list.textContent = "Nenhum arquivo adicionado.";
+    updateContactUploadMeta([]);
+    hideContactFeedback();
+    return;
+  }
+
+  hideContactFeedback();
   list.className = "image-list";
   list.innerHTML = files
-    .map((file) => `<div class="image-pill">${file.name}</div>`)
+    .map(
+      (file) => `
+        <div class="image-pill">
+          <strong>${escapeHtml(file.name)}</strong>
+          <small>${formatarBytes(file.size)}</small>
+        </div>
+      `
+    )
     .join("");
+  updateContactUploadMeta(files);
 }
 
 function showContactFeedback(message, isSuccess) {
@@ -1116,6 +2111,86 @@ function resetContactForm() {
   hideContactFeedback();
 }
 
+// Valida o formulário de atendimento antes de chamar o backend.
+function validarContatoAntesDeEnviar(payload) {
+  if (!payload.matricula) {
+    return "Informe a matrícula.";
+  }
+
+  if (!payload.nome) {
+    return "Informe o nome.";
+  }
+
+  if (!payload.lotacao) {
+    return "Informe a lotação.";
+  }
+
+  if (!payload.setor) {
+    return "Informe o setor.";
+  }
+
+  if (!payload.descricao) {
+    return "Informe a descrição do atendimento.";
+  }
+
+  if (payload.descricao.length > 600) {
+    return "A descrição deve ter no máximo 600 caracteres.";
+  }
+
+  return "";
+}
+
+// Converte arquivo selecionado para base64 antes de enviar ao Python.
+function fileToAttachment(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const commaIndex = result.indexOf(",");
+      const contentBase64 = commaIndex >= 0 ? result.slice(commaIndex + 1) : "";
+
+      resolve({
+        name: file.name,
+        size: Number(file.size || 0),
+        type: file.type || "",
+        content_base64: contentBase64
+      });
+    };
+
+    reader.onerror = () => {
+      reject(new Error(`Não foi possível ler o arquivo ${file.name}.`));
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
+async function coletarAnexosContato() {
+  const files = getSelectedContactFiles();
+
+  if (!files.length) {
+    return [];
+  }
+
+  const invalidFile = files.find((file) => !isSupportedContactFile(file));
+
+  if (invalidFile) {
+    throw new Error(
+      `Tipo de arquivo não suportado: ${invalidFile.name}. Use apenas JPG, JPEG ou PNG.`
+    );
+  }
+
+  const totalBytes = getContactFilesTotalBytes(files);
+
+  if (totalBytes > MAX_CONTACT_ATTACHMENT_BYTES) {
+    throw new Error("Tamanho de arquivo não suportado. Os anexos excedem o limite total de 15 MB.");
+  }
+
+  return Promise.all(files.map(fileToAttachment));
+}
+
+// Envia o Fale Conosco via pywebview.api e exibe retorno ao usuário.
 async function submitContactForm() {
   const submitButton = el("contactSubmitButton");
   const payload = {
@@ -1124,12 +2199,22 @@ async function submitContactForm() {
     lotacao: el("contactLotacao").value.trim(),
     setor: el("contactSetor").value.trim(),
     descricao: el("contactDescricao").value.trim(),
-    imagens: Array.from(el("contactImagens").files || []).map((file) => file.name)
+    imagens: []
   };
+
+  const erroValidacao = validarContatoAntesDeEnviar(payload);
+
+  if (erroValidacao) {
+    showContactFeedback(erroValidacao, false);
+    return;
+  }
 
   try {
     submitButton.disabled = true;
     submitButton.textContent = "Enviando...";
+    hideContactFeedback();
+
+    payload.imagens = await coletarAnexosContato();
 
     const result = await window.pywebview.api.enviar_atendimento(payload);
 
@@ -1138,20 +2223,30 @@ async function submitContactForm() {
       return;
     }
 
-    showContactFeedback(result.msg || "Pedido de Atendimento Enviado Com Sucesso", true);
+    closeContactModal();
+    openContactSuccessModal(
+      result.msg || "Seu pedido foi enviado. Favor aguardar o retorno do atendimento interno."
+    );
 
-    setTimeout(() => {
-      closeContactModal();
-    }, 1800);
+    setTimeout(closeContactSuccessModal, 2400);
   } catch (error) {
-    showContactFeedback(`Falha ao enviar atendimento: ${error}`, false);
+    const message = error instanceof Error ? error.message : String(error);
+    showContactFeedback(`Falha ao enviar atendimento: ${message}`, false);
   } finally {
     submitButton.disabled = false;
     submitButton.textContent = "Enviar";
   }
 }
 
+// Limpa painel, logs, resultados e mensagens para iniciar novo fluxo.
 function limparPainel() {
+  pendingProgressEvents.length = 0;
+
+  if (pendingProgressFrame) {
+    window.cancelAnimationFrame(pendingProgressFrame);
+    pendingProgressFrame = 0;
+  }
+
   limparLogs();
   resetarEtapas();
   esconderResultado();
@@ -1161,6 +2256,7 @@ function limparPainel() {
   closeLogsPopover();
 }
 
+// Fallback antigo: reproduz logs quando o backend nao envia tempo real.
 async function reproduzirFluxo(logs, options = {}) {
   const { finalStatus = "done" } = options;
 
@@ -1178,6 +2274,7 @@ async function reproduzirFluxo(logs, options = {}) {
   }
 }
 
+// Monta o payload final que sera enviado para o Python.
 function montarPayloadAtual() {
   const validacao = validarFormularioAntesDoFluxo();
 
@@ -1196,44 +2293,305 @@ function montarPayloadAtual() {
   };
 }
 
+function montarPayloadsLoteAtual() {
+  const base = validarBaseAntesDoFluxo();
+
+  if (!base) {
+    return null;
+  }
+
+  const enderecoAtual = coletarEndereco();
+  const enderecos = state.empreendimentosFila.map(cloneEndereco);
+
+  if (!enderecos.length || enderecoTemConteudo(enderecoAtual)) {
+    if (!validarEnderecoAntesDoFluxo(enderecoAtual)) {
+      return null;
+    }
+
+    enderecos.push(cloneEndereco(enderecoAtual));
+  }
+
+  if (!enderecos.length) {
+    mostrarErroCampo("enderecoEmpreendimento", "Adicione ao menos um empreendimento para gerar o boleto.");
+    return null;
+  }
+
+  limparMensagensValidacao();
+
+  return enderecos.map((endereco, index) => ({
+    doc: base.docInfo.digitos,
+    tipo: el("tipo").value,
+    valor: el("valor").value,
+    modo_valor: state.valueMode,
+    endereco,
+    _batch: {
+      index: index + 1,
+      total: enderecos.length,
+      empreendimento: endereco.empreendimento
+    }
+  }));
+}
+
+// Bloqueia botões enquanto o fluxo SAP está executando.
 function setFlowButtonsBusy(isBusy, mode = "start") {
   const submitButton = el("submitButton");
   const resumeButton = el("resumeButton");
+  const cancelButton = el("cancelFlowButton");
+
+  state.flowRunning = Boolean(isBusy);
+
+  if (!isBusy) {
+    state.cancelRequested = false;
+  }
 
   submitButton.disabled = isBusy;
-  submitButton.textContent = isBusy ? "Gerando..." : "Gerar Boleto";
+  submitButton.textContent = isBusy
+    ? (mode === "batch" ? "Gerando lote..." : "Gerando...")
+    : "Gerar Boleto";
+
+  if (cancelButton) {
+    cancelButton.disabled = !isBusy || state.cancelRequested;
+    cancelButton.textContent = state.cancelRequested ? "Cancelando..." : "Cancelar criação";
+  }
 
   if (resumeButton) {
     resumeButton.disabled = isBusy;
-    resumeButton.textContent = isBusy && mode === "resume"
-      ? "Retomando..."
-      : "Continuar do ponto de parada";
+    if (isBusy && mode === "resume") {
+      resumeButton.textContent = "Retomando...";
+    } else if (isBusy && mode === "batch") {
+      resumeButton.textContent = "Lote em andamento";
+    } else {
+      resumeButton.textContent = "Continuar do ponto de parada";
+    }
   }
 }
 
+function openCancelFlowModal() {
+  if (!state.flowRunning || state.cancelRequested) {
+    return;
+  }
+
+  const message = el("cancelFlowMessage");
+  const etapa = Number.isInteger(state.etapaAtual) ? ETAPAS[state.etapaAtual] : null;
+
+  message.textContent = etapa
+    ? `A criação está em ${etapa.codigo} - ${etapa.titulo}. O sistema vai cancelar no próximo ponto seguro para evitar erro no SAP.`
+    : "A criação do boleto será interrompida no próximo ponto seguro para evitar erro no SAP.";
+
+  openModal("cancelFlowModal");
+}
+
+function closeCancelFlowModal() {
+  closeModal("cancelFlowModal");
+}
+
+async function confirmarCancelamentoFluxo() {
+  if (!state.flowRunning || state.cancelRequested) {
+    closeCancelFlowModal();
+    return;
+  }
+
+  closeCancelFlowModal();
+  state.cancelRequested = true;
+  setFlowButtonsBusy(true, state.batchRunning ? "batch" : "start");
+  setStatus("Cancelando", "error");
+  log("Cancelamento solicitado pelo usuário. Aguardando próximo ponto seguro...", "error");
+  openLogsPopover();
+
+  try {
+    const resposta = await window.pywebview.api.cancelar_fluxo();
+
+    if (resposta?.msg) {
+      log(resposta.msg, resposta.ok ? "" : "error");
+    }
+  } catch (error) {
+    log(`Não foi possível solicitar cancelamento ao backend: ${error}`, "error");
+  }
+}
+
+function aguardarConfirmacaoBoletoLote(payload, resultado, proximoIndex, total) {
+  return new Promise((resolve) => {
+    const modal = el("batchConfirmModal");
+    const message = el("batchConfirmMessage");
+    const continueButton = el("batchConfirmContinue");
+    const pauseButton = el("batchConfirmPause");
+    const nome = payload.endereco?.empreendimento || `empreendimento ${proximoIndex}`;
+    const proximoNome = state.empreendimentosFila[proximoIndex]?.empreendimento || `empreendimento ${proximoIndex + 1}`;
+    const docFat = resultado?.resultado?.doc_fat || resultado?.resultado?.faturamento || "--";
+
+    message.textContent =
+      `Boleto do empreendimento "${nome}" finalizado. Doc. fat: ${docFat}. ` +
+      `Confirme para seguir para "${proximoNome}" (${proximoIndex + 1} de ${total}).`;
+
+    const finalizar = (continuar) => {
+      closeModal("batchConfirmModal");
+      continueButton.onclick = null;
+      pauseButton.onclick = null;
+      resolve(continuar);
+    };
+
+    continueButton.onclick = () => finalizar(true);
+    pauseButton.onclick = () => finalizar(false);
+    openModal("batchConfirmModal");
+  });
+}
+
+function montarCheckpointClienteParaProximo(payload, resultado) {
+  const cliente = resultado?.resultado?.cliente;
+
+  if (!cliente) {
+    return null;
+  }
+
+  return {
+    resume_from: "VA01",
+    contexto: {
+      cliente,
+      documento: payload.doc,
+      tipo_documento: payload.doc.length === 14 ? "CNPJ" : "CPF",
+      valor: payload.valor
+    }
+  };
+}
+
+async function executarLoteEmpreendimentos(payloads) {
+  state.batchRunning = true;
+  setFlowButtonsBusy(true, "batch");
+  hideResumeBox();
+
+  let checkpointCliente = null;
+
+  try {
+    for (let index = 0; index < payloads.length; index += 1) {
+      const payload = payloads[index];
+      const total = payloads.length;
+      const nome = payload.endereco?.empreendimento || `Empreendimento ${index + 1}`;
+      const resume = Boolean(index > 0 && checkpointCliente);
+      const resumoEndereco = formatarEnderecoResumo(payload.endereco || {});
+
+      window.resetarProgresso();
+      log(`Iniciando empreendimento ${index + 1}/${total}: ${nome}.`);
+      log(`Endereço do empreendimento: ${resumoEndereco}.`);
+      setStatus(`Processando ${index + 1}/${total}`, "running");
+      processarEtapaTempoReal(
+        "XD03",
+        resume ? "concluido" : "processando",
+        resume
+          ? `Cliente já validado para o lote. Seguindo com ${nome}.`
+          : `Validando cliente para o lote: ${nome}.`,
+        resume ? 100 : 8
+      );
+
+      const resultado = await executarFluxo(payload, {
+        resume,
+        checkpoint: checkpointCliente,
+        manageButtons: false,
+        resetProgress: false
+      });
+
+      if (!resultado || !resultado.ok) {
+        if (resultado?.cancelado) {
+          log(`Lote cancelado no empreendimento ${index + 1}/${total}: ${nome}.`, "error");
+          setStatus("Cancelado", "error");
+        } else {
+          log(`Lote pausado no empreendimento ${index + 1}/${total}.`, "error");
+          setStatus("Falha no processamento", "error");
+        }
+        return;
+      }
+
+      log(`Empreendimento concluído ${index + 1}/${total}: ${nome}.`);
+      log(`Resultado ${nome}: Cliente ${resultado?.resultado?.cliente || "--"} | Doc. fat ${resultado?.resultado?.doc_fat || resultado?.resultado?.faturamento || "--"} | Boleto ${resultado?.resultado?.boleto || resultado?.resultado?.identificacao_pagamento || "--"}.`);
+      checkpointCliente = montarCheckpointClienteParaProximo(payload, resultado) || checkpointCliente;
+
+      if (index < payloads.length - 1) {
+        const proximoNome = payloads[index + 1]?.endereco?.empreendimento || `Empreendimento ${index + 2}`;
+        setStatus(`Aguardando confirmação ${index + 1}/${total}`, "idle");
+        log(`Aguardando confirmação do boleto de ${nome} para seguir para ${proximoNome}.`);
+
+        const continuar = await aguardarConfirmacaoBoletoLote(
+          payload,
+          resultado,
+          index + 1,
+          total
+        );
+
+        if (!continuar) {
+          log(`Lote pausado pelo usuário após o empreendimento: ${nome}.`);
+          setStatus("Lote pausado", "idle");
+          return;
+        }
+
+        log(`Confirmação recebida. Próximo empreendimento: ${proximoNome}.`);
+      }
+    }
+
+    limparFilaEmpreendimentos();
+    setStatus("Lote concluído", "success");
+    log("Todos os empreendimentos do lote foram processados.");
+  } finally {
+    state.batchRunning = false;
+    setFlowButtonsBusy(false);
+  }
+}
+
+// Chama a API Python para iniciar ou retomar o fluxo SAP.
 async function executarFluxo(payload, options = {}) {
-  const { resume = false } = options;
+  const {
+    resume = false,
+    checkpoint = null,
+    manageButtons = true,
+    resetProgress = true
+  } = options;
+  const resumeCheckpoint = resume
+    ? cloneCheckpoint(checkpoint || state.resumeCheckpoint)
+    : null;
 
   if (!resume) {
     hideResumeBox();
-    window.resetarProgresso();
+    if (resetProgress) {
+      window.resetarProgresso();
+    }
     setStatus("Processando", "running");
   } else {
+    if (!resumeCheckpoint || !resumeCheckpoint.resume_from) {
+      log("Não foi possível retomar: checkpoint ausente ou inválido.", "error");
+      setStatus("Falha no processamento", "error");
+      openLogsPopover();
+      return { ok: false, msg: "Checkpoint ausente ou inválido." };
+    }
+
+    hideResumeBox(false);
     setStatus("Retomando", "running");
+    log(`Retomando a partir de ${resumeCheckpoint.resume_from}.`);
   }
 
-  setFlowButtonsBusy(true, resume ? "resume" : "start");
+  if (manageButtons) {
+    setFlowButtonsBusy(true, resume ? "resume" : "start");
+  }
 
   try {
     const dados = {
       ...payload,
-      _resume_checkpoint: resume ? state.resumeCheckpoint : null
+      _resume_checkpoint: resumeCheckpoint
     };
 
     const res = await window.pywebview.api.gerar_boleto(dados);
     const tempoReal = Boolean(res && res.tempo_real);
 
     if (!res.ok) {
+      if (res.cancelado) {
+        registrarResumoCancelamento(res);
+        preencherResultado(res.resultado || {});
+        showResumeBox(
+          res.checkpoint,
+          "Processo cancelado. Confira a tela do SAP e continue somente se estiver seguro retomar deste ponto."
+        );
+        setStatus("Cancelado", "error");
+        openLogsPopover();
+        return res;
+      }
+
       if (!tempoReal) {
         await reproduzirFluxo(res.logs || [], { finalStatus: "error" });
       }
@@ -1252,7 +2610,7 @@ async function executarFluxo(payload, options = {}) {
       );
       setStatus("Falha no processamento", "error");
       openLogsPopover();
-      return;
+      return res;
     }
 
     hideResumeBox();
@@ -1262,28 +2620,44 @@ async function executarFluxo(payload, options = {}) {
     }
 
     preencherResultado(res.resultado || {});
-    setStatus("Concluido", "success");
+    setStatus("Concluído", "success");
+    return res;
   } catch (error) {
     setStatus("Falha no processamento", "error");
     log(`Falha ao comunicar com o backend: ${error}`, "error");
     openLogsPopover();
+    return { ok: false, msg: String(error) };
   } finally {
-    setFlowButtonsBusy(false);
+    if (manageButtons) {
+      setFlowButtonsBusy(false);
+    }
+    closeCancelFlowModal();
   }
 }
 
+// Handler principal do botao Gerar Boleto.
 async function gerarBoleto() {
-  const payload = montarPayloadAtual();
+  const payloads = montarPayloadsLoteAtual();
 
-  if (!payload) {
+  if (!payloads) {
     return;
   }
 
-  await executarFluxo(payload, { resume: false });
+  if (payloads.length > 1) {
+    await executarLoteEmpreendimentos(payloads);
+    return;
+  }
+
+  await executarFluxo(payloads[0], { resume: false });
 }
 
+// Continua a automacao a partir do checkpoint salvo.
 async function retomarFluxo() {
-  if (!state.resumeCheckpoint) {
+  const checkpoint = cloneCheckpoint(state.resumeCheckpoint);
+
+  if (!checkpoint || !checkpoint.resume_from) {
+    log("Não foi possível retomar: checkpoint ausente ou inválido.", "error");
+    openLogsPopover();
     return;
   }
 
@@ -1293,8 +2667,9 @@ async function retomarFluxo() {
     return;
   }
 
-  await executarFluxo(payload, { resume: true });
+  await executarFluxo(payload, { resume: true, checkpoint });
 }
+
 document.addEventListener("click", (event) => {
   const menu = el("valueMenu");
   const valueButton = el("valueModeButton");
@@ -1306,6 +2681,7 @@ document.addEventListener("click", (event) => {
   const balloon = el("logBalloon");
   const card = el("contactCard");
   const modal = el("contactModal");
+  const cancelModal = el("cancelFlowModal");
 
   if (menu && valueButton && !menu.contains(event.target) && !valueButton.contains(event.target)) {
     fecharMenuValor();
@@ -1328,8 +2704,46 @@ document.addEventListener("click", (event) => {
     closeBaseStatusMenu();
   }
 
-  if (!modal.classList.contains("hidden") && card && !card.contains(event.target) && event.target.classList.contains("contact-backdrop")) {
+  if (
+    !modal.classList.contains("hidden") &&
+    card &&
+    !card.contains(event.target) &&
+    event.target.classList.contains("contact-backdrop")
+  ) {
     closeContactModal();
+  }
+
+  if (
+    cancelModal &&
+    !cancelModal.classList.contains("hidden") &&
+    event.target.classList.contains("contact-backdrop")
+  ) {
+    closeCancelFlowModal();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") {
+    return;
+  }
+
+  if (modalEstaAberto("aboutModal")) {
+    closeAboutModal();
+    return;
+  }
+
+  if (modalEstaAberto("contactModal")) {
+    closeContactModal();
+    return;
+  }
+
+  if (modalEstaAberto("contactSuccessModal")) {
+    closeContactSuccessModal();
+    return;
+  }
+
+  if (modalEstaAberto("cancelFlowModal")) {
+    closeCancelFlowModal();
   }
 });
 
@@ -1344,17 +2758,13 @@ atualizarDocumentoUI("");
 atualizarTipo();
 atualizarModoValorUI();
 registrarValidacaoInterativa();
+registrarCepAutocomplete();
 updateContactCharCount();
 handleContactImages();
 setEmpreendimentoAberto(false);
 setSemNumero(false);
+setSemCep(false);
+renderizarFilaEmpreendimentos();
 limparPainel();
 atualizarRodapeInfo();
 window.setInterval(atualizarRodapeInfo, 1000);
-
-
-
-
-
-
-

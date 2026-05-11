@@ -5,6 +5,7 @@ from pathlib import Path
 from backend.settings import get_runtime_root, get_setting
 
 
+# Cache local de clientes por CPF/CNPJ para evitar busca repetida no XD03.
 class ClienteCache:
     def __init__(self, cache_path: str | None = None):
         self.enabled = bool(get_setting("cache", "enabled", default=True))
@@ -25,6 +26,7 @@ class ClienteCache:
         self._load()
         self._purge_expired()
 
+    # Carrega o cache salvo no disco, quando habilitado.
     def _load(self):
         if not self.enabled or not self.persist_to_disk or not self.cache_path.exists():
             return
@@ -40,6 +42,7 @@ class ClienteCache:
         else:
             self.cache = {}
 
+    # Salva o cache de forma atomica para reduzir risco de arquivo corrompido.
     def _save(self):
         if not self.enabled or not self.persist_to_disk:
             return
@@ -55,6 +58,7 @@ class ClienteCache:
             # Cache local não deve derrubar o fluxo principal.
             return
 
+    # Verifica se um registro passou do prazo de validade.
     def _is_expired(self, registro: dict) -> bool:
         timestamp = str(registro.get("timestamp", "")).strip()
 
@@ -68,6 +72,7 @@ class ClienteCache:
 
         return created_at < datetime.now() - timedelta(days=self.ttl_days)
 
+    # Remove registros vencidos e limita o tamanho total do cache.
     def _purge_expired(self, save_changes=True):
         if not self.cache:
             return False
@@ -95,6 +100,7 @@ class ClienteCache:
 
         return changed
 
+    # Busca um cliente no cache e invalida automaticamente dados vencidos.
     def get(self, documento):
         if not self.enabled:
             return None
@@ -111,6 +117,7 @@ class ClienteCache:
 
         return registro
 
+    # Grava cliente retornado pelo SAP para reuso em proximas execucoes.
     def set(self, documento, dados):
         if not self.enabled:
             return
@@ -120,6 +127,8 @@ class ClienteCache:
             "tipo_documento": dados["tipo_documento"],
             "documento": documento,
             "nome_cliente": dados.get("nome_cliente"),
+            "setores_atividade": dados.get("setores_atividade") or [],
+            "tipos_suportados": dados.get("tipos_suportados") or [],
             "timestamp": datetime.now().isoformat(timespec="seconds"),
         }
 
@@ -133,6 +142,7 @@ class ClienteCache:
     def exists(self, documento):
         return self.get(documento) is not None
 
+    # Limpa todo o cache local.
     def clear(self):
         if not self.cache:
             return
@@ -140,6 +150,7 @@ class ClienteCache:
         self.cache = {}
         self._save()
 
+    # Retorna informacoes de diagnostico do cache para a API/interface.
     def stats(self):
         return {
             "enabled": self.enabled,

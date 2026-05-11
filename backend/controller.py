@@ -1,42 +1,54 @@
-from backend.flows.common import resultado_padrao
+import json
+
 from backend.flows.f110 import f110
 from backend.flows.va01 import criar_pedido
 from backend.flows.vf01 import criar_doc_faturamento
 from backend.flows.vf02 import pos_faturamento
 from backend.flows.xd03 import buscar_cliente
 from backend.sap_connection import conectar_sap
-
-
-ENABLE_F110_NO_FLUXO = False
-FORCAR_TESTE_ISOLADO_F110 = False
-TESTE_F110_CONTEXTO = {
-    "cliente": "",
-    "doc_fat": "",
-    "faturamento": "",
-}
+from backend.utils.sap_waits import (
+    fechar_janelas_secundarias,
+    wait_for_element,
+    wait_until_ready,
+)
 
 
 STAGE_ORDER = [
     "XD03",
     "VA01",
     "VF01",
-    "VF02_CAPTURA",
     "FB03",
     "VF02_RESALVAR",
     "F110",
 ]
-STAGE_INDEX = {stage: index for index, stage in enumerate(STAGE_ORDER)}
-CONTEXTO_CHAVES = (
-    "cliente",
-    "faturamento",
-    "doc_fat",
-    "boleto",
-    "identificacao_pagamento",
-)
+
+STAGE_TRANSACTION = {
+    "XD03": "XD03",
+    "VA01": "VA01",
+    "VF01": "VF01",
+    "FB03": "FB03",
+    "VF02_RESALVAR": "VF02",
+    "F110": "F110",
+}
+
+
+# Modelo unico de resposta para todas as etapas do fluxo SAP.
+def resultado_padrao(ok, etapa, mensagem, dados=None, erro_tecnico=None):
+    return {
+        "ok": ok,
+        "etapa": etapa,
+        "mensagem": mensagem,
+        "dados": dados,
+        "erro_tecnico": erro_tecnico,
+    }
+
+
+# Orquestra a automacao completa na ordem correta e guarda contexto para retomada.
 class SAPController:
     def __init__(self, logger):
         self.logger = logger
 
+    # Envia progresso para a interface sem deixar erro visual parar o fluxo SAP.
     def _notificar_progresso(
         self,
         progress_callback,
@@ -53,9 +65,14 @@ class SAPController:
         except Exception:
             return
 
+    # Converte o nome da etapa em índice para comparar a ordem de execução.
     def _indice_etapa(self, etapa):
-        return STAGE_INDEX.get(str(etapa or "").strip().upper(), -1)
+        try:
+            return STAGE_ORDER.index(str(etapa or "").strip().upper())
+        except ValueError:
+            return -1
 
+    # Decide se uma etapa deve rodar quando o usuário retoma de um checkpoint.
     def _deve_executar(self, etapa, iniciar_em):
         indice_etapa = self._indice_etapa(etapa)
         indice_inicio = self._indice_etapa(iniciar_em)
@@ -65,39 +82,109 @@ class SAPController:
 
         return indice_etapa >= indice_inicio
 
+    # Normaliza o checkpoint recebido do frontend para evitar retomada invalida.
     def _normalizar_checkpoint(self, checkpoint):
+        if isinstance(checkpoint, str):
+            try:
+                checkpoint = json.loads(checkpoint)
+            except Exception:
+                checkpoint = None
+
         if not isinstance(checkpoint, dict):
             return "XD03", {}
 
         iniciar_em = str(checkpoint.get("resume_from") or "XD03").strip().upper()
-        contexto = dict(checkpoint.get("contexto") or {})
+        contexto = dict(
+            checkpoint.get("contexto")
+            or checkpoint.get("dados")
+            or checkpoint.get("resultado")
+            or {}
+        )
 
         if self._indice_etapa(iniciar_em) == -1:
             iniciar_em = "XD03"
 
         return iniciar_em, contexto
 
-    def _criar_contexto(self, contexto_checkpoint):
-        return {
-            chave: contexto_checkpoint.get(chave)
-            for chave in CONTEXTO_CHAVES
-        }
+    # Marca visualmente como concluidas as etapas anteriores ao ponto retomado.
+    def _sincronizar_progresso_retomada(self, progress_callback, iniciar_em):
+        indice_inicio = self._indice_etapa(iniciar_em)
 
-    def _falha_checkpoint_ausente(self, etapa, campo, dados, contexto):
-        return self._falha(
-            etapa=etapa,
-            mensagem=(
-                f"Nao foi possivel retomar o fluxo: {campo} ausente no checkpoint."
-            ),
-            erro_tecnico=f"Checkpoint sem {campo}.",
-            dados=dados,
-            contexto=contexto,
-            resume_from=etapa,
+        if indice_inicio <= 0:
+            return
+
+        for etapa in STAGE_ORDER[:indice_inicio]:
+            self._notificar_progresso(
+                progress_callback,
+                etapa,
+                "concluido",
+                "Etapa já concluída antes da retomada.",
+                100,
+            )
+
+    # Fecha popups simples antes de retomar, sem mandar o SAP para Easy Access.
+    def _fechar_popups_retomada(self, session):
+        self._garantir_janela_unica_sap(session, origem="retomada")
+
+    # Garante que a etapa seguinte comece com apenas a janela principal wnd[0].
+    def _garantir_janela_unica_sap(self, session, origem=""):
+        try:
+            fechadas = fechar_janelas_secundarias(session)
+        except Exception as exc:
+            self.logger.add(
+                -1,
+                f"Não foi possível limpar janelas secundárias do SAP ({origem}): {exc}",
+                nivel="DEBUG",
+            )
+            return 0
+
+        if fechadas:
+            self.logger.add(
+                -1,
+                f"Janelas secundárias SAP fechadas após {origem}: {fechadas}",
+                nivel="DEBUG",
+            )
+
+        return fechadas
+
+    # Ao retomar, abre diretamente a transacao da etapa pendente.
+    def _preparar_tela_para_retomada(self, session, iniciar_em, progress_callback=None):
+        transacao = STAGE_TRANSACTION.get(str(iniciar_em or "").strip().upper())
+
+        if not transacao:
+            return
+
+        self._notificar_progresso(
+            progress_callback,
+            iniciar_em,
+            "processando",
+            f"Preparando retomada em {iniciar_em} via /n{transacao}...",
+            3,
         )
 
+        try:
+            self._fechar_popups_retomada(session)
+            wait_for_element(session, "wnd[0]").maximize()
+            campo_ok = wait_for_element(session, "wnd[0]/tbar[0]/okcd", timeout=5)
+            campo_ok.text = f"/n{transacao}"
+            session.findById("wnd[0]").sendVKey(0)
+            wait_until_ready(session)
+            self.logger.add(
+                -1,
+                f"SAP reposicionado em /n{transacao} para retomar {iniciar_em}.",
+            )
+        except Exception as exc:
+            self.logger.add(
+                -1,
+                f"Não foi possível reposicionar SAP antes da retomada: {exc}",
+                nivel="DEBUG",
+            )
+
+    # Monta apenas os dados seguros/uteis para mostrar na interface.
     def _montar_dados_publicos(self, dados, contexto):
         retorno = {
             "cliente": contexto.get("cliente"),
+            "nome_cliente": contexto.get("nome_cliente"),
             "faturamento": contexto.get("faturamento"),
             "doc_fat": contexto.get("doc_fat"),
             "boleto": contexto.get("boleto"),
@@ -113,12 +200,14 @@ class SAPController:
             if valor not in (None, "")
         }
 
+    # Cria um ponto de retomada para continuar depois de uma falha corrigida no SAP.
     def _montar_checkpoint(self, resume_from, dados, contexto):
         return {
             "resume_from": resume_from,
             "contexto": self._montar_dados_publicos(dados, contexto),
         }
 
+    # Centraliza resposta de erro e inclui checkpoint quando a etapa pode ser retomada.
     def _falha(
         self,
         etapa,
@@ -145,17 +234,116 @@ class SAPController:
 
         return payload
 
-    def executar_fluxo(self, dados, progress_callback=None, resume_checkpoint=None):
+    # Monta resumo legivel do cancelamento para logs e interface.
+    def _resumo_cancelamento(self, etapa, dados, contexto):
+        dados_publicos = self._montar_dados_publicos(dados, contexto)
+        endereco = dados.get("endereco") or {}
+        colocados = []
+        pendentes = []
+
+        if dados_publicos.get("documento"):
+            colocados.append(f"documento {dados_publicos['documento']}")
+
+        if dados.get("tipo"):
+            colocados.append(f"tipo {dados.get('tipo')}")
+
+        if dados_publicos.get("valor"):
+            colocados.append(f"valor {dados_publicos['valor']}")
+
+        if endereco.get("empreendimento"):
+            colocados.append(f"empreendimento {endereco.get('empreendimento')}")
+
+        if contexto.get("cliente"):
+            colocados.append(f"cliente {contexto['cliente']}")
+        else:
+            pendentes.append("código do cliente")
+
+        if contexto.get("faturamento") or contexto.get("doc_fat"):
+            colocados.append(
+                f"doc.fat {contexto.get('doc_fat') or contexto.get('faturamento')}"
+            )
+        else:
+            pendentes.append("documento de faturamento")
+
+        if contexto.get("identificacao_pagamento") or contexto.get("boleto"):
+            colocados.append(
+                f"pagamento {contexto.get('identificacao_pagamento') or contexto.get('boleto')}"
+            )
+        else:
+            pendentes.append("boleto/F110")
+
+        return {
+            **dados_publicos,
+            "ultima_etapa": etapa,
+            "dados_colocados": colocados,
+            "dados_pendentes": pendentes,
+        }
+
+    # Retorna cancelamento padronizado quando o usuário pediu parada segura.
+    def _cancelado(self, etapa, dados, contexto, progress_callback=None):
+        resumo = self._resumo_cancelamento(etapa, dados, contexto)
+        colocados = ", ".join(resumo["dados_colocados"]) or "nenhum dado confirmado"
+        pendentes = ", ".join(resumo["dados_pendentes"]) or "nenhum dado pendente"
+        mensagem = (
+            f"Criação do boleto cancelada pelo usuário. Última função acessada: {etapa}. "
+            f"Dados já confirmados: {colocados}. Dados pendentes: {pendentes}."
+        )
+
+        self.logger.add(-1, mensagem, nivel="ERRO", publico=True)
+        self._notificar_progresso(
+            progress_callback,
+            etapa,
+            "erro",
+            "Processo cancelado pelo usuário.",
+        )
+
+        payload = resultado_padrao(
+            ok=False,
+            etapa=etapa,
+            mensagem=mensagem,
+            dados=resumo,
+            erro_tecnico="Cancelamento solicitado pelo usuário.",
+        )
+        payload["cancelado"] = True
+        payload["checkpoint"] = self._montar_checkpoint(etapa, dados, contexto)
+        return payload
+
+    # Verifica o sinal de cancelamento apenas entre pontos seguros do fluxo.
+    def _verificar_cancelamento(
+        self,
+        cancel_event,
+        etapa,
+        dados,
+        contexto,
+        progress_callback=None,
+    ):
+        if cancel_event is not None and cancel_event.is_set():
+            return self._cancelado(
+                etapa,
+                dados,
+                contexto,
+                progress_callback=progress_callback,
+            )
+
+        return None
+
+    # Executa o fluxo SAP real: conexao, XD03, VA01, VF01, FB03/VF02 e F110.
+    def executar_fluxo(
+        self,
+        dados,
+        progress_callback=None,
+        resume_checkpoint=None,
+        cancel_event=None,
+    ):
         iniciar_em, contexto_checkpoint = self._normalizar_checkpoint(resume_checkpoint)
-
-        if FORCAR_TESTE_ISOLADO_F110:
-            iniciar_em = "F110"
-            contexto_checkpoint = {
-                **contexto_checkpoint,
-                **TESTE_F110_CONTEXTO,
-            }
-
-        contexto = self._criar_contexto(contexto_checkpoint)
+        contexto = {
+            "cliente": contexto_checkpoint.get("cliente"),
+            "nome_cliente": contexto_checkpoint.get("nome_cliente"),
+            "faturamento": contexto_checkpoint.get("faturamento"),
+            "doc_fat": contexto_checkpoint.get("doc_fat"),
+            "boleto": contexto_checkpoint.get("boleto"),
+            "identificacao_pagamento": contexto_checkpoint.get("identificacao_pagamento"),
+        }
 
         try:
             self.logger.add(-1, "Conectando ao SAP...", publico=True)
@@ -169,9 +357,29 @@ class SAPController:
                     -1,
                     f"Retomando fluxo a partir de {iniciar_em}.",
                     publico=True,
-                )
+            )
 
             session = conectar_sap()
+            self._garantir_janela_unica_sap(session, origem="conexão")
+
+            cancelado = self._verificar_cancelamento(
+                cancel_event,
+                iniciar_em,
+                dados,
+                contexto,
+                progress_callback=progress_callback,
+            )
+
+            if cancelado:
+                return cancelado
+
+            if iniciar_em != "XD03":
+                self._sincronizar_progresso_retomada(progress_callback, iniciar_em)
+                self._preparar_tela_para_retomada(
+                    session,
+                    iniciar_em,
+                    progress_callback=progress_callback,
+                )
 
         except Exception as e:
             self.logger.add(-1, f"Erro ao conectar ao SAP: {e}", nivel="ERRO")
@@ -191,6 +399,17 @@ class SAPController:
             )
 
         if self._deve_executar("XD03", iniciar_em):
+            cancelado = self._verificar_cancelamento(
+                cancel_event,
+                "XD03",
+                dados,
+                contexto,
+                progress_callback=progress_callback,
+            )
+
+            if cancelado:
+                return cancelado
+
             resultado_xd03 = buscar_cliente(
                 session,
                 dados,
@@ -210,15 +429,46 @@ class SAPController:
                 )
 
             contexto["cliente"] = resultado_xd03["dados"]["cliente"]
+            contexto["nome_cliente"] = resultado_xd03["dados"].get("nome_cliente")
             self.logger.add(
                 0,
                 f"Cliente validado: {contexto['cliente']}",
                 publico=True,
             )
+            self._garantir_janela_unica_sap(session, origem="XD03")
+
+            cancelado = self._verificar_cancelamento(
+                cancel_event,
+                "VA01",
+                dados,
+                contexto,
+                progress_callback=progress_callback,
+            )
+
+            if cancelado:
+                return cancelado
         elif not contexto.get("cliente"):
-            return self._falha_checkpoint_ausente("XD03", "cliente", dados, contexto)
+            return self._falha(
+                etapa="XD03",
+                mensagem="Não foi possível retomar o fluxo: cliente ausente no checkpoint.",
+                erro_tecnico="Checkpoint sem cliente.",
+                dados=dados,
+                contexto=contexto,
+                resume_from="XD03",
+            )
 
         if self._deve_executar("VA01", iniciar_em):
+            cancelado = self._verificar_cancelamento(
+                cancel_event,
+                "VA01",
+                dados,
+                contexto,
+                progress_callback=progress_callback,
+            )
+
+            if cancelado:
+                return cancelado
+
             resultado_va01 = criar_pedido(
                 session,
                 dados,
@@ -238,7 +488,31 @@ class SAPController:
                     resume_from="VA01",
                 )
 
+            self._garantir_janela_unica_sap(session, origem="VA01")
+
+            cancelado = self._verificar_cancelamento(
+                cancel_event,
+                "VF01",
+                dados,
+                contexto,
+                progress_callback=progress_callback,
+            )
+
+            if cancelado:
+                return cancelado
+
         if self._deve_executar("VF01", iniciar_em):
+            cancelado = self._verificar_cancelamento(
+                cancel_event,
+                "VF01",
+                dados,
+                contexto,
+                progress_callback=progress_callback,
+            )
+
+            if cancelado:
+                return cancelado
+
             resultado_vf01 = criar_doc_faturamento(
                 session,
                 self.logger,
@@ -262,17 +536,29 @@ class SAPController:
                 or resultado_vf01["dados"].get("faturamento")
                 or contexto.get("doc_fat")
             )
-        elif iniciar_em != "F110" and not contexto.get("faturamento"):
-            return self._falha_checkpoint_ausente(
-                "VF01",
-                "faturamento",
+            self._garantir_janela_unica_sap(session, origem="VF01")
+
+            cancelado = self._verificar_cancelamento(
+                cancel_event,
+                "FB03",
                 dados,
                 contexto,
+                progress_callback=progress_callback,
             )
 
-        if self._deve_executar("VF02_CAPTURA", iniciar_em):
-            inicio_pos_faturamento = "VF02_CAPTURA"
-        elif self._deve_executar("FB03", iniciar_em):
+            if cancelado:
+                return cancelado
+        elif not contexto.get("faturamento"):
+            return self._falha(
+                etapa="VF01",
+                mensagem="Não foi possível retomar o fluxo: faturamento ausente no checkpoint.",
+                erro_tecnico="Checkpoint sem faturamento.",
+                dados=dados,
+                contexto=contexto,
+                resume_from="VF01",
+            )
+
+        if self._deve_executar("FB03", iniciar_em):
             inicio_pos_faturamento = "FB03"
         elif self._deve_executar("VF02_RESALVAR", iniciar_em):
             inicio_pos_faturamento = "VF02_RESALVAR"
@@ -280,67 +566,98 @@ class SAPController:
             inicio_pos_faturamento = None
 
         if inicio_pos_faturamento:
+            cancelado = self._verificar_cancelamento(
+                cancel_event,
+                inicio_pos_faturamento,
+                dados,
+                contexto,
+                progress_callback=progress_callback,
+            )
+
+            if cancelado:
+                return cancelado
+
             resultado_vf02 = pos_faturamento(
                 session,
                 contexto["faturamento"],
                 self.logger,
                 progress_callback=progress_callback,
                 start_from=inicio_pos_faturamento,
-                existing_doc_fat=contexto.get("doc_fat"),
             )
 
             if not resultado_vf02["ok"]:
-                contexto["doc_fat"] = (
-                    (resultado_vf02.get("dados") or {}).get("doc_fat")
-                    or contexto.get("doc_fat")
-                )
                 contexto["faturamento"] = (
                     (resultado_vf02.get("dados") or {}).get("faturamento")
                     or contexto.get("faturamento")
                 )
 
                 return self._falha(
-                    etapa=resultado_vf02.get("etapa") or "VF02_CAPTURA",
+                    etapa=resultado_vf02.get("etapa") or "FB03",
                     mensagem=resultado_vf02["mensagem"],
                     erro_tecnico=resultado_vf02.get("erro_tecnico"),
                     dados=dados,
                     contexto=contexto,
-                    resume_from=resultado_vf02.get("etapa") or "VF02_CAPTURA",
+                    resume_from=resultado_vf02.get("etapa") or "FB03",
                 )
 
-            contexto["doc_fat"] = resultado_vf02["dados"]["doc_fat"]
             contexto["faturamento"] = resultado_vf02["dados"]["faturamento"]
-        elif iniciar_em != "F110" and not contexto.get("doc_fat"):
-            return self._falha_checkpoint_ausente(
-                "VF02_CAPTURA",
-                "doc_fat",
+            self._garantir_janela_unica_sap(session, origem="FB03/VF02")
+
+            cancelado = self._verificar_cancelamento(
+                cancel_event,
+                "F110",
                 dados,
                 contexto,
+                progress_callback=progress_callback,
             )
 
-        if not ENABLE_F110_NO_FLUXO:
-            self.logger.add(
-                6,
-                "F110 mantido em modo mockado e fora do fluxo principal nesta versao.",
-            )
-
-            return resultado_padrao(
-                ok=True,
-                etapa="VF02_RESALVAR",
-                mensagem=(
-                    "Fluxo executado com sucesso ate o re-salvamento do faturamento. "
-                    "F110 permanece desativado no fluxo principal."
-                ),
-                dados=self._montar_dados_publicos(dados, contexto),
-            )
+            if cancelado:
+                return cancelado
 
         if self._deve_executar("F110", iniciar_em):
+            cancelado = self._verificar_cancelamento(
+                cancel_event,
+                "F110",
+                dados,
+                contexto,
+                progress_callback=progress_callback,
+            )
+
+            if cancelado:
+                return cancelado
+
+            if not contexto.get("cliente"):
+                return self._falha(
+                    etapa="F110",
+                    mensagem="Não foi possível seguir para F110: cliente ausente.",
+                    erro_tecnico="Contexto sem cliente.",
+                    dados=dados,
+                    contexto=contexto,
+                    resume_from="F110",
+                )
+
+            if not contexto.get("doc_fat"):
+                return self._falha(
+                    etapa="F110",
+                    mensagem="Não foi possível seguir para F110: doc_fat ausente.",
+                    erro_tecnico="Contexto sem doc_fat.",
+                    dados=dados,
+                    contexto=contexto,
+                    resume_from="F110",
+                )
+
+            dados_f110 = {
+                **dados,
+                "nome_cliente": contexto.get("nome_cliente"),
+            }
+
             resultado_f110 = f110(
                 session,
                 contexto["cliente"],
                 contexto["doc_fat"],
                 self.logger,
                 progress_callback=progress_callback,
+                dados=dados_f110,
             )
 
             if not resultado_f110["ok"]:
@@ -349,9 +666,7 @@ class SAPController:
                     or contexto.get("boleto")
                 )
                 contexto["identificacao_pagamento"] = (
-                    (resultado_f110.get("dados") or {}).get(
-                        "identificacao_pagamento"
-                    )
+                    (resultado_f110.get("dados") or {}).get("identificacao_pagamento")
                     or contexto.get("identificacao_pagamento")
                 )
 
@@ -364,10 +679,11 @@ class SAPController:
                     resume_from="F110",
                 )
 
-            contexto["boleto"] = resultado_f110["dados"].get("boleto")
-            contexto["identificacao_pagamento"] = resultado_f110["dados"].get(
-                "identificacao_pagamento"
+            contexto["boleto"] = (resultado_f110.get("dados") or {}).get("boleto")
+            contexto["identificacao_pagamento"] = (
+                (resultado_f110.get("dados") or {}).get("identificacao_pagamento")
             )
+            self._garantir_janela_unica_sap(session, origem="F110")
 
         return resultado_padrao(
             ok=True,

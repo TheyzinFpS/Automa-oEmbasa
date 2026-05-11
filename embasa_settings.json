@@ -1,8 +1,11 @@
 {
   "app": {
     "name": "EMBASA",
-    "version": "2026.04.14",
+    "version": "1.1",
     "company_code": "EMBA"
+  },
+  "startup": {
+    "require_sap_session": true
   },
   "security": {
     "mask_documents_in_logs": true
@@ -14,7 +17,7 @@
     "max_entries": 2000,
     "file_name": "cliente_cache.json"
   },
-  "automation": {
-    "observation_delay_seconds": 2.0
+  "support": {
+    "notification_email_enabled": false
   }
 }

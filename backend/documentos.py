@@ -1,10 +1,12 @@
 import re
 
 
+# Remove máscara de CPF/CNPJ e deixa somente números para enviar ao SAP.
 def limpar_doc(valor):
     return re.sub(r"\D", "", str(valor or ""))
 
 
+# Identifica se o documento limpo e CPF ou CNPJ pelo tamanho.
 def tipo_documento(doc):
     doc_limpo = limpar_doc(doc)
 
@@ -15,10 +17,11 @@ def tipo_documento(doc):
         return "cnpj"
 
     raise ValueError(
-        f"Documento invalido: esperado 11 (CPF) ou 14 (CNPJ), recebido {len(doc_limpo)}"
+        f"Documento inválido: esperado 11 (CPF) ou 14 (CNPJ), recebido {len(doc_limpo)}"
     )
 
 
+# Aplica mascara visual de CPF/CNPJ apenas para interface/feedback.
 def formatar_doc(doc):
     digitos = limpar_doc(doc)[:14]
 
@@ -58,6 +61,7 @@ def formatar_doc(doc):
     return cnpj_base
 
 
+# Retorna metadados do documento para validacao progressiva na UI/backend.
 def analisar_doc(doc):
     digitos = limpar_doc(doc)[:14]
     total = len(digitos)

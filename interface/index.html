@@ -9,6 +9,11 @@
 <body>
   <div class="app-shell">
     <div class="top-actions">
+      <button id="aboutToggle" class="theme-toggle utility-toggle" type="button" onclick="openAboutModal()">
+        <span class="theme-icon">?</span>
+        <span>Sobre</span>
+      </button>
+
       <button id="themeToggle" class="theme-toggle" type="button" onclick="toggleTheme()">
         <span id="themeIcon" class="theme-icon">T</span>
         <span id="themeLabel">Modo escuro</span>
@@ -33,13 +38,13 @@
         <div class="hero-bottom-meta">
           <div class="hero-signature">
             <p class="hero-signature-title">API Desenvolvida por Augusto Taylor</p>
-            <p class="hero-signature-sub">Ger&ecirc;ncia de Tesouraria - FAFTF</p>
+            <p class="hero-signature-sub">Ger&ecirc;ncia de Tesouraria - FAFTA</p>
           </div>
 
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.0</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.1</span>
           </div>
         </div>
       </div>
@@ -47,7 +52,7 @@
       <div class="hero-kpis">
         <div>
           <span>Fluxo principal</span>
-          <strong>XD03 &rarr; VA01 &rarr; VF01 &rarr; VF02 &rarr; FB03 &rarr; VF02 &rarr; F110</strong>
+          <strong>XD03 &rarr; VA01 &rarr; VF01 &rarr; FB03 &rarr; VF02 &rarr; F110</strong>
         </div>
 
         <div id="baseStatusCard" class="hero-status-card status-active">
@@ -264,7 +269,17 @@
                 </label>
 
                 <label class="field">
-                  <span>CEP</span>
+                  <div class="field-row">
+                    <span>CEP</span>
+                    <button
+                      id="semCepButton"
+                      class="inline-toggle"
+                      type="button"
+                      onclick="toggleSemCep()"
+                    >
+                      Sem CEP
+                    </button>
+                  </div>
                   <input
                     id="enderecoCep"
                     type="text"
@@ -320,13 +335,56 @@
                   />
                 </label>
               </div>
+
+              <div class="batch-builder">
+                <div class="batch-copy">
+                  <strong>Fila de empreendimentos</strong>
+                  <small>
+                    Use o + para adicionar v&aacute;rios empreendimentos do mesmo cliente.
+                  </small>
+                </div>
+
+                <div class="batch-actions">
+                  <button
+                    id="addEmpreendimentoButton"
+                    class="batch-add-button"
+                    type="button"
+                    onclick="adicionarEmpreendimentoNaFila()"
+                  >
+                    + Adicionar
+                  </button>
+                  <button
+                    id="clearEmpreendimentosButton"
+                    class="batch-clear-button"
+                    type="button"
+                    onclick="limparFilaEmpreendimentos()"
+                  >
+                    Limpar fila
+                  </button>
+                </div>
+              </div>
+
+              <div id="empreendimentoQueue" class="batch-queue empty">
+                Nenhum empreendimento adicional na fila.
+              </div>
             </div>
           </div>
         </section>
 
-        <button id="submitButton" class="primary-action" onclick="gerarBoleto()">
-          Gerar Boleto
-        </button>
+        <div class="flow-actions">
+          <button id="submitButton" class="primary-action" onclick="gerarBoleto()">
+            Gerar Boleto
+          </button>
+          <button
+            id="cancelFlowButton"
+            class="danger-action"
+            type="button"
+            onclick="openCancelFlowModal()"
+            disabled
+          >
+            Cancelar criação
+          </button>
+        </div>
 
       </section>
 
@@ -466,19 +524,30 @@
         </label>
 
         <label class="field">
-          <span>Imagens</span>
+          <span>Anexos</span>
           <input
             id="contactImagens"
-            class="file-input"
+            class="file-input-hidden"
             type="file"
-            accept="image/*"
+            accept=".jpg,.jpeg,.png,image/jpeg,image/png"
             multiple
             onchange="handleContactImages()"
           />
+          <label for="contactImagens" class="upload-dropzone">
+            <div class="upload-dropzone-icon">&#8679;</div>
+            <div class="upload-dropzone-copy">
+              <strong>Inserir arquivo</strong>
+              <small>Somente JPG, JPEG ou PNG, com at&eacute; 15 MB no total.</small>
+            </div>
+            <span class="upload-dropzone-action">Selecionar</span>
+          </label>
+          <p id="contactUploadMeta" class="field-hint">
+            Nenhum arquivo selecionado.
+          </p>
         </label>
 
         <div id="contactImageList" class="image-list empty">
-          Nenhuma imagem adicionada.
+          Nenhum arquivo adicionado.
         </div>
 
         <div id="contactFeedback" class="contact-feedback hidden"></div>
@@ -490,6 +559,112 @@
           onclick="submitContactForm()"
         >
           Enviar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="contactSuccessModal" class="contact-success-modal hidden">
+    <div class="contact-backdrop" onclick="closeContactSuccessModal()"></div>
+
+    <div class="contact-success-card">
+      <p class="section-kicker">Atendimento enviado</p>
+      <h2>Seu pedido foi enviado</h2>
+      <p id="contactSuccessMessage">
+        Favor aguardar o retorno do atendimento interno.
+      </p>
+      <button
+        type="button"
+        class="primary-action"
+        onclick="closeContactSuccessModal()"
+      >
+        Entendi
+      </button>
+    </div>
+  </div>
+
+  <div id="aboutModal" class="contact-success-modal hidden">
+    <div class="contact-backdrop" onclick="closeAboutModal()"></div>
+
+    <div class="contact-success-card about-card">
+      <div class="contact-head about-head">
+        <div>
+          <p class="section-kicker">Informa&ccedil;&otilde;es t&eacute;cnicas</p>
+          <h2>Sobre o sistema</h2>
+        </div>
+
+        <button type="button" class="log-close" onclick="closeAboutModal()">Fechar</button>
+      </div>
+
+      <div id="aboutContent" class="about-content">
+        <div class="about-summary">
+          <strong>Embasa Pedidos SAP</strong>
+          <p>
+            Ferramenta desktop interna para automa&ccedil;&atilde;o assistida de pedidos,
+            faturamento e gera&ccedil;&atilde;o de boleto no SAP GUI.
+          </p>
+        </div>
+        <div class="about-row">
+          <span>Status</span>
+          <strong>Carregando diagn&oacute;stico local...</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="batchConfirmModal" class="contact-success-modal hidden">
+    <div class="contact-backdrop"></div>
+
+    <div class="contact-success-card batch-confirm-card">
+      <p class="section-kicker">Boleto gerado</p>
+      <h2>Confirmar continuidade</h2>
+      <p id="batchConfirmMessage">
+        Confirme que o boleto foi gerado para prosseguir.
+      </p>
+      <div class="batch-confirm-actions">
+        <button
+          id="batchConfirmContinue"
+          type="button"
+          class="primary-action"
+        >
+          Boleto confirmado
+        </button>
+        <button
+          id="batchConfirmPause"
+          type="button"
+          class="ghost-action"
+        >
+          Pausar lote
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="cancelFlowModal" class="contact-success-modal hidden">
+    <div class="contact-backdrop"></div>
+
+    <div class="contact-success-card batch-confirm-card cancel-confirm-card">
+      <p class="section-kicker">Cancelar processo</p>
+      <h2>Tem certeza?</h2>
+      <p id="cancelFlowMessage">
+        A criação do boleto será interrompida no próximo ponto seguro para evitar erro no SAP.
+      </p>
+      <div class="batch-confirm-actions">
+        <button
+          id="cancelFlowConfirm"
+          type="button"
+          class="danger-action danger-action-solid"
+          onclick="confirmarCancelamentoFluxo()"
+        >
+          Sim, cancelar
+        </button>
+        <button
+          id="cancelFlowDismiss"
+          type="button"
+          class="ghost-action"
+          onclick="closeCancelFlowModal()"
+        >
+          Não, continuar
         </button>
       </div>
     </div>

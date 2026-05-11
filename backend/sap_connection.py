@@ -1,9 +1,10 @@
 SAP_STARTUP_MESSAGE = (
-    "Nao foi possivel localizar uma sessão logada do SAP.\n\n"
+    "Não foi possível localizar uma sessão logada do SAP.\n\n"
     "Abra o SAP, faça login e tente novamente."
 )
 
 
+# Importa pywin32 somente quando o app precisa conversar com o SAP GUI.
 def _importar_win32com():
     try:
         import win32com.client  # type: ignore
@@ -11,11 +12,12 @@ def _importar_win32com():
         return win32com.client
     except ImportError as exc:
         raise Exception(
-            "Nao foi possivel importar o pywin32/win32com. "
+            "Não foi possível importar o pywin32/win32com. "
             "Instale o pywin32 no ambiente Python usado pelo projeto."
         ) from exc
 
 
+# Percorre todas as conexoes/sessoes abertas no SAP GUI.
 def _iterar_sessoes(application):
     try:
         total_conexoes = int(application.Children.Count)
@@ -36,12 +38,14 @@ def _iterar_sessoes(application):
                 continue
 
 
+# Considera a sessão pronta quando já existe janela principal e campo de comando.
 def _sessao_esta_pronta(session):
     session.findById("wnd[0]")
     session.findById("wnd[0]/tbar[0]/okcd")
     return True
 
 
+# Diagnostica se existe uma sessão SAP logada e pronta para automação.
 def diagnosticar_sap():
     try:
         win32_client = _importar_win32com()
@@ -55,7 +59,7 @@ def diagnosticar_sap():
             "session": None,
         }
 
-    ultimo_erro = "Nenhuma sessao SAP pronta foi encontrada."
+    ultimo_erro = "Nenhuma sessão SAP pronta foi encontrada."
 
     for session in _iterar_sessoes(application):
         try:
@@ -77,6 +81,7 @@ def diagnosticar_sap():
     }
 
 
+# Retorna a sessão SAP pronta ou dispara erro explicativo para o controller.
 def conectar_sap():
     diagnostico = diagnosticar_sap()
 

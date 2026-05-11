@@ -4,6 +4,7 @@ from backend.security import mask_sensitive_text
 from backend.settings import get_runtime_root, get_setting
 
 
+# Logger central: separa logs técnicos de logs visíveis ao usuário final.
 class Logger:
     def __init__(self):
         self.logs = []
@@ -15,6 +16,7 @@ class Logger:
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.log_file_path = self.log_dir / "processo_tecnico.log"
 
+    # Persiste log tecnico em arquivo local para auditoria/debug.
     def _write_to_file(self, log):
         line = (
             f"[{log['timestamp']}] "
@@ -29,6 +31,7 @@ class Logger:
         except OSError:
             return
 
+    # Registra um evento e mascara documentos quando configurado.
     def add(self, etapa, msg, nivel="INFO", publico=False):
         safe_msg = str(msg or "")
 
@@ -57,9 +60,11 @@ class Logger:
     def debug(self, etapa, msg, publico=False):
         self.add(etapa, msg, "DEBUG", publico=publico)
 
+    # Retorna somente os logs publicos por padrao para nao poluir a interface.
     def get_logs(self, public_only=True):
         return self.public_logs if public_only else self.logs
 
+    # Limpa a memoria de logs no inicio de um novo fluxo.
     def clear(self):
         self.logs.clear()
         self.public_logs.clear()

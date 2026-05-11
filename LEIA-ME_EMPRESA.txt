@@ -1,0 +1,72 @@
+EMBASA PEDIDOS SAP - GUIA ÚNICO DE USO E PUBLICAÇÃO
+Versão: 1.1
+Atualizado em: 11/05/2026
+
+1. O QUE O USUÁRIO FINAL DEVE ABRIR
+O atalho do usuário deve apontar para:
+N:\DF\FAFT\documentos\Gerir Tesouraria\Outros recebíveis\Serviços técnicos\Geracao Boletos Automaticos\EmbasaPedidosSAP\EmbasaPedidosSAP.exe
+
+Antes de abrir:
+- SAP GUI aberto.
+- Usuário logado no ambiente correto.
+- Sessão SAP pronta para automação.
+
+2. O QUE DEVE EXISTIR NA PASTA DA REDE
+Dentro da pasta EmbasaPedidosSAP devem existir, no mínimo:
+- EmbasaPedidosSAP.exe
+- _internal
+- embasa_settings.json
+- LEIA-ME_EMPRESA.txt
+- VERSAO.txt
+
+Não copie apenas o .exe. O build é onedir e precisa da pasta inteira.
+
+3. COMO GERAR UMA NOVA VERSÃO
+No computador de manutenção, dentro da pasta do código-fonte, rode:
+
+powershell -ExecutionPolicy Bypass -File .\build_empresarial.ps1
+
+Esse comando recria a .venv local, instala as dependências e gera:
+dist\EmbasaPedidosSAP
+
+4. COMO PUBLICAR NA REDE
+Depois do build, rode:
+
+powershell -ExecutionPolicy Bypass -File .\publicar_rede.ps1
+
+O script já usa como destino padrão:
+N:\DF\FAFT\documentos\Gerir Tesouraria\Outros recebíveis\Serviços técnicos\Geracao Boletos Automaticos\EmbasaPedidosSAP
+
+Se precisar publicar em outro local, informe o destino manualmente:
+
+powershell -ExecutionPolicy Bypass -File .\publicar_rede.ps1 -DestinoRede "CAMINHO_DA_REDE"
+
+5. SOBRE EXECUTAR PELA REDE
+Quando aberto pela unidade N:, o sistema copia automaticamente a pasta do aplicativo para:
+%LOCALAPPDATA%\EMBASA\Runtime
+
+Depois ele relança o executável dessa cópia local.
+Isso evita falhas do pythonnet/.NET ao carregar DLL diretamente pela rede.
+Na primeira abertura após uma atualização pode demorar alguns segundos a mais.
+
+6. SE DER ERRO ANTES DA INTERFACE ABRIR
+Verifique o log:
+%TEMP%\EMBASA\startup.log
+
+Erros comuns:
+- SAP não está aberto/logado.
+- Pasta da rede incompleta, faltando _internal.
+- Usuário abriu um .exe copiado sozinho, fora da pasta onedir.
+- Microsoft Edge WebView2 Runtime ausente.
+- .NET Desktop Runtime ausente.
+
+7. TESTE RÁPIDO APÓS PUBLICAR
+- Abrir o SAP e fazer login.
+- Abrir o atalho do EmbasaPedidosSAP.exe pela rede.
+- Confirmar que a interface abriu.
+- Fazer um teste com dados reais controlados.
+- Verificar se o progresso em tempo real, cancelamento e logs aparecem corretamente.
+
+8. OBSERVAÇÃO
+Não é necessário instalar Python, VS Code ou Git nos computadores dos usuários finais.
+Python só é necessário no computador de manutenção para gerar novo build.

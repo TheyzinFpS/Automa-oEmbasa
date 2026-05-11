@@ -4,6 +4,7 @@ import time
 STATUS_BAR_ID = "wnd[0]/sbar"
 
 
+# Resposta padrao compartilhada pelos fluxos SAP.
 def resultado_padrao(ok, etapa, mensagem, dados=None, erro_tecnico=None):
     return {
         "ok": ok,
@@ -14,6 +15,7 @@ def resultado_padrao(ok, etapa, mensagem, dados=None, erro_tecnico=None):
     }
 
 
+# Envia progresso para a interface quando existe callback disponivel.
 def notificar_progresso(
     progress_callback,
     etapa,
@@ -30,6 +32,7 @@ def notificar_progresso(
         return
 
 
+# Le propriedades COM do SAP tentando variacoes de maiuscula/minuscula.
 def ler_propriedade(componente, *nomes):
     for nome in nomes:
         try:
@@ -43,6 +46,7 @@ def ler_propriedade(componente, *nomes):
     return ""
 
 
+# Le texto e tipo da barra de status do SAP.
 def ler_status(session, status_bar_id=STATUS_BAR_ID):
     try:
         barra = session.findById(status_bar_id)
@@ -54,15 +58,17 @@ def ler_status(session, status_bar_id=STATUS_BAR_ID):
     return texto, tipo
 
 
+# Atalho para quando a etapa precisa apenas do texto da barra de status.
 def ler_status_texto(session, status_bar_id=STATUS_BAR_ID):
     return ler_status(session, status_bar_id=status_bar_id)[0]
 
 
+# Aguarda a barra de status mudar depois de uma ação no SAP.
 def aguardar_status_mudar(
     session,
     status_anterior="",
     timeout=10,
-    interval=0.2,
+    interval=0.1,
     status_bar_id=STATUS_BAR_ID,
 ):
     deadline = time.monotonic() + max(0.0, float(timeout or 0.0))

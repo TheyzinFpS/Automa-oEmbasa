@@ -1,14 +1,16 @@
 import json
 import os
+import sys
 from copy import deepcopy
 from functools import lru_cache
 from pathlib import Path
 
 
+# Configuracao padrao do sistema; pode ser sobrescrita por embasa_settings.json.
 DEFAULT_SETTINGS = {
     "app": {
         "name": "EMBASA",
-        "version": "2026.04.14",
+        "version": "1.1",
         "company_code": "EMBA",
     },
     "security": {
@@ -21,17 +23,34 @@ DEFAULT_SETTINGS = {
         "max_entries": 2000,
         "file_name": "cliente_cache.json",
     },
-    "automation": {
-        "observation_delay_seconds": 2.0,
+    "startup": {
+        "require_sap_session": True,
+    },
+    "support": {
+        "notification_email_enabled": False,
+        "destination_email": "",
+        "smtp_host": "",
+        "smtp_port": 587,
+        "smtp_use_tls": True,
+        "smtp_username": "",
+        "smtp_password": "",
+        "smtp_from_email": "",
+        "smtp_from_name": "EMBASA API",
+        "subject_prefix": "[EMBASA Atendimento]",
     },
 }
 
 
+# Raiz do projeto no codigo fonte ou pasta do .exe quando empacotado.
 @lru_cache(maxsize=1)
 def get_project_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+
     return Path(__file__).resolve().parents[1]
 
 
+# Pasta local por usuário para cache, logs e configurações em runtime.
 @lru_cache(maxsize=1)
 def get_runtime_root() -> Path:
     local_appdata = os.environ.get("LOCALAPPDATA")
@@ -45,6 +64,7 @@ def get_runtime_root() -> Path:
     return root
 
 
+# Mescla configuracoes mantendo defaults quando o JSON sobrescreve apenas parte.
 def _deep_merge(base: dict, override: dict) -> dict:
     merged = deepcopy(base)
 
@@ -57,6 +77,7 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return merged
 
 
+# Locais aceitos para o arquivo embasa_settings.json.
 def _candidate_override_paths() -> list[Path]:
     return [
         get_project_root() / "embasa_settings.json",
@@ -64,6 +85,7 @@ def _candidate_override_paths() -> list[Path]:
     ]
 
 
+# Carrega settings finais: defaults + sobrescritas locais/de rede.
 def load_settings() -> dict:
     settings = deepcopy(DEFAULT_SETTINGS)
     loaded_from = []
@@ -73,7 +95,7 @@ def load_settings() -> dict:
             continue
 
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload = json.loads(path.read_text(encoding="utf-8-sig"))
         except Exception:
             continue
 
@@ -95,6 +117,7 @@ def load_settings() -> dict:
 SETTINGS = load_settings()
 
 
+# Busca uma chave aninhada de configuracao com fallback seguro.
 def get_setting(*keys, default=None):
     current = SETTINGS
 

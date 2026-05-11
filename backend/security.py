@@ -6,6 +6,7 @@ FORMATTED_CPF_PATTERN = re.compile(r"(?<!\d)\d{3}\.\d{3}\.\d{3}-\d{2}(?!\d)")
 FORMATTED_CNPJ_PATTERN = re.compile(r"(?<!\d)\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}(?!\d)")
 
 
+# Mantem os ultimos digitos visiveis e mascara o restante.
 def _mask_digits_keep_last(value: str, keep: int = 4) -> str:
     digits_seen = 0
     masked = []
@@ -20,6 +21,7 @@ def _mask_digits_keep_last(value: str, keep: int = 4) -> str:
     return "".join(reversed(masked))
 
 
+# Mascara CPF/CNPJ em logs para reduzir exposicao de dados sensiveis.
 def mask_sensitive_text(text: str) -> str:
     safe_text = str(text or "")
 

@@ -9,17 +9,79 @@ from backend.utils.sap_waits import (
 
 cache_cliente = ClienteCache()
 
+_TIPO_PARA_SETOR = {
+    "viabilidade": "AE",
+    "agua": "AG",
+    "esgoto": "EG",
+}
+
+_SETOR_PARA_TIPO = {
+    "AE": "viabilidade",
+    "AG": "agua",
+    "EG": "esgoto",
+}
+
+_TIPO_LABEL = {
+    "viabilidade": "Viabilidade",
+    "agua": "Água",
+    "esgoto": "Esgoto",
+}
+
 _CAMPO_CNPJ = (
     "wnd[2]/usr/tabsG_SELONETABSTRIP/tabpTAB006/"
     "ssubSUBSCR_PRESEL:SAPLSDH4:0220/sub:SAPLSDH4:0220/"
     "txtG_SELFLD_TAB-LOW[0,24]"
 )
+
 _CAMPO_CPF = (
     "wnd[2]/usr/tabsG_SELONETABSTRIP/tabpTAB006/"
     "ssubSUBSCR_PRESEL:SAPLSDH4:0220/sub:SAPLSDH4:0220/"
     "txtG_SELFLD_TAB-LOW[1,24]"
 )
+
 _CAMPO_CLIENTE = "wnd[1]/usr/ctxtRF02D-KUNNR"
+_BOTAO_AREAS_CLIENTE = "wnd[1]/usr/btnBUTTON2"
+_TABELA_AREAS_CLIENTE = "wnd[2]/usr/tblSAPMF02DTCTRL_KUNDENVERTRIEB"
+
+_TEXTOS_IGNORADOS_NOME_CLIENTE = {
+    "cliente",
+    "empresa",
+    "emba",
+    "embasa",
+    "área de vendas",
+    "area de vendas",
+    "organização vendas",
+    "organizacao vendas",
+    "canal distribuição",
+    "canal distribuicao",
+    "setor de atividade",
+    "todas as áreas vendas...",
+    "todas as areas vendas...",
+    "áreas de vendas do cliente...",
+    "areas de vendas do cliente...",
+    "projeto",
+    "distr. água/ esgoto",
+    "distr. agua/ esgoto",
+    "água",
+    "agua",
+    "esgoto",
+    "viabilidade",
+}
+
+_FRAGMENTOS_IGNORADOS_NOME_CLIENTE = (
+    "cliente exibir",
+    "exibir:",
+    "1ª tela",
+    "1a tela",
+    "áreas de vendas",
+    "areas de vendas",
+    "organização vendas",
+    "organizacao vendas",
+    "canal distribuição",
+    "canal distribuicao",
+    "setor de atividade",
+    "todas as",
+)
 
 
 def limpar_doc(doc):
@@ -31,7 +93,127 @@ def tipo_documento(doc):
         return "cpf"
     if len(doc) == 14:
         return "cnpj"
-    raise ValueError("Documento invalido")
+    raise ValueError("Documento inválido")
+
+
+def _normalizar_tipo_solicitacao(tipo):
+    tipo_normalizado = str(tipo or "").strip().lower()
+
+    if tipo_normalizado not in _TIPO_PARA_SETOR:
+        raise ValueError(f"Tipo de solicitação inválido para XD03: {tipo}")
+
+    return tipo_normalizado
+
+
+def _ler_texto(componente):
+    for atributo in ("Text", "text"):
+        try:
+            valor = getattr(componente, atributo)
+        except Exception:
+            continue
+
+        if valor is not None:
+            return str(valor).strip()
+
+    return ""
+
+
+def _coletar_textos_recursivo(componente, textos, profundidade=0, max_profundidade=5):
+    if componente is None or profundidade > max_profundidade:
+        return
+
+    texto = _ler_texto(componente)
+    if texto:
+        textos.append(texto)
+
+    try:
+        filhos = getattr(componente, "Children", None)
+        total = filhos.Count if filhos is not None else 0
+    except Exception:
+        total = 0
+
+    for indice in range(total):
+        try:
+            filho = filhos(indice)
+        except Exception:
+            continue
+
+        _coletar_textos_recursivo(
+            filho,
+            textos,
+            profundidade=profundidade + 1,
+            max_profundidade=max_profundidade,
+        )
+
+
+def _texto_parece_nome_cliente(texto, codigo_cliente, documento):
+    valor = str(texto or "").strip()
+    normalizado = valor.lower()
+    somente_digitos = limpar_doc(valor)
+
+    if len(valor) < 4:
+        return False
+
+    if not any(char.isalpha() for char in valor):
+        return False
+
+    if normalizado in _TEXTOS_IGNORADOS_NOME_CLIENTE:
+        return False
+
+    if any(fragmento in normalizado for fragmento in _FRAGMENTOS_IGNORADOS_NOME_CLIENTE):
+        return False
+
+    if str(codigo_cliente or "").strip() and str(codigo_cliente).strip() in valor:
+        return False
+
+    if documento and somente_digitos == documento:
+        return False
+
+    return True
+
+
+def _capturar_nome_cliente(session, codigo_cliente, documento):
+    # Tenta ler o nome exibido ao lado do cliente na XD03.
+    # O SAP GUI pode variar o ID do campo de nome conforme layout/tema, então a
+    # leitura é feita por varredura dos textos visíveis da janela de cliente.
+    textos = []
+
+    for alvo in ("wnd[1]", "wnd[0]"):
+        try:
+            componente = session.findById(alvo)
+        except Exception:
+            continue
+
+        _coletar_textos_recursivo(componente, textos)
+
+    candidatos = []
+    vistos = set()
+
+    for texto in textos:
+        valor = str(texto or "").strip()
+        chave = valor.lower()
+
+        if chave in vistos:
+            continue
+
+        vistos.add(chave)
+
+        if _texto_parece_nome_cliente(valor, codigo_cliente, documento):
+            candidatos.append(valor)
+
+    if not candidatos:
+        return ""
+
+    candidatos.sort(
+        key=lambda item: (
+            " " not in item,
+            len(item) < 8,
+            -len(item),
+        )
+    )
+    return candidatos[0].strip()
+
+
 def _abrir_xd03(session, logger):
     logger.add(0, "Abrindo XD03...")
     session.findById("wnd[0]/tbar[0]/okcd").text = "/nXD03"
@@ -43,11 +225,141 @@ def _abrir_f4(session, logger):
     send_vkey_and_wait(session, "wnd[1]", 4, "wnd[2]")
 
 
+def _fechar_janelas_xd03(session, progress_callback=None, notify=True):
+    if notify:
+        notificar_progresso(
+            progress_callback,
+            "XD03",
+            "processando",
+            "Fechando janelas da verificação XD03...",
+            97,
+        )
+
+    for window_id in ("wnd[2]", "wnd[1]"):
+        try:
+            session.findById(window_id).sendVKey(12)
+        except Exception:
+            pass
+
+    for element_id in (
+        "wnd[2]/tbar[0]/btn[12]",
+        "wnd[2]/tbar[0]/btn[0]",
+        "wnd[1]/tbar[0]/btn[12]",
+        "wnd[1]/usr/btnSPOP-OPTION2",
+    ):
+        try:
+            session.findById(element_id).press()
+        except Exception:
+            continue
+
+
+def _retornar_tela_inicial_xd03(session, progress_callback=None, notify=True):
+    # Mantido o nome da função para não quebrar chamadas existentes.
+    # Antes esta função usava /n e forçava o SAP a voltar para o Easy Access.
+    # Agora ela apenas fecha as janelas auxiliares da XD03, deixando o SAP pronto
+    # para o controller seguir para a próxima etapa, como VA01.
+    _fechar_janelas_xd03(
+        session,
+        progress_callback=progress_callback,
+        notify=notify,
+    )
+
+
+def _ler_setores_atividade_cliente(session, logger, progress_callback=None):
+    notificar_progresso(
+        progress_callback,
+        "XD03",
+        "processando",
+        "Abrindo áreas de vendas do cliente...",
+        88,
+    )
+
+    wait_for_element(session, _BOTAO_AREAS_CLIENTE, timeout=8).press()
+    wait_for_element(session, _TABELA_AREAS_CLIENTE, timeout=8)
+
+    notificar_progresso(
+        progress_callback,
+        "XD03",
+        "processando",
+        "Lendo tipos habilitados para o cliente...",
+        92,
+    )
+
+    setores = []
+
+    for linha in range(0, 25):
+        try:
+            campo_codigo = session.findById(
+                f"{_TABELA_AREAS_CLIENTE}/ctxtRF02D-SPAKU[4,{linha}]"
+            )
+        except Exception:
+            continue
+
+        codigo = _ler_texto(campo_codigo).upper()
+
+        if not codigo:
+            continue
+
+        descricao = ""
+
+        try:
+            campo_descricao = session.findById(
+                f"{_TABELA_AREAS_CLIENTE}/txtTSPAT-VTEXT[5,{linha}]"
+            )
+            descricao = _ler_texto(campo_descricao)
+        except Exception:
+            pass
+
+        setores.append(
+            {
+                "codigo": codigo,
+                "descricao": descricao,
+                "tipo": _SETOR_PARA_TIPO.get(codigo),
+            }
+        )
+
+    logger.add(0, f"Setores de atividade encontrados: {setores}")
+    return setores
+
+
+def _validar_suporte_tipo(setores, tipo_solicitacao):
+    setor_necessario = _TIPO_PARA_SETOR[tipo_solicitacao]
+
+    codigos_disponiveis = {
+        str(setor.get("codigo") or "").strip().upper()
+        for setor in setores
+    }
+
+    return setor_necessario in codigos_disponiveis
+
+
+def _tipos_suportados_por_setor(setores):
+    tipos = []
+
+    for setor in setores:
+        tipo = _SETOR_PARA_TIPO.get(
+            str(setor.get("codigo") or "").strip().upper()
+        )
+
+        if tipo and tipo not in tipos:
+            tipos.append(tipo)
+
+    return tipos
+
+
+def _formatar_tipos_suportados(tipos_suportados):
+    if not tipos_suportados:
+        return "nenhum tipo conhecido"
+
+    return ", ".join(_TIPO_LABEL.get(tipo, tipo) for tipo in tipos_suportados)
+
+
 def _buscar(session, campo, doc, logger, tipo, progress_callback=None):
     campo_input = wait_for_element(session, campo)
     campo_input.text = doc
 
     logger.add(0, f"Pesquisando {tipo.upper()}: {doc}")
+
     notificar_progresso(
         progress_callback,
         "XD03",
@@ -59,12 +371,13 @@ def _buscar(session, campo, doc, logger, tipo, progress_callback=None):
     press_and_wait(session, "wnd[2]/tbar[0]/btn[0]")
 
     if element_exists(session, campo):
-        logger.add(0, f"{tipo.upper()} nao encontrado")
+        logger.add(0, f"{tipo.upper()} não encontrado")
+
         notificar_progresso(
             progress_callback,
             "XD03",
             "erro",
-            f"{tipo.upper()} nao encontrado no SAP.",
+            f"{tipo.upper()} não encontrado no SAP.",
             58,
         )
 
@@ -74,7 +387,7 @@ def _buscar(session, campo, doc, logger, tipo, progress_callback=None):
         return resultado_padrao(
             ok=False,
             etapa="XD03",
-            mensagem="Cliente nao encontrado",
+            mensagem="Cliente não encontrado",
         )
 
     notificar_progresso(
@@ -84,6 +397,7 @@ def _buscar(session, campo, doc, logger, tipo, progress_callback=None):
         "Confirmando resultado da busca...",
         84,
     )
+
     press_and_wait(session, "wnd[2]/tbar[0]/btn[0]")
 
     campo_cliente = wait_for_element(session, _CAMPO_CLIENTE)
@@ -94,17 +408,29 @@ def _buscar(session, campo, doc, logger, tipo, progress_callback=None):
             progress_callback,
             "XD03",
             "erro",
-            "Codigo do cliente vazio na XD03.",
+            "Código do cliente vazio na XD03.",
             84,
         )
+
         return resultado_padrao(
             ok=False,
             etapa="XD03",
-            mensagem="Codigo do cliente vazio",
+            mensagem="Código do cliente vazio",
         )
 
     logger.add(0, f"Cliente encontrado: {codigo}")
-    press_and_wait(session, "wnd[1]/tbar[0]/btn[12]")
+    nome_cliente = _capturar_nome_cliente(session, codigo, doc)
+
+    if nome_cliente:
+        logger.add(0, f"Nome do cliente identificado: {nome_cliente}")
+
+    notificar_progresso(
+        progress_callback,
+        "XD03",
+        "processando",
+        f"Cliente {codigo} encontrado. Verificando tipo solicitado...",
+        86,
+    )
 
     return resultado_padrao(
         ok=True,
@@ -114,6 +440,7 @@ def _buscar(session, campo, doc, logger, tipo, progress_callback=None):
             "cliente": codigo,
             "documento": doc,
             "tipo_documento": tipo,
+            "nome_cliente": nome_cliente,
         },
     )
 
@@ -121,7 +448,8 @@ def _buscar(session, campo, doc, logger, tipo, progress_callback=None):
 def buscar_cliente(session, dados, logger, progress_callback=None):
     try:
         doc = limpar_doc(dados["doc"])
-        tipo = tipo_documento(doc)
+        tipo_doc = tipo_documento(doc)
+        tipo_solicitacao = _normalizar_tipo_solicitacao(dados.get("tipo"))
 
         notificar_progresso(
             progress_callback,
@@ -136,65 +464,148 @@ def buscar_cliente(session, dados, logger, progress_callback=None):
         if cliente_cache:
             logger.add(
                 0,
-                f"Cliente encontrado no cache: {cliente_cache['cliente']}",
-                publico=True,
+                "Cliente encontrado no cache. Validando área de vendas no SAP...",
             )
+        else:
+            logger.add(0, "Cliente não encontrado no cache. Consultando SAP...")
+
+        notificar_progresso(
+            progress_callback,
+            "XD03",
+            "processando",
+            "Abrindo transação XD03...",
+            18,
+        )
+
+        _abrir_xd03(session, logger)
+
+        if cliente_cache and cliente_cache.get("cliente"):
             notificar_progresso(
                 progress_callback,
                 "XD03",
-                "concluido",
-                "Cliente recuperado do cache.",
-                100,
+                "processando",
+                "Aplicando cliente recuperado e verificando áreas...",
+                34,
             )
 
-            return resultado_padrao(
+            codigo_cliente = str(cliente_cache["cliente"]).strip()
+            wait_for_element(session, _CAMPO_CLIENTE, timeout=8).text = codigo_cliente
+
+            resultado = resultado_padrao(
                 ok=True,
                 etapa="XD03",
                 mensagem="Cliente recuperado do cache",
-                dados=cliente_cache,
+                dados={
+                    "cliente": codigo_cliente,
+                    "documento": doc,
+                    "tipo_documento": cliente_cache.get("tipo_documento") or tipo_doc,
+                    "nome_cliente": cliente_cache.get("nome_cliente"),
+                },
             )
 
-        logger.add(0, "Cliente nao encontrado no cache. Consultando SAP...")
-        notificar_progresso(
-            progress_callback,
-            "XD03",
-            "processando",
-            "Abrindo transacao XD03...",
-            18,
-        )
-        _abrir_xd03(session, logger)
+            if not resultado["dados"].get("nome_cliente"):
+                nome_cliente = _capturar_nome_cliente(session, codigo_cliente, doc)
+                if nome_cliente:
+                    resultado["dados"]["nome_cliente"] = nome_cliente
 
-        notificar_progresso(
-            progress_callback,
-            "XD03",
-            "processando",
-            "Abrindo pesquisa de cliente...",
-            34,
-        )
-        _abrir_f4(session, logger)
-
-        if tipo == "cnpj":
-            resultado = _buscar(
-                session,
-                _CAMPO_CNPJ,
-                doc,
-                logger,
-                "cnpj",
-                progress_callback=progress_callback,
-            )
         else:
-            resultado = _buscar(
-                session,
-                _CAMPO_CPF,
-                doc,
-                logger,
-                "cpf",
-                progress_callback=progress_callback,
+            notificar_progresso(
+                progress_callback,
+                "XD03",
+                "processando",
+                "Abrindo pesquisa de cliente...",
+                34,
             )
+
+            _abrir_f4(session, logger)
+
+            if tipo_doc == "cnpj":
+                resultado = _buscar(
+                    session,
+                    _CAMPO_CNPJ,
+                    doc,
+                    logger,
+                    "cnpj",
+                    progress_callback=progress_callback,
+                )
+            else:
+                resultado = _buscar(
+                    session,
+                    _CAMPO_CPF,
+                    doc,
+                    logger,
+                    "cpf",
+                    progress_callback=progress_callback,
+                )
 
         if resultado["ok"]:
+            setores = _ler_setores_atividade_cliente(
+                session,
+                logger,
+                progress_callback=progress_callback,
+            )
+
+            tipos_suportados = _tipos_suportados_por_setor(setores)
+
+            resultado["dados"]["setores_atividade"] = setores
+            resultado["dados"]["tipos_suportados"] = tipos_suportados
+
+            if not _validar_suporte_tipo(setores, tipo_solicitacao):
+                tipo_label = _TIPO_LABEL.get(tipo_solicitacao, tipo_solicitacao)
+                setor_necessario = _TIPO_PARA_SETOR[tipo_solicitacao]
+                disponiveis = _formatar_tipos_suportados(tipos_suportados)
+
+                mensagem = (
+                    f"O tipo selecionado ({tipo_label}) não existe para o cliente informado "
+                    f"(setor {setor_necessario}). Tipos disponíveis: {disponiveis}. "
+                    "Solicite a criação da área de vendas para este cliente e retorne ao processo."
+                )
+
+                logger.add(0, mensagem, nivel="ERRO", publico=True)
+
+                notificar_progresso(
+                    progress_callback,
+                    "XD03",
+                    "erro",
+                    mensagem,
+                    95,
+                )
+
+                _retornar_tela_inicial_xd03(
+                    session,
+                    progress_callback=progress_callback,
+                    notify=False,
+                )
+
+                return resultado_padrao(
+                    ok=False,
+                    etapa="XD03",
+                    mensagem=mensagem,
+                    dados=resultado["dados"],
+                    erro_tecnico=(
+                        f"Setor necessario: {setor_necessario}; "
+                        f"setores encontrados: {setores}"
+                    ),
+                )
+
+            tipo_label = _TIPO_LABEL.get(tipo_solicitacao, tipo_solicitacao)
+
+            notificar_progresso(
+                progress_callback,
+                "XD03",
+                "processando",
+                f"Tipo {tipo_label} confirmado para o cliente.",
+                96,
+            )
+
             cache_cliente.set(doc, resultado["dados"])
             logger.add(0, "Cliente salvo no cache")
+
+            _retornar_tela_inicial_xd03(
+                session,
+                progress_callback=progress_callback,
+            )
+
             notificar_progresso(
                 progress_callback,
                 "XD03",
@@ -206,7 +617,17 @@ def buscar_cliente(session, dados, logger, progress_callback=None):
         return resultado
 
     except Exception as e:
+        try:
+            _retornar_tela_inicial_xd03(
+                session,
+                progress_callback=progress_callback,
+                notify=False,
+            )
+        except Exception:
+            pass
+
         logger.add(0, f"Erro XD03: {e}")
+
         notificar_progresso(
             progress_callback,
             "XD03",

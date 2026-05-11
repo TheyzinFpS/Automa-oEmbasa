@@ -1,18 +1,37 @@
+# Ambientes locais
 .venv/
 venv/
+env/
+
+# Builds e executaveis gerados
 build/
 dist/
-__pycache__/
-backend/__pycache__/
-backend/flows/__pycache__/
-backend/cache/__pycache__/
-backend/utils/__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.log
+*.spec.bak
 *.zip
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-embasa_settings.json
+*.7z
+*.rar
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Logs e arquivos temporarios
+*.log
+*.tmp
+*.bak
+cliente_cache.json
+
+# Editor/SO
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+
+# Projetos de teste/experimentos fora da automacao principal
+academia-cadastro/
+node_modules/
+
+# Dados sensiveis locais
+.env
+*.env

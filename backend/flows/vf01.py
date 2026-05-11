@@ -7,12 +7,14 @@ from backend.flows.common import (
     notificar_progresso,
     resultado_padrao,
 )
-from backend.utils.sap_waits import element_exists, wait_for_element
-from backend.utils.timing import paced_sleep
+from backend.utils.sap_waits import element_exists, wait_for_element, wait_until_ready
 
 
 _STATUS_BAR = "wnd[0]/sbar"
 _CAMPO_DOCUMENTO_FATURAMENTO = "wnd[0]/usr/ctxtVBRK-VBELN"
+
+
+# Extrai o número do documento de faturamento de mensagens do SAP.
 def _extrair_numero_faturamento(texto):
     numeros = re.findall(r"\b\d{6,12}\b", str(texto or ""))
     if not numeros:
@@ -20,28 +22,31 @@ def _extrair_numero_faturamento(texto):
     return numeros[-1]
 
 
+# Tenta capturar o faturamento diretamente do campo da VF01.
 def _capturar_faturamento_por_campo(session):
     if not element_exists(session, _CAMPO_DOCUMENTO_FATURAMENTO):
         return None
 
     try:
         campo = session.findById(_CAMPO_DOCUMENTO_FATURAMENTO)
-        valor = _ler_propriedade(campo, "Text", "text").strip()
+        valor = ler_propriedade(campo, "Text", "text").strip()
     except Exception:
         return None
 
     return _extrair_numero_faturamento(valor)
 
 
+# Abre detalhe da mensagem de status para investigar retorno do SAP.
 def _abrir_detalhe_status(session):
     try:
         session.findById(_STATUS_BAR).doubleClick()
-        paced_sleep(0.5)
+        wait_until_ready(session)
         return True
     except Exception:
         return False
 
 
+# Varre componentes SAP e coleta textos visiveis para diagnostico.
 def _coletar_textos_recursivo(componente, textos, profundidade=0, max_profundidade=6):
     if profundidade > max_profundidade or componente is None:
         return
@@ -76,6 +81,7 @@ def _coletar_textos_recursivo(componente, textos, profundidade=0, max_profundida
         )
 
 
+# Le a janela de detalhe/status para descobrir mensagens contabeis.
 def _ler_mensagem_detalhada(session):
     textos = []
 
@@ -104,6 +110,7 @@ def _ler_mensagem_detalhada(session):
     return "\n".join(textos_unicos).strip()
 
 
+# Detecta o caso em que a VF01 gerou faturamento, mas não gerou contábil.
 def _mensagem_indica_erro_contabil(texto):
     texto_normalizado = str(texto or "").lower()
 
@@ -129,10 +136,11 @@ def _mensagem_indica_erro_contabil(texto):
     return False
 
 
+# Fecha janela de detalhe/status tentando os caminhos mais comuns.
 def _fechar_janela_detalhe(session):
     try:
         session.findById("wnd[0]/shellcont").close()
-        paced_sleep(0.3)
+        wait_until_ready(session)
         return True
     except Exception:
         pass
@@ -143,28 +151,30 @@ def _fechar_janela_detalhe(session):
     ):
         try:
             session.findById(alvo).press()
-            paced_sleep(0.3)
+            wait_until_ready(session)
             return True
         except Exception:
             continue
 
     try:
         session.findById("wnd[0]/tbar[0]/btn[12]").press()
-        paced_sleep(0.3)
+        wait_until_ready(session)
         return True
     except Exception:
         return False
 
 
+# Retorna para a tela inicial depois da VF01.
 def _retornar_tela_inicial(session):
     for _ in range(2):
         try:
             session.findById("wnd[0]/tbar[0]/btn[12]").press()
-            paced_sleep(0.3)
+            wait_until_ready(session)
         except Exception:
             break
 
 
+# Executa VF01, salva o documento e captura doc_fat/faturamento.
 def criar_doc_faturamento(session, logger, progress_callback=None):
     progresso_atual = 8
 
@@ -175,14 +185,14 @@ def criar_doc_faturamento(session, logger, progress_callback=None):
             progress_callback,
             "VF01",
             "processando",
-            "Abrindo transacao VF01...",
+            "Abrindo transação VF01...",
             progresso_atual,
         )
         session.findById("wnd[0]/tbar[0]/okcd").text = "/nVF01"
         session.findById("wnd[0]").sendVKey(0)
 
         wait_for_element(session, "wnd[0]/usr")
-        paced_sleep(0.4)
+        wait_until_ready(session)
 
         progresso_atual = 82
         notificar_progresso(
@@ -213,7 +223,7 @@ def criar_doc_faturamento(session, logger, progress_callback=None):
 
         if not faturamento:
             raise Exception(
-                "A VF01 executou, mas nao foi possivel identificar o numero do documento de faturamento. "
+                "A VF01 executou, mas não foi possível identificar o número do documento de faturamento. "
                 f"Retorno SAP: {status_depois or 'sem mensagem'}"
             )
 
@@ -239,7 +249,7 @@ def criar_doc_faturamento(session, logger, progress_callback=None):
                 _retornar_tela_inicial(session)
 
                 mensagem_usuario = (
-                    "Documento de faturamento gerado com indicativo de erro contabil. "
+                    "Documento de faturamento gerado com indicativo de erro contábil. "
                     "Verifique manualmente antes de prosseguir."
                 )
 

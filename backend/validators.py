@@ -2,14 +2,17 @@ from backend.documentos import limpar_doc, tipo_documento
 from backend.valores import analisar_valor
 
 
+# Verifica se o campo textual tem algum conteudo util.
 def _texto_preenchido(valor):
     return bool(str(valor or "").strip())
 
 
+# Ajuda a impedir números em campos que devem aceitar somente texto.
 def _texto_tem_digitos(valor):
     return any(char.isdigit() for char in str(valor or ""))
 
 
+# Valida os dados obrigatórios antes de iniciar a automação SAP.
 def validar_dados(dados):
     erros = []
 
@@ -32,22 +35,22 @@ def validar_dados(dados):
     cep = "".join(filter(str.isdigit, str(endereco.get("cep", ""))))
 
     if not _texto_preenchido(endereco.get("empreendimento")):
-        erros.append("Empreendimento obrigatorio")
+        erros.append("Empreendimento obrigatório")
 
     if not _texto_preenchido(endereco.get("rua")):
-        erros.append("Rua do empreendimento obrigatoria")
+        erros.append("Rua do empreendimento obrigatória")
 
     if not _texto_preenchido(endereco.get("numero")):
-        erros.append("Numero do empreendimento obrigatorio")
+        erros.append("Número do empreendimento obrigatório")
 
     if len(cep) != 8:
         erros.append("CEP do empreendimento obrigatório")
 
     if not _texto_preenchido(endereco.get("bairro")):
-        erros.append("Bairro do empreendimento obrigatorio")
+        erros.append("Bairro do empreendimento obrigatório")
 
     if not _texto_preenchido(endereco.get("cidade")):
-        erros.append("Cidade do empreendimento obrigatoria")
+        erros.append("Cidade do empreendimento obrigatória")
     elif _texto_tem_digitos(endereco.get("cidade")):
         erros.append("Cidade do empreendimento deve conter apenas letras")
 
