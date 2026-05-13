@@ -1,5 +1,7 @@
 import time
 
+from backend.utils.timing import observation_pause
+
 
 # Espera um elemento SAP aparecer antes de interagir com ele.
 def wait_for_element(session, element_id, timeout=8, interval=0.1):
@@ -21,8 +23,10 @@ def wait_until_ready(session, timeout=8, interval=0.05):
     while time.monotonic() < deadline:
         try:
             if not bool(session.Busy):
+                observation_pause()
                 return True
         except Exception:
+            observation_pause()
             return True
 
         time.sleep(interval)

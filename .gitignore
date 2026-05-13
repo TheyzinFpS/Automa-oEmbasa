@@ -21,6 +21,7 @@ __pycache__/
 *.tmp
 *.bak
 cliente_cache.json
+dados_compartilhados/
 
 # Editor/SO
 .vscode/

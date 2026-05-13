@@ -2,7 +2,7 @@ from backend.documentos import limpar_doc, tipo_documento
 from backend.valores import analisar_valor
 
 
-# Verifica se o campo textual tem algum conteudo util.
+# Verifica se o campo textual tem algum conteúdo útil.
 def _texto_preenchido(valor):
     return bool(str(valor or "").strip())
 
@@ -10,6 +10,16 @@ def _texto_preenchido(valor):
 # Ajuda a impedir números em campos que devem aceitar somente texto.
 def _texto_tem_digitos(valor):
     return any(char.isdigit() for char in str(valor or ""))
+
+
+# Identifica endereços rurais ou sem CEP cadastrado na consulta pública.
+def _endereco_sem_cep(endereco):
+    cep_original = str(endereco.get("cep", "")).strip().upper()
+    return bool(endereco.get("sem_cep")) or cep_original in {
+        "SEM CEP",
+        "SEM-CEP",
+        "S/CEP",
+    }
 
 
 # Valida os dados obrigatórios antes de iniciar a automação SAP.
@@ -33,6 +43,7 @@ def validar_dados(dados):
 
     endereco = dados.get("endereco") or {}
     cep = "".join(filter(str.isdigit, str(endereco.get("cep", ""))))
+    sem_cep = _endereco_sem_cep(endereco)
 
     if not _texto_preenchido(endereco.get("empreendimento")):
         erros.append("Empreendimento obrigatório")
@@ -43,7 +54,7 @@ def validar_dados(dados):
     if not _texto_preenchido(endereco.get("numero")):
         erros.append("Número do empreendimento obrigatório")
 
-    if len(cep) != 8:
+    if not sem_cep and len(cep) != 8:
         erros.append("CEP do empreendimento obrigatório")
 
     if not _texto_preenchido(endereco.get("bairro")):

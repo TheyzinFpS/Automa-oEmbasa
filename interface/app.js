@@ -113,7 +113,8 @@ let cepLookupSeq = 0;
 let cepLookupStatus = {
   cep: "",
   valid: null,
-  message: ""
+  message: "",
+  code: ""
 };
 let ultimoComplementoAutoCep = "";
 let ultimoEnderecoAutoCep = {
@@ -263,11 +264,12 @@ function obterDigitosCep(valor) {
   return String(valor || "").replace(/\D/g, "").slice(0, 8);
 }
 
-function setCepLookupStatus(cep, valid, message = "") {
+function setCepLookupStatus(cep, valid, message = "", code = "") {
   cepLookupStatus = {
     cep,
     valid,
-    message
+    message,
+    code
   };
 }
 
@@ -454,14 +456,14 @@ function setSemCep(ativo) {
   }
 
   if (ativo) {
-    setCepLookupStatus("SEM CEP", true, "");
+    setCepLookupStatus("SEM CEP", true, "", "sem_cep");
     mostrarMensagemCampo(
       "enderecoCep",
       "Sem CEP ativo. Preencha rua, bairro e cidade manualmente.",
       "info"
     );
   } else {
-    setCepLookupStatus("", null, "");
+    setCepLookupStatus("", null, "", "");
     limparMensagemCampo("enderecoCep");
   }
 }
@@ -771,7 +773,7 @@ async function consultarCepViaCep(cep, signal) {
     const resultado = {
       ok: false,
       code: "not_found",
-      message: "CEP não encontrado. Confira o número informado."
+      message: "CEP não encontrado na consulta. Preencha o endereço manualmente para prosseguir."
     };
 
     cepLookupCache.set(cep, resultado);
@@ -810,8 +812,8 @@ async function buscarCepAutomaticamente(cep) {
     }
 
     if (!resultado.ok) {
-      const bloqueiaFluxo = ["invalid", "empty", "not_found"].includes(resultado.code);
-      setCepLookupStatus(cep, bloqueiaFluxo ? false : null, resultado.message);
+      const bloqueiaFluxo = resultado.code === "invalid";
+      setCepLookupStatus(cep, bloqueiaFluxo ? false : null, resultado.message, resultado.code);
       mostrarMensagemCampo(
         "enderecoCep",
         resultado.message,
@@ -830,21 +832,21 @@ async function buscarCepAutomaticamente(cep) {
         ? `CEP localizado em ${localidade}. Utilize um CEP da Bahia.`
         : "CEP localizado fora da Bahia. Utilize um CEP da Bahia.";
 
-      setCepLookupStatus(cep, false, message);
+      setCepLookupStatus(cep, false, message, "outside_ba");
       mostrarMensagemCampo("enderecoCep", message, "warning", true);
       return;
     }
 
     if (!data.logradouro && !data.bairro && !data.localidade) {
-      const message = "CEP retornou sem dados suficientes. Confira o CEP ou preencha manualmente.";
+      const message = "CEP retornou sem dados suficientes. Preencha o endereço manualmente para prosseguir.";
 
-      setCepLookupStatus(cep, false, message);
-      mostrarMensagemCampo("enderecoCep", message, "warning", true);
+      setCepLookupStatus(cep, null, message, "empty");
+      mostrarMensagemCampo("enderecoCep", message, "info");
       return;
     }
 
     preencherEnderecoComCep(data, cep);
-    setCepLookupStatus(cep, true, "");
+    setCepLookupStatus(cep, true, "", "ok");
     mostrarMensagemCampo(
       "enderecoCep",
       `CEP localizado: ${sanitizarCidade(data.localidade || "Bahia").trim()}-BA. Campos preenchidos automaticamente.`,
@@ -856,7 +858,7 @@ async function buscarCepAutomaticamente(cep) {
     }
 
     const message = "Erro de conexão ao consultar o CEP. Preencha o endereço manualmente.";
-    setCepLookupStatus(cep, null, message);
+    setCepLookupStatus(cep, null, message, "network");
     mostrarMensagemCampo("enderecoCep", message, "info");
   } finally {
     if (requestId === cepLookupSeq) {
@@ -873,7 +875,7 @@ function agendarConsultaCep(options = {}) {
 
   if (state.semCep) {
     cancelarConsultaCepPendente();
-    setCepLookupStatus("SEM CEP", true, "");
+    setCepLookupStatus("SEM CEP", true, "", "sem_cep");
     return;
   }
 
@@ -890,12 +892,12 @@ function agendarConsultaCep(options = {}) {
   setCepLoading(false);
 
   if (!cep) {
-    setCepLookupStatus("", null, "");
+    setCepLookupStatus("", null, "", "");
     return;
   }
 
   if (cep.length < 8) {
-    setCepLookupStatus(cep, null, "");
+    setCepLookupStatus(cep, null, "", "incomplete");
 
     if (mostrarIncompleto) {
       mostrarMensagemCampo("enderecoCep", "CEP incompleto. Informe 8 dígitos.", "warning", true);
@@ -1022,14 +1024,6 @@ function validarEnderecoAntesDoFluxo(endereco) {
     return false;
   }
 
-  if (!semCep && cepLookupStatus.cep === cepLimpo && cepLookupStatus.valid === false) {
-    mostrarErroCampo(
-      "enderecoCep",
-      cepLookupStatus.message || "CEP inválido ou incompatível com o estado da Bahia."
-    );
-    return false;
-  }
-
   if (!endereco.bairro) {
     mostrarErroCampo("enderecoBairro", "Informe o bairro do empreendimento para prosseguir.");
     return false;
@@ -1043,6 +1037,24 @@ function validarEnderecoAntesDoFluxo(endereco) {
   if (/[^A-Za-zÀ-ÿ\s'-]/.test(endereco.cidade)) {
     mostrarErroCampo("enderecoCidade", "A cidade deve conter apenas letras.");
     return false;
+  }
+
+  if (!semCep && cepLookupStatus.cep === cepLimpo && cepLookupStatus.valid === false) {
+    const bloqueiaPorCep = ["invalid", "outside_ba"].includes(cepLookupStatus.code);
+
+    if (bloqueiaPorCep) {
+      mostrarErroCampo(
+        "enderecoCep",
+        cepLookupStatus.message || "CEP inválido ou incompatível com o estado da Bahia."
+      );
+      return false;
+    }
+
+    mostrarMensagemCampo(
+      "enderecoCep",
+      cepLookupStatus.message || "CEP não localizado na consulta. Prosseguindo com endereço manual.",
+      "info"
+    );
   }
 
   return true;

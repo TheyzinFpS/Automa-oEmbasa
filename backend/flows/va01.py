@@ -144,7 +144,11 @@ def _normalizar_endereco(dados):
         "SEM-CEP",
         "S/CEP",
     }
-    cep = "SEM CEP" if sem_cep else "".join(filter(str.isdigit, cep_original))
+    cep_digitos = "".join(filter(str.isdigit, cep_original))
+    cep = "SEM CEP"
+
+    if not sem_cep and len(cep_digitos) == 8:
+        cep = f"{cep_digitos[:5]}-{cep_digitos[5:]}"
 
     return {
         "empreendimento": str(endereco.get("empreendimento", "")).strip().upper(),

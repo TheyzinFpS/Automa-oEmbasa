@@ -5,6 +5,7 @@ from backend.utils.sap_waits import (
     press_and_wait,
     send_vkey_and_wait,
     wait_for_element,
+    wait_until_ready,
 )
 
 cache_cliente = ClienteCache()
@@ -42,6 +43,19 @@ _CAMPO_CPF = (
 _CAMPO_CLIENTE = "wnd[1]/usr/ctxtRF02D-KUNNR"
 _BOTAO_AREAS_CLIENTE = "wnd[1]/usr/btnBUTTON2"
 _TABELA_AREAS_CLIENTE = "wnd[2]/usr/tblSAPMF02DTCTRL_KUNDENVERTRIEB"
+_BOTAO_CONFIRMAR_CLIENTE = "wnd[1]/tbar[0]/btn[0]"
+_CAMPO_NOME1_CLIENTE = (
+    "wnd[0]/usr/subSUBTAB:SAPLATAB:0100/tabsTABSTRIP100/tabpTAB01/"
+    "ssubSUBSC:SAPLATAB:0201/subAREA1:SAPMF02D:7111/"
+    "subADDRESS:SAPLSZA1:0300/subCOUNTRY_SCREEN:SAPLSZA1:0301/"
+    "txtADDR1_DATA-NAME1"
+)
+_CAMPO_NOME2_CLIENTE = (
+    "wnd[0]/usr/subSUBTAB:SAPLATAB:0100/tabsTABSTRIP100/tabpTAB01/"
+    "ssubSUBSC:SAPLATAB:0201/subAREA1:SAPMF02D:7111/"
+    "subADDRESS:SAPLSZA1:0300/subCOUNTRY_SCREEN:SAPLSZA1:0301/"
+    "txtADDR1_DATA-NAME2"
+)
 
 _TEXTOS_IGNORADOS_NOME_CLIENTE = {
     "cliente",
@@ -116,6 +130,15 @@ def _ler_texto(componente):
             return str(valor).strip()
 
     return ""
+
+
+def _montar_nome_cliente(nome1, nome2):
+    partes = [
+        str(nome1 or "").strip(),
+        str(nome2 or "").strip(),
+    ]
+
+    return " ".join(parte for parte in partes if parte).strip()
 
 
 def _coletar_textos_recursivo(componente, textos, profundidade=0, max_profundidade=5):
@@ -212,6 +235,108 @@ def _capturar_nome_cliente(session, codigo_cliente, documento):
         )
     )
     return candidatos[0].strip()
+
+
+def _fechar_popup_areas_cliente(session):
+    # Fecha somente a janela de areas de vendas, preservando a tela inicial XD03.
+    for element_id in (
+        "wnd[2]/tbar[0]/btn[12]",
+        "wnd[2]/usr/btnSPOP-OPTION2",
+    ):
+        try:
+            session.findById(element_id).press()
+            wait_until_ready(session)
+            return
+        except Exception:
+            pass
+
+    try:
+        session.findById("wnd[2]").sendVKey(12)
+        wait_until_ready(session)
+    except Exception:
+        pass
+
+
+def _ler_nome_cliente_dados_gerais(session):
+    # Leitura oficial da aba Endereco: Nome 1 + Nome 2.
+    nome1 = _ler_texto(wait_for_element(session, _CAMPO_NOME1_CLIENTE, timeout=8))
+    nome2 = ""
+
+    try:
+        nome2 = _ler_texto(session.findById(_CAMPO_NOME2_CLIENTE))
+    except Exception:
+        nome2 = ""
+
+    return _montar_nome_cliente(nome1, nome2)
+
+
+def _voltar_da_tela_dados_gerais_cliente(session, logger):
+    # Depois de ler Nome 1/Nome 2, volta para a tela anterior da XD03.
+    # A VA01 abre por /nVA01, mas este retorno evita deixar a XD03 presa em aba interna.
+    if not element_exists(session, _CAMPO_NOME1_CLIENTE):
+        return
+
+    for _ in range(2):
+        try:
+            session.findById("wnd[0]").sendVKey(12)
+            wait_until_ready(session)
+        except Exception:
+            break
+
+        if not element_exists(session, _CAMPO_NOME1_CLIENTE):
+            break
+
+    logger.add(
+        0,
+        "Retorno da tela de dados gerais do cliente concluido.",
+        nivel="DEBUG",
+        publico=False,
+    )
+
+
+def _capturar_nome_cliente_dados_gerais(
+    session,
+    codigo_cliente,
+    documento,
+    logger,
+    progress_callback=None,
+):
+    # Entra na tela de dados gerais da XD03 e captura Nome 1/Nome 2.
+    notificar_progresso(
+        progress_callback,
+        "XD03",
+        "processando",
+        "Capturando nome do cliente...",
+        97,
+    )
+
+    try:
+        _fechar_popup_areas_cliente(session)
+
+        if not element_exists(session, _CAMPO_NOME1_CLIENTE):
+            press_and_wait(session, _BOTAO_CONFIRMAR_CLIENTE)
+
+        nome_cliente = _ler_nome_cliente_dados_gerais(session)
+
+        if nome_cliente:
+            logger.add(0, f"Nome do cliente identificado: {nome_cliente}")
+            return nome_cliente
+    except Exception as exc:
+        logger.add(
+            0,
+            f"Nao foi possivel ler Nome 1/Nome 2 da XD03: {exc}",
+            nivel="DEBUG",
+            publico=False,
+        )
+    finally:
+        _voltar_da_tela_dados_gerais_cliente(session, logger)
+
+    nome_fallback = _capturar_nome_cliente(session, codigo_cliente, documento)
+
+    if nome_fallback:
+        logger.add(0, f"Nome do cliente identificado por fallback: {nome_fallback}")
+
+    return nome_fallback
 
 
 def _abrir_xd03(session, logger):
@@ -597,6 +722,17 @@ def buscar_cliente(session, dados, logger, progress_callback=None):
                 f"Tipo {tipo_label} confirmado para o cliente.",
                 96,
             )
+
+            nome_cliente = _capturar_nome_cliente_dados_gerais(
+                session,
+                resultado["dados"]["cliente"],
+                doc,
+                logger,
+                progress_callback=progress_callback,
+            )
+
+            if nome_cliente:
+                resultado["dados"]["nome_cliente"] = nome_cliente
 
             cache_cliente.set(doc, resultado["dados"])
             logger.add(0, "Cliente salvo no cache")

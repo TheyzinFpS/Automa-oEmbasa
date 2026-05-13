@@ -40,7 +40,7 @@ if (-not (Test-Path -LiteralPath $DestinoRede)) {
 
 Write-Host "Copiando build onedir para a rede..."
 
-$null = robocopy $BuildDir $DestinoRede /MIR /R:2 /W:2 /XD "__pycache__" /XF "*.pyc" "*.pyo"
+$null = robocopy $BuildDir $DestinoRede /MIR /R:2 /W:2 /XD "__pycache__" "dados_compartilhados" /XF "*.pyc" "*.pyo"
 $RoboCode = $LASTEXITCODE
 
 if ($RoboCode -gt 7) {

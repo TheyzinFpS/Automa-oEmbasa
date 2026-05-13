@@ -18,7 +18,7 @@ _IDYES = 6
 
 
 def _abrir_transacao(session, codigo, wait_id="wnd[0]/usr", timeout=10):
-    # Abre transação SAP utilizando OKCODE.
+    # Abre transações via OKCODE, evitando dependência de menus/nodes do SAP.
     wait_for_element(session, "wnd[0]").maximize()
 
     campo_ok = wait_for_element(
@@ -38,6 +38,7 @@ def _abrir_transacao(session, codigo, wait_id="wnd[0]/usr", timeout=10):
 
 
 def _notificar(progress_callback, mensagem, percentual, status="processando"):
+    # Sincroniza a etapa F110 com o progresso em tempo real da interface.
     if not callable(progress_callback):
         return
 
@@ -55,6 +56,7 @@ def _limpar_parte_nome_arquivo(valor, fallback="INFORMAR"):
 
 
 def montar_nome_pdf_sugerido(numero_boleto, dados=None, cliente=None):
+    # Monta o padrão de nome que o usuário deve colar no PDFCreator.
     dados = dados or {}
     endereco = dados.get("endereco") or {}
     tipo = str(dados.get("tipo") or "").strip().lower()
@@ -110,12 +112,11 @@ def _confirmar_pdf_boleto_messagebox(nome_pdf_sugerido):
     )
 
     if resposta != _IDYES:
-        raise RuntimeError(
-            "Geração do PDF do boleto não confirmada pelo usuário."
-        )
+        raise RuntimeError("Geração do PDF do boleto não confirmada pelo usuário.")
 
 
 def confirmar_pdf_boleto(nome_pdf_sugerido):
+    # Popup local com botão de copiar nome e confirmação manual do PDF.
     try:
         import tkinter as tk
     except Exception:
@@ -174,9 +175,7 @@ def confirmar_pdf_boleto(nome_pdf_sugerido):
     )
     nome_input.pack(fill="x")
 
-    status_var = tk.StringVar(
-        value="Clique em Copiar nome para usar no PDFCreator."
-    )
+    status_var = tk.StringVar(value="Clique em Copiar nome para usar no PDFCreator.")
     tk.Label(
         frame,
         textvariable=status_var,
@@ -223,9 +222,29 @@ def confirmar_pdf_boleto(nome_pdf_sugerido):
     root.mainloop()
 
     if not confirmado["valor"]:
-        raise RuntimeError(
-            "Geração do PDF do boleto não confirmada pelo usuário."
-        )
+        raise RuntimeError("Geração do PDF do boleto não confirmada pelo usuário.")
+
+
+def fechar_popups_se_existirem(session, max_tentativas=5):
+    # Fecha confirmações intermediárias antes de navegar entre spool/F110/remessa.
+    for _ in range(max_tentativas):
+        try:
+            wnd1 = session.findById("wnd[1]")
+        except Exception:
+            break
+
+        try:
+            wnd1.sendVKey(0)
+        except Exception:
+            try:
+                wnd1.close()
+            except Exception:
+                pass
+
+        try:
+            wait_until_ready(session)
+        except Exception:
+            pass
 
 
 def abrir_ordens_spool_boleto(
@@ -233,7 +252,6 @@ def abrir_ordens_spool_boleto(
     logger=None,
     progress_callback=None,
 ):
-    # Abre SP02 para impressão do boleto.
     _notificar(
         progress_callback,
         "Abrindo ordens spool próprias...",
@@ -265,12 +283,46 @@ def abrir_ordens_spool_boleto(
     }
 
 
+def sair_spool_com_f12(
+    session,
+    logger=None,
+    progress_callback=None,
+):
+    # Saída validada no SAP real para destravar a navegação após o PDFCreator.
+    _notificar(
+        progress_callback,
+        "Saindo da tela de spool com F12...",
+        98,
+    )
+
+    try:
+        fechar_popups_se_existirem(session)
+
+        for _ in range(3):
+            try:
+                session.findById("wnd[0]").sendVKey(12)
+                wait_until_ready(session)
+                fechar_popups_se_existirem(session)
+            except Exception:
+                pass
+
+        if logger:
+            logger.add(
+                6,
+                "Tentativa de saída da spool com F12 concluída.",
+                publico=True,
+            )
+
+    except Exception as e:
+        raise RuntimeError(f"Erro ao sair da tela de spool com F12: {e}") from e
+
+
 def voltar_tela_inicial_com_f3(
     session,
     logger=None,
     progress_callback=None,
 ):
-    # Retorna da SP02 utilizando F3.
+    # Mantido como fallback: tenta voltar por OKCODE /n e, se necessário, F3.
     _notificar(
         progress_callback,
         "Voltando da tela do boleto...",
@@ -278,17 +330,40 @@ def voltar_tela_inicial_com_f3(
     )
 
     try:
-        session.findById("wnd[0]").sendVKey(3)
-        wait_until_ready(session)
+        fechar_popups_se_existirem(session)
+        voltou = False
+
+        for _ in range(4):
+            try:
+                campo_ok = session.findById("wnd[0]/tbar[0]/okcd")
+                campo_ok.text = "/n"
+                session.findById("wnd[0]").sendVKey(0)
+                wait_until_ready(session)
+                voltou = True
+                break
+            except Exception:
+                try:
+                    session.findById("wnd[0]").sendVKey(3)
+                    wait_until_ready(session)
+                    fechar_popups_se_existirem(session)
+                except Exception:
+                    pass
+
+        if not voltou:
+            try:
+                session.findById("wnd[0]").sendVKey(3)
+                wait_until_ready(session)
+                fechar_popups_se_existirem(session)
+            except Exception:
+                pass
+
     except Exception as e:
-        raise RuntimeError(
-            f"Erro ao voltar da tela do boleto: {e}"
-        ) from e
+        raise RuntimeError(f"Erro ao voltar da tela do boleto: {e}") from e
 
     if logger:
         logger.add(
             6,
-            "Retornou da tela de spool utilizando F3.",
+            "Retornou da tela de spool/tela de boleto.",
             publico=True,
         )
 
@@ -300,7 +375,7 @@ def abrir_f110_com_bol(
     data_exec=None,
     identificacao=None,
 ):
-    # Reabre a F110 utilizando o BOL correto.
+    # Reabre diretamente a F110 no BOL criado antes de baixar o meio de pagamento.
     if not data_exec:
         raise RuntimeError("Data da F110 não informada.")
 
@@ -313,29 +388,38 @@ def abrir_f110_com_bol(
         99,
     )
 
-    _abrir_transacao(
-        session,
-        "F110",
-        wait_id="wnd[0]/usr",
-        timeout=12,
-    )
+    try:
+        fechar_popups_se_existirem(session)
 
-    campo_data = wait_for_element(
-        session,
-        "wnd[0]/usr/ctxtF110V-LAUFD",
-        timeout=10,
-    )
-    campo_bol = wait_for_element(
-        session,
-        "wnd[0]/usr/ctxtF110V-LAUFI",
-        timeout=10,
-    )
+        campo_ok = wait_for_element(
+            session,
+            "wnd[0]/tbar[0]/okcd",
+            timeout=10,
+        )
+        campo_ok.text = "/nF110"
 
-    campo_data.text = str(data_exec)
-    campo_bol.text = str(identificacao)
+        session.findById("wnd[0]").sendVKey(0)
+        wait_until_ready(session)
 
-    session.findById("wnd[0]").sendVKey(0)
-    wait_until_ready(session)
+        campo_data = wait_for_element(
+            session,
+            "wnd[0]/usr/ctxtF110V-LAUFD",
+            timeout=10,
+        )
+        campo_bol = wait_for_element(
+            session,
+            "wnd[0]/usr/ctxtF110V-LAUFI",
+            timeout=10,
+        )
+
+        campo_data.text = str(data_exec)
+        campo_bol.text = str(identificacao)
+
+        session.findById("wnd[0]").sendVKey(0)
+        wait_until_ready(session)
+
+    except Exception as e:
+        raise RuntimeError(f"Erro ao reabrir F110 no {identificacao}: {e}") from e
 
     if logger:
         logger.add(
@@ -362,14 +446,7 @@ def baixar_arquivo_meio_pagamento(
     data_exec=None,
     identificacao=None,
 ):
-    # Fluxo final validado do meio de pagamento:
-    # 1. Ambiente > Meio de pagamento > Dados administrativos IDS
-    # 2. F8
-    # 3. F7
-    # 4. F4 para selecionar/salvar arquivo
-    # 5. Confirmar download
-    # 6. F3
-    # 7. F3
+    # Fluxo validado: Ambiente > Meio pagamento > IDS, F8, F7, F4 e confirma.
     _notificar(
         progress_callback,
         "Abrindo meio de pagamento...",
@@ -384,6 +461,8 @@ def baixar_arquivo_meio_pagamento(
         ).maximize()
         wait_until_ready(session)
 
+        fechar_popups_se_existirem(session)
+
         wait_for_element(
             session,
             "wnd[0]/mbar/menu[3]/menu[6]/menu[0]",
@@ -391,7 +470,6 @@ def baixar_arquivo_meio_pagamento(
         ).select()
         wait_until_ready(session)
 
-        # Sequência gravada/validada no SAP GUI para avançar no suporte de dados.
         session.findById("wnd[0]").sendVKey(19)
         wait_until_ready(session)
 
@@ -426,9 +504,7 @@ def baixar_arquivo_meio_pagamento(
             status="erro",
         )
 
-        raise RuntimeError(
-            f"Erro ao gerar meio de pagamento: {e}"
-        ) from e
+        raise RuntimeError(f"Erro ao gerar meio de pagamento: {e}") from e
 
     if logger:
         logger.add(
@@ -458,15 +534,7 @@ def finalizar_boleto_f110(
     data_exec=None,
     identificacao=None,
 ):
-    # Fluxo final completo da F110:
-    # 1. SP02
-    # 2. Geração manual PDF
-    # 3. F3
-    # 4. Reabre F110
-    # 5. Reentra no BOL
-    # 6. Meio de pagamento
-    # 7. Confirma download
-    # 8. Retorna à tela inicial
+    # Finaliza boleto/remessa após execução da F110.
     resultado = {}
 
     resultado.update(
@@ -503,7 +571,7 @@ def finalizar_boleto_f110(
 
     resultado["pdf_boleto"] = "CONFIRMADO"
 
-    voltar_tela_inicial_com_f3(
+    sair_spool_com_f12(
         session,
         logger=logger,
         progress_callback=progress_callback,

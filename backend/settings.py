@@ -22,9 +22,17 @@ DEFAULT_SETTINGS = {
         "ttl_days": 30,
         "max_entries": 2000,
         "file_name": "cliente_cache.json",
+        "shared_dir": "",
+        "fallback_to_local": True,
+        "reload_on_read": True,
+        "lock_timeout_seconds": 3,
     },
     "startup": {
         "require_sap_session": True,
+    },
+    "timing": {
+        "action_delay_seconds": 0,
+        "max_action_delay_seconds": 30,
     },
     "support": {
         "notification_email_enabled": False,

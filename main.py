@@ -104,6 +104,22 @@ def cleanup_old_local_runtimes(current_dir: Path) -> None:
             pass
 
 
+# Mantem configuracoes editaveis da rede sincronizadas com a copia local.
+def sync_runtime_config_files(source_dir: Path, target_dir: Path) -> None:
+    for file_name in ("embasa_settings.json",):
+        source_file = source_dir / file_name
+        target_file = target_dir / file_name
+
+        if not source_file.exists():
+            continue
+
+        try:
+            shutil.copy2(source_file, target_file)
+            write_startup_log(f"Configuracao sincronizada: {file_name}")
+        except Exception:
+            write_startup_log(f"Falha ao sincronizar configuracao: {file_name}")
+
+
 # Se o exe estiver na rede, copia a pasta onedir para LOCALAPPDATA e relanca de la.
 def relaunch_from_local_runtime_if_needed() -> bool:
     if not getattr(sys, "frozen", False):
@@ -130,6 +146,8 @@ def relaunch_from_local_runtime_if_needed() -> bool:
 
             shutil.copytree(source_dir, target_dir)
             cleanup_old_local_runtimes(target_dir)
+
+        sync_runtime_config_files(source_dir, target_dir)
 
         env = os.environ.copy()
         env["EMBASA_LOCAL_RUNTIME"] = "1"
