@@ -6,10 +6,12 @@ from backend.flows.vf01 import criar_doc_faturamento
 from backend.flows.vf02 import pos_faturamento
 from backend.flows.xd03 import buscar_cliente
 from backend.sap_connection import conectar_sap
+from backend.utils.sap_sessions import (
+    garantir_sessao_transacao,
+    obter_transacao,
+)
 from backend.utils.sap_waits import (
     fechar_janelas_secundarias,
-    wait_for_element,
-    wait_until_ready,
 )
 
 
@@ -121,6 +123,7 @@ class SAPController:
                 "Etapa já concluída antes da retomada.",
                 100,
             )
+            return session
 
     # Fecha popups simples antes de retomar, sem mandar o SAP para Easy Access.
     def _fechar_popups_retomada(self, session):
@@ -147,38 +150,47 @@ class SAPController:
 
         return fechadas
 
-    # Ao retomar, abre diretamente a transacao da etapa pendente.
+    # Ao retomar, prioriza uma sessao SAP que ja esteja na transacao pendente.
     def _preparar_tela_para_retomada(self, session, iniciar_em, progress_callback=None):
         transacao = STAGE_TRANSACTION.get(str(iniciar_em or "").strip().upper())
 
         if not transacao:
-            return
+            return session
 
         self._notificar_progresso(
             progress_callback,
             iniciar_em,
             "processando",
-            f"Preparando retomada em {iniciar_em} via /n{transacao}...",
+            f"Preparando retomada em {iniciar_em}...",
             3,
         )
 
         try:
             self._fechar_popups_retomada(session)
-            wait_for_element(session, "wnd[0]").maximize()
-            campo_ok = wait_for_element(session, "wnd[0]/tbar[0]/okcd", timeout=5)
-            campo_ok.text = f"/n{transacao}"
-            session.findById("wnd[0]").sendVKey(0)
-            wait_until_ready(session)
+            transacao_antes = obter_transacao(session)
+            session = garantir_sessao_transacao(
+                session,
+                transacao,
+                preferir_existente=True,
+                abrir_se_necessario=True,
+            )
+            transacao_depois = obter_transacao(session)
             self.logger.add(
                 -1,
-                f"SAP reposicionado em /n{transacao} para retomar {iniciar_em}.",
+                (
+                    f"SAP preparado para retomar {iniciar_em}. "
+                    f"Transacao antes: {transacao_antes or 'indefinida'}; "
+                    f"agora: {transacao_depois or transacao}."
+                ),
             )
+            return session
         except Exception as exc:
             self.logger.add(
                 -1,
                 f"Não foi possível reposicionar SAP antes da retomada: {exc}",
                 nivel="DEBUG",
             )
+            return session
 
     # Monta apenas os dados seguros/uteis para mostrar na interface.
     def _montar_dados_publicos(self, dados, contexto):
@@ -375,7 +387,7 @@ class SAPController:
 
             if iniciar_em != "XD03":
                 self._sincronizar_progresso_retomada(progress_callback, iniciar_em)
-                self._preparar_tela_para_retomada(
+                session = self._preparar_tela_para_retomada(
                     session,
                     iniciar_em,
                     progress_callback=progress_callback,

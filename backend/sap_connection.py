@@ -17,7 +17,7 @@ def _importar_win32com():
         ) from exc
 
 
-# Percorre todas as conexoes/sessoes abertas no SAP GUI.
+# Percorre todas as conexões/sessões abertas no SAP GUI.
 def _iterar_sessoes(application):
     try:
         total_conexoes = int(application.Children.Count)
@@ -45,6 +45,26 @@ def _sessao_esta_pronta(session):
     return True
 
 
+def _transacao_sessao(session):
+    try:
+        return str(session.Info.Transaction or "").strip().upper()
+    except Exception:
+        return ""
+
+
+# Evita usar SP01/SP02 como sessão principal quando existe outra sessão pronta.
+def _prioridade_sessao(session):
+    transacao = _transacao_sessao(session)
+
+    if transacao in {"SP01", "SP02"}:
+        return 20
+
+    if transacao:
+        return 0
+
+    return 10
+
+
 # Diagnostica se existe uma sessão SAP logada e pronta para automação.
 def diagnosticar_sap():
     try:
@@ -60,18 +80,23 @@ def diagnosticar_sap():
         }
 
     ultimo_erro = "Nenhuma sessão SAP pronta foi encontrada."
+    sessoes_prontas = []
 
     for session in _iterar_sessoes(application):
         try:
             _sessao_esta_pronta(session)
-            return {
-                "ok": True,
-                "mensagem": "",
-                "erro_tecnico": "",
-                "session": session,
-            }
+            sessoes_prontas.append(session)
         except Exception as exc:
             ultimo_erro = str(exc)
+
+    if sessoes_prontas:
+        session = sorted(sessoes_prontas, key=_prioridade_sessao)[0]
+        return {
+            "ok": True,
+            "mensagem": "",
+            "erro_tecnico": "",
+            "session": session,
+        }
 
     return {
         "ok": False,

@@ -334,16 +334,16 @@ function salvarTema(theme) {
 }
 
 function atualizarLogoPorTema() {
-  const logo = el("brandLogo");
+  const logos = document.querySelectorAll("#brandLogo, .hero-symbol-mark");
 
-  if (!logo) {
+  if (!logos.length) {
     return;
   }
 
-  logo.classList.remove("logo-animated");
+  logos.forEach((logo) => logo.classList.remove("logo-animated"));
 
   window.requestAnimationFrame(() => {
-    logo.classList.add("logo-animated");
+    logos.forEach((logo) => logo.classList.add("logo-animated"));
   });
 }
 

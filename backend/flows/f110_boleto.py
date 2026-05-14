@@ -2,6 +2,19 @@ import ctypes
 import re
 
 from backend.documentos import formatar_doc
+from backend.utils.sap_sessions import (
+    aguardar_nova_sessao,
+    fechar_sessao_principal,
+    focar_sessao,
+    identidade_sessao,
+    localizar_sessao_f110,
+    localizar_sessao_spool,
+    mesma_sessao,
+    obter_aplicacao_da_sessao,
+    sessao_e_f110,
+    sessao_e_spool,
+    snapshot_sessoes,
+)
 from backend.utils.sap_waits import wait_for_element, wait_until_ready
 
 
@@ -35,6 +48,21 @@ def _abrir_transacao(session, codigo, wait_id="wnd[0]/usr", timeout=10):
         return wait_for_element(session, wait_id, timeout=timeout)
 
     return True
+
+
+def _abrir_transacao_nova_sessao(session, codigo):
+    # /o abre a transação em uma nova sessão SAP, preservando a F110 original.
+    wait_for_element(session, "wnd[0]").maximize()
+
+    campo_ok = wait_for_element(
+        session,
+        "wnd[0]/tbar[0]/okcd",
+        timeout=5,
+    )
+    campo_ok.text = f"/o{codigo}"
+
+    session.findById("wnd[0]").sendVKey(0)
+    wait_until_ready(session)
 
 
 def _notificar(progress_callback, mensagem, percentual, status="processando"):
@@ -281,6 +309,180 @@ def abrir_ordens_spool_boleto(
     return {
         "spool_boleto": "ABERTO",
     }
+
+
+def abrir_ordens_spool_boleto_em_nova_sessao(
+    session,
+    logger=None,
+    progress_callback=None,
+    data_exec=None,
+    identificacao=None,
+):
+    # Abre a SP02 em nova sessão SAP para preservar a F110 original.
+    _notificar(
+        progress_callback,
+        "Abrindo ordens spool próprias...",
+        97,
+    )
+
+    f110_session = focar_sessao(session)
+    application = obter_aplicacao_da_sessao(f110_session)
+    sessoes_antes = snapshot_sessoes(application)
+    f110_id = identidade_sessao(f110_session)
+
+    if not sessao_e_f110(
+        f110_session,
+        data_exec=data_exec,
+        identificacao=identificacao,
+    ):
+        f110_recuperada = localizar_sessao_f110(
+            application,
+            data_exec=data_exec,
+            identificacao=identificacao,
+        )
+
+        if f110_recuperada:
+            f110_session = focar_sessao(f110_recuperada)
+            f110_id = identidade_sessao(f110_session)
+        elif logger:
+            logger.add(
+                6,
+                "Sessão F110 original não confirmada antes da abertura da spool.",
+                nivel="AVISO",
+            )
+
+    _abrir_transacao_nova_sessao(f110_session, "SP02")
+
+    spool_session = aguardar_nova_sessao(
+        application,
+        sessoes_antes,
+        predicado=sessao_e_spool,
+        timeout=15,
+    )
+
+    if spool_session is None:
+        spool_session = localizar_sessao_spool(
+            application,
+            ignorar_ids=set(sessoes_antes) | {f110_id},
+        )
+
+    if spool_session is None:
+        if sessao_e_spool(f110_session):
+            spool_session = f110_session
+        else:
+            raise RuntimeError(
+                "A SP02 não abriu em uma nova sessão SAP e a F110 original foi preservada. "
+                "Não foi possível localizar a tela de spool para gerar o boleto."
+            )
+
+    spool_abriu_nova_sessao = not mesma_sessao(spool_session, f110_session)
+    focar_sessao(spool_session)
+
+    if logger:
+        logger.add(
+            6,
+            (
+                "Ordens spool próprias abertas em nova sessão SAP."
+                if spool_abriu_nova_sessao
+                else "Ordens spool abertas na mesma sessão SAP."
+            ),
+            publico=True,
+        )
+
+    _notificar(
+        progress_callback,
+        "Ordens spool abertas. Gere o PDF no PDFCreator.",
+        98,
+    )
+
+    return {
+        "public": {
+            "spool_boleto": "ABERTO",
+            "spool_nova_sessao": spool_abriu_nova_sessao,
+        },
+        "f110_session": f110_session,
+        "spool_session": spool_session,
+        "spool_abriu_nova_sessao": spool_abriu_nova_sessao,
+        "sessoes_antes": sessoes_antes,
+    }
+
+
+def fechar_spool_e_retornar_f110(
+    contexto_spool,
+    logger=None,
+    progress_callback=None,
+    data_exec=None,
+    identificacao=None,
+):
+    # Fecha somente a sessão da SP02 e devolve o controle para a F110 original.
+    _notificar(
+        progress_callback,
+        "Fechando janela da spool e retomando F110...",
+        99,
+    )
+
+    f110_session = contexto_spool.get("f110_session")
+    spool_session = contexto_spool.get("spool_session")
+    spool_abriu_nova_sessao = bool(contexto_spool.get("spool_abriu_nova_sessao"))
+
+    if spool_session and spool_abriu_nova_sessao:
+        if logger:
+            logger.add(6, "Fechando somente a sessão SAP da SP02.", publico=True)
+
+        fechar_popups_se_existirem(spool_session)
+
+        if not fechar_sessao_principal(spool_session):
+            raise RuntimeError("Não foi possível fechar a sessão SAP da SP02.")
+
+    elif spool_session:
+        # Fallback para ambientes onde a SP02 não abriu em nova sessão.
+        # Aqui a F110 precisa ser reaberta no BOL correto para seguir com segurança.
+        if logger:
+            logger.add(
+                6,
+                "SP02 abriu na mesma sessão. Reabrindo F110 no BOL correto.",
+                nivel="AVISO",
+                publico=True,
+            )
+
+        abrir_f110_com_bol(
+            spool_session,
+            logger=logger,
+            progress_callback=progress_callback,
+            data_exec=data_exec,
+            identificacao=identificacao,
+        )
+        f110_session = spool_session
+
+    if f110_session is None:
+        raise RuntimeError("Sessão F110 original ausente no contexto da spool.")
+
+    application = obter_aplicacao_da_sessao(f110_session)
+
+    if not sessao_e_f110(
+        f110_session,
+        data_exec=data_exec,
+        identificacao=identificacao,
+    ):
+        f110_localizada = localizar_sessao_f110(
+            application,
+            data_exec=data_exec,
+            identificacao=identificacao,
+        )
+
+        if not f110_localizada:
+            raise RuntimeError(
+                "A sessão F110 original não foi localizada após fechar a SP02."
+            )
+
+        f110_session = f110_localizada
+
+    focar_sessao(f110_session)
+
+    if logger:
+        logger.add(6, "Controle devolvido para a F110 original.", publico=True)
+
+    return f110_session
 
 
 def sair_spool_com_f12(
@@ -537,13 +739,14 @@ def finalizar_boleto_f110(
     # Finaliza boleto/remessa após execução da F110.
     resultado = {}
 
-    resultado.update(
-        abrir_ordens_spool_boleto(
-            session,
-            logger=logger,
-            progress_callback=progress_callback,
-        )
+    contexto_spool = abrir_ordens_spool_boleto_em_nova_sessao(
+        session,
+        logger=logger,
+        progress_callback=progress_callback,
+        data_exec=data_exec,
+        identificacao=identificacao,
     )
+    resultado.update(contexto_spool["public"])
 
     nome_pdf_sugerido = montar_nome_pdf_sugerido(
         numero_boleto,
@@ -571,25 +774,17 @@ def finalizar_boleto_f110(
 
     resultado["pdf_boleto"] = "CONFIRMADO"
 
-    sair_spool_com_f12(
-        session,
+    f110_session = fechar_spool_e_retornar_f110(
+        contexto_spool,
         logger=logger,
         progress_callback=progress_callback,
-    )
-
-    resultado.update(
-        abrir_f110_com_bol(
-            session,
-            logger=logger,
-            progress_callback=progress_callback,
-            data_exec=data_exec,
-            identificacao=identificacao,
-        )
+        data_exec=data_exec,
+        identificacao=identificacao,
     )
 
     resultado.update(
         baixar_arquivo_meio_pagamento(
-            session,
+            f110_session,
             logger=logger,
             progress_callback=progress_callback,
             data_exec=data_exec,
