@@ -28,6 +28,10 @@ def _safe_texto(valor):
         return ""
 
 
+def _somente_digitos(valor):
+    return "".join(ch for ch in _safe_texto(valor) if ch.isdigit())
+
+
 # Retorna a aplicação SAP GUI a partir de uma sessão já conhecida.
 def obter_aplicacao_da_sessao(session):
     try:
@@ -112,6 +116,63 @@ def snapshot_sessoes(application):
     }
 
 
+def contar_sessoes(application):
+    return len(snapshot_sessoes(application))
+
+
+def fingerprint_sessao(session):
+    return descrever_sessao(session)
+
+
+def dump_sessoes(application, logger=None, label="", etapa=6):
+    sessoes = [
+        descrever_sessao(session)
+        for session in iterar_sessoes_sap(application)
+        if sessao_ativa(session)
+    ]
+
+    resumo = "; ".join(
+        f"{item.get('id')} tx={item.get('transaction') or '-'} title={item.get('title') or '-'}"
+        for item in sessoes
+    )
+
+    mensagem = f"Sessoes SAP {label}: {len(sessoes)}"
+
+    if resumo:
+        mensagem = f"{mensagem} | {resumo}"
+
+    if logger:
+        logger.add(etapa, mensagem, publico=False)
+    else:
+        print(mensagem)
+
+    return sessoes
+
+
+def aguardar_quantidade_sessoes(application, quantidade, timeout=10, interval=0.2):
+    deadline = time.monotonic() + max(0.1, float(timeout or 0.1))
+
+    while time.monotonic() < deadline:
+        if contar_sessoes(application) == int(quantidade):
+            return True
+
+        time.sleep(interval)
+
+    return contar_sessoes(application) == int(quantidade)
+
+
+def aguardar_fechamento_sessao(application, session_id, timeout=8, interval=0.2):
+    deadline = time.monotonic() + max(0.1, float(timeout or 0.1))
+
+    while time.monotonic() < deadline:
+        if session_id not in snapshot_sessoes(application):
+            return True
+
+        time.sleep(interval)
+
+    return session_id not in snapshot_sessoes(application)
+
+
 def mesma_sessao(sessao_a, sessao_b):
     if sessao_a is None or sessao_b is None:
         return False
@@ -138,7 +199,7 @@ def focar_sessao(session):
     return session
 
 
-def sessao_e_f110(session, data_exec=None, identificacao=None):
+def sessao_e_f110(session, data_exec=None, identificacao=None, exigir_campos=False):
     transacao = obter_transacao(session)
 
     if transacao and transacao != "F110":
@@ -148,11 +209,11 @@ def sessao_e_f110(session, data_exec=None, identificacao=None):
         campo_data = session.findById(F110_CAMPO_DATA_EXEC)
         campo_ident = session.findById(F110_CAMPO_IDENT)
     except Exception:
-        return transacao == "F110"
+        return transacao == "F110" and not exigir_campos
 
-    if data_exec and _safe_texto(
+    if data_exec and _somente_digitos(
         _safe_getattr(campo_data, "Text", "text")
-    ) != str(data_exec):
+    ) != _somente_digitos(data_exec):
         return False
 
     if identificacao and _safe_texto(
@@ -214,10 +275,20 @@ def aguardar_nova_sessao(
     return candidatas[0] if candidatas else None
 
 
-def localizar_sessao_f110(application, data_exec=None, identificacao=None):
+def localizar_sessao_f110(
+    application,
+    data_exec=None,
+    identificacao=None,
+    exigir_campos=False,
+):
     for session in iterar_sessoes_sap(application):
         try:
-            if sessao_e_f110(session, data_exec=data_exec, identificacao=identificacao):
+            if sessao_e_f110(
+                session,
+                data_exec=data_exec,
+                identificacao=identificacao,
+                exigir_campos=exigir_campos,
+            ):
                 return session
         except Exception:
             continue
@@ -234,6 +305,22 @@ def localizar_sessao_spool(application, ignorar_ids=None):
                 continue
 
             if sessao_e_spool(session):
+                return session
+        except Exception:
+            continue
+
+    return None
+
+
+def localizar_sessao_por_id(application, session_id):
+    session_id = _safe_texto(session_id)
+
+    if not session_id:
+        return None
+
+    for session in iterar_sessoes_sap(application):
+        try:
+            if identidade_sessao(session) == session_id and sessao_ativa(session):
                 return session
         except Exception:
             continue
@@ -306,6 +393,12 @@ def garantir_sessao_transacao(
 def fechar_sessao_principal(session, timeout=8):
     session_id = identidade_sessao(session)
     application = obter_aplicacao_da_sessao(session)
+    connection = None
+
+    try:
+        connection = session.Parent
+    except Exception:
+        connection = None
 
     try:
         janela = session.findById("wnd[0]")
@@ -321,15 +414,23 @@ def fechar_sessao_principal(session, timeout=8):
 
     _confirmar_fechamento_sessao(session)
 
-    deadline = time.monotonic() + max(0.1, float(timeout or 0.1))
+    if aguardar_fechamento_sessao(application, session_id, timeout=timeout):
+        return True
 
-    while time.monotonic() < deadline:
-        sessoes_atuais = snapshot_sessoes(application)
+    if connection:
+        for metodo in ("closeSession", "CloseSession"):
+            try:
+                close_session = getattr(connection, metodo)
+            except Exception:
+                continue
 
-        if session_id not in sessoes_atuais:
-            return True
-
-        time.sleep(0.2)
+            for valor_id in (session_id, session_id.split("/")[-1]):
+                try:
+                    close_session(valor_id)
+                    if aguardar_fechamento_sessao(application, session_id, timeout=timeout):
+                        return True
+                except Exception:
+                    continue
 
     return session_id not in snapshot_sessoes(application)
 

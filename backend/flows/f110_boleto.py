@@ -4,10 +4,16 @@ import re
 from backend.documentos import formatar_doc
 from backend.utils.sap_sessions import (
     aguardar_nova_sessao,
+    aguardar_quantidade_sessoes,
+    contar_sessoes,
+    dump_sessoes,
     fechar_sessao_principal,
+    fingerprint_sessao,
     focar_sessao,
     identidade_sessao,
+    iterar_sessoes_sap,
     localizar_sessao_f110,
+    localizar_sessao_por_id,
     localizar_sessao_spool,
     mesma_sessao,
     obter_aplicacao_da_sessao,
@@ -481,6 +487,508 @@ def fechar_spool_e_retornar_f110(
 
     if logger:
         logger.add(6, "Controle devolvido para a F110 original.", publico=True)
+
+    return f110_session
+
+
+def _garantir_f110_no_bol(session, data_exec=None, identificacao=None, logger=None):
+    # Reposiciona a sessao na F110/BOL correto antes de qualquer passo critico.
+    if sessao_e_f110(
+        session,
+        data_exec=data_exec,
+        identificacao=identificacao,
+        exigir_campos=bool(data_exec or identificacao),
+    ):
+        return focar_sessao(session)
+
+    if not data_exec:
+        raise RuntimeError("Data da F110 nao informada.")
+
+    if not identificacao:
+        raise RuntimeError("Identificacao BOL nao informada.")
+
+    if logger:
+        logger.add(
+            6,
+            f"Reabrindo F110 no BOL {identificacao} antes de continuar.",
+            publico=False,
+        )
+
+    focar_sessao(session)
+
+    campo_ok = wait_for_element(
+        session,
+        "wnd[0]/tbar[0]/okcd",
+        timeout=10,
+    )
+    campo_ok.text = "/nF110"
+    session.findById("wnd[0]").sendVKey(0)
+    wait_until_ready(session)
+
+    campo_data = wait_for_element(
+        session,
+        "wnd[0]/usr/ctxtF110V-LAUFD",
+        timeout=10,
+    )
+    campo_bol = wait_for_element(
+        session,
+        "wnd[0]/usr/ctxtF110V-LAUFI",
+        timeout=10,
+    )
+
+    campo_data.text = str(data_exec)
+    campo_bol.text = str(identificacao)
+    session.findById("wnd[0]").sendVKey(0)
+    wait_until_ready(session)
+
+    return focar_sessao(session)
+
+
+def _sessao_viva(session):
+    try:
+        session.findById("wnd[0]")
+        return True
+    except Exception:
+        return False
+
+
+def _fechar_popups_recuperacao(session):
+    for _ in range(3):
+        try:
+            popup = session.findById("wnd[1]")
+        except Exception:
+            return
+
+        for element_id in (
+            "usr/btnSPOP-OPTION1",
+            "usr/btnBUTTON_1",
+            "tbar[0]/btn[0]",
+            "tbar[0]/btn[12]",
+        ):
+            try:
+                popup.findById(element_id).press()
+                wait_until_ready(session)
+                break
+            except Exception:
+                continue
+        else:
+            try:
+                popup.sendVKey(0)
+                wait_until_ready(session)
+            except Exception:
+                return
+
+
+def _enviar_vkey_recuperacao(session, vkey, descricao, logger=None):
+    try:
+        focar_sessao(session)
+        _fechar_popups_recuperacao(session)
+        session.findById("wnd[0]").sendVKey(vkey)
+        wait_until_ready(session)
+        _fechar_popups_recuperacao(session)
+
+        if logger:
+            logger.add(
+                6,
+                f"Recuperacao spool: {descricao} enviado.",
+                publico=False,
+            )
+
+        return True
+    except Exception as exc:
+        if logger:
+            logger.add(
+                6,
+                f"Recuperacao spool: falha ao enviar {descricao}: {exc}",
+                nivel="AVISO",
+                publico=False,
+            )
+
+        return False
+
+
+def _sessoes_candidatas_recuperacao(application, spool_id=None, f110_id=None):
+    candidatas = []
+    vistos = set()
+
+    for session in (
+        localizar_sessao_por_id(application, spool_id) if spool_id else None,
+        localizar_sessao_spool(application, ignorar_ids={f110_id} if f110_id else None),
+    ):
+        if session is None:
+            continue
+
+        session_id = identidade_sessao(session)
+
+        if session_id not in vistos and _sessao_viva(session):
+            candidatas.append(session)
+            vistos.add(session_id)
+
+    for session in iterar_sessoes_sap(application):
+        try:
+            session_id = identidade_sessao(session)
+
+            if session_id in vistos:
+                continue
+
+            if f110_id and session_id == f110_id:
+                continue
+
+            if _sessao_viva(session):
+                candidatas.append(session)
+                vistos.add(session_id)
+        except Exception:
+            continue
+
+    if f110_id:
+        f110_session = localizar_sessao_por_id(application, f110_id)
+
+        if f110_session is not None and identidade_sessao(f110_session) not in vistos:
+            candidatas.append(f110_session)
+
+    return candidatas
+
+
+def _tentar_sair_spool_por_teclas(
+    application,
+    spool_id=None,
+    f110_id=None,
+    logger=None,
+    progress_callback=None,
+):
+    _notificar(
+        progress_callback,
+        "Tentando recuperar janela SAP por teclas...",
+        99,
+    )
+
+    sequencia = (
+        (12, "F12"),
+        (15, "Shift+F3"),
+        (3, "F3"),
+    )
+
+    if localizar_sessao_spool(
+        application,
+        ignorar_ids={f110_id} if f110_id else None,
+    ) is None:
+        return True
+
+    for rodada in range(1, 5):
+        for session in _sessoes_candidatas_recuperacao(
+            application,
+            spool_id=spool_id,
+            f110_id=f110_id,
+        ):
+            if not _sessao_viva(session):
+                continue
+
+            if logger:
+                logger.add(
+                    6,
+                    f"Recuperacao spool rodada {rodada}: {fingerprint_sessao(session)}",
+                    publico=False,
+                )
+
+            for vkey, descricao in sequencia:
+                _enviar_vkey_recuperacao(
+                    session,
+                    vkey,
+                    descricao,
+                    logger=logger,
+                )
+
+                if localizar_sessao_spool(
+                    application,
+                    ignorar_ids={f110_id} if f110_id else None,
+                ) is None:
+                    return True
+
+    return localizar_sessao_spool(
+        application,
+        ignorar_ids={f110_id} if f110_id else None,
+    ) is None
+
+
+def _obter_sessao_para_reabrir_f110(application, f110_id=None):
+    if f110_id:
+        f110_session = localizar_sessao_por_id(application, f110_id)
+
+        if f110_session is not None:
+            return f110_session
+
+    f110_session = localizar_sessao_f110(application)
+
+    if f110_session is not None:
+        return f110_session
+
+    for session in iterar_sessoes_sap(application):
+        try:
+            if _sessao_viva(session) and not sessao_e_spool(session):
+                return session
+        except Exception:
+            continue
+
+    for session in iterar_sessoes_sap(application):
+        try:
+            if _sessao_viva(session):
+                return session
+        except Exception:
+            continue
+
+    return None
+
+
+# Implementacao robusta: esta definicao substitui a anterior e evita cachear
+# sessoes COM depois que a SP02 altera a topologia do SAP GUI.
+def abrir_ordens_spool_boleto_em_nova_sessao(
+    session,
+    logger=None,
+    progress_callback=None,
+    data_exec=None,
+    identificacao=None,
+):
+    _notificar(
+        progress_callback,
+        "Abrindo ordens spool proprias...",
+        97,
+    )
+
+    application = obter_aplicacao_da_sessao(session)
+    dump_sessoes(application, logger=logger, label="ANTES_SP02")
+
+    f110_session = localizar_sessao_f110(
+        application,
+        data_exec=data_exec,
+        identificacao=identificacao,
+        exigir_campos=True,
+    )
+
+    if f110_session is None:
+        f110_session = localizar_sessao_f110(
+            application,
+            data_exec=data_exec,
+            identificacao=identificacao,
+        )
+
+    if f110_session is None:
+        f110_session = session
+
+    f110_session = _garantir_f110_no_bol(
+        f110_session,
+        data_exec=data_exec,
+        identificacao=identificacao,
+        logger=logger,
+    )
+
+    sessoes_antes = snapshot_sessoes(application)
+    quantidade_antes = contar_sessoes(application)
+    f110_id = identidade_sessao(f110_session)
+
+    if logger:
+        logger.add(
+            6,
+            f"F110 base antes da SP02: {fingerprint_sessao(f110_session)}",
+            publico=False,
+        )
+
+    _abrir_transacao_nova_sessao(f110_session, "SP02")
+
+    aguardar_quantidade_sessoes(
+        application,
+        quantidade_antes + 1,
+        timeout=6,
+    )
+
+    spool_session = aguardar_nova_sessao(
+        application,
+        sessoes_antes,
+        predicado=sessao_e_spool,
+        timeout=15,
+    )
+
+    if spool_session is None:
+        spool_session = localizar_sessao_spool(
+            application,
+            ignorar_ids=set(sessoes_antes) | {f110_id},
+        )
+
+    if spool_session is None and sessao_e_spool(f110_session):
+        spool_session = f110_session
+
+    if spool_session is None:
+        dump_sessoes(application, logger=logger, label="SP02_NAO_LOCALIZADA")
+        raise RuntimeError(
+            "Nao foi possivel localizar a sessao SP02/spool apos abertura."
+        )
+
+    spool_abriu_nova_sessao = not mesma_sessao(spool_session, f110_session)
+    spool_id = identidade_sessao(spool_session)
+    focar_sessao(spool_session)
+
+    if logger:
+        logger.add(
+            6,
+            (
+                "Ordens spool proprias abertas em nova sessao SAP."
+                if spool_abriu_nova_sessao
+                else "Ordens spool abertas na mesma sessao SAP."
+            ),
+            publico=True,
+        )
+        logger.add(
+            6,
+            f"SP02 localizada: {fingerprint_sessao(spool_session)}",
+            publico=False,
+        )
+        dump_sessoes(application, logger=logger, label="APOS_ABRIR_SP02")
+
+    _notificar(
+        progress_callback,
+        "Ordens spool abertas. Gere o PDF no PDFCreator.",
+        98,
+    )
+
+    return {
+        "public": {
+            "spool_boleto": "ABERTO",
+            "spool_nova_sessao": spool_abriu_nova_sessao,
+        },
+        "application": application,
+        "f110_id": f110_id,
+        "spool_id": spool_id,
+        "spool_abriu_nova_sessao": spool_abriu_nova_sessao,
+        "sessoes_antes": sessoes_antes,
+        "quantidade_antes": quantidade_antes,
+    }
+
+
+def fechar_spool_e_retornar_f110(
+    contexto_spool,
+    logger=None,
+    progress_callback=None,
+    data_exec=None,
+    identificacao=None,
+):
+    _notificar(
+        progress_callback,
+        "Fechando janela da spool e retomando F110...",
+        99,
+    )
+
+    application = contexto_spool.get("application")
+    f110_id = contexto_spool.get("f110_id")
+    spool_id = contexto_spool.get("spool_id")
+    quantidade_antes = contexto_spool.get("quantidade_antes")
+    spool_abriu_nova_sessao = bool(contexto_spool.get("spool_abriu_nova_sessao"))
+
+    if application is None:
+        raise RuntimeError("Aplicacao SAP ausente no contexto da spool.")
+
+    dump_sessoes(application, logger=logger, label="ANTES_FECHAR_SP02")
+
+    spool_session = None
+
+    if spool_id:
+        spool_session = localizar_sessao_por_id(application, spool_id)
+
+    if spool_session is None:
+        spool_session = localizar_sessao_spool(
+            application,
+            ignorar_ids={f110_id} if f110_id else None,
+        )
+
+    if spool_session and spool_abriu_nova_sessao:
+        if logger:
+            logger.add(
+                6,
+                f"Fechando somente a sessao SP02: {fingerprint_sessao(spool_session)}",
+                publico=True,
+            )
+
+        fechar_popups_se_existirem(spool_session)
+
+        if not fechar_sessao_principal(spool_session):
+            if logger:
+                logger.add(
+                    6,
+                    "Fechamento direto da SP02 falhou. Acionando recuperacao por F12/Shift+F3.",
+                    nivel="AVISO",
+                    publico=True,
+                )
+
+            _tentar_sair_spool_por_teclas(
+                application,
+                spool_id=spool_id,
+                f110_id=f110_id,
+                logger=logger,
+                progress_callback=progress_callback,
+            )
+
+    elif spool_session:
+        if logger:
+            logger.add(
+                6,
+                "SP02 abriu na mesma sessao. Reposicionando F110 no BOL correto.",
+                nivel="AVISO",
+                publico=True,
+            )
+
+        return _garantir_f110_no_bol(
+            spool_session,
+            data_exec=data_exec,
+            identificacao=identificacao,
+            logger=logger,
+        )
+    elif logger:
+        logger.add(
+            6,
+            "Sessao SP02 nao localizada apos PDF. Tentando retomar F110 pela raiz.",
+            nivel="AVISO",
+            publico=True,
+        )
+
+    if quantidade_antes:
+        aguardar_quantidade_sessoes(
+            application,
+            quantidade_antes,
+            timeout=10,
+        )
+
+    dump_sessoes(application, logger=logger, label="APOS_FECHAR_SP02")
+
+    f110_session = localizar_sessao_f110(
+        application,
+        data_exec=data_exec,
+        identificacao=identificacao,
+        exigir_campos=True,
+    )
+
+    if f110_session is None and f110_id:
+        f110_session = localizar_sessao_por_id(application, f110_id)
+
+    if f110_session is None:
+        f110_session = _obter_sessao_para_reabrir_f110(
+            application,
+            f110_id=f110_id,
+        )
+
+    if f110_session is None:
+        raise RuntimeError("Nao foi possivel localizar a sessao F110 apos fechar a SP02.")
+
+    f110_session = _garantir_f110_no_bol(
+        f110_session,
+        data_exec=data_exec,
+        identificacao=identificacao,
+        logger=logger,
+    )
+
+    if logger:
+        logger.add(
+            6,
+            f"Controle devolvido para a F110: {fingerprint_sessao(f110_session)}",
+            publico=True,
+        )
 
     return f110_session
 
