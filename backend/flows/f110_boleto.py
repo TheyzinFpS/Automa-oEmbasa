@@ -268,6 +268,26 @@ def _montar_linha_sp02(numero_linha, dados):
     }
 
 
+def _numero_spool_int(linha):
+    try:
+        return int(str(linha.get("spool") or "0").strip())
+    except Exception:
+        return 0
+
+
+def _ordenar_linhas_sp02_decrescente(linhas):
+    # A SP02 costuma exibir as spools mais recentes no topo, mas a ordenação
+    # por número garante que a verificação sempre priorize a spool mais nova.
+    return sorted(
+        linhas,
+        key=lambda linha: (
+            _numero_spool_int(linha),
+            -int(linha.get("linha") or 0),
+        ),
+        reverse=True,
+    )
+
+
 def _coletar_linhas_sp02(session):
     linhas = {}
 
@@ -303,11 +323,13 @@ def _coletar_linhas_sp02(session):
         for numero_linha, dados in sorted(linhas.items())
     ]
 
-    return [
+    linhas_validas = [
         linha
         for linha in linhas_montadas
         if linha["spool"] or linha["titulo"] or "BOLETO" in linha["texto_normalizado"]
     ]
+
+    return _ordenar_linhas_sp02_decrescente(linhas_validas)
 
 
 def _linha_e_boleto(linha):
@@ -322,7 +344,9 @@ def _linha_e_nota_acompanhamento(linha):
 
 def _localizar_linha_boleto_sp02(session):
     linhas = _coletar_linhas_sp02(session)
-    candidatas = [linha for linha in linhas if _linha_e_boleto(linha)]
+    candidatas = _ordenar_linhas_sp02_decrescente(
+        [linha for linha in linhas if _linha_e_boleto(linha)]
+    )
 
     if not candidatas:
         resumo = "; ".join(

@@ -1,5 +1,36 @@
 # Registro técnico de alterações
 
+## Segunda-feira, 18/05/2026 20:37:39 - Versão 1.1.2
+
+**Problema identificado**
+
+A identificação da spool correta na SP02 precisava deixar explícito que a verificação deve ocorrer em ordem decrescente, priorizando a spool mais recente/maior número antes de qualquer registro antigo.
+
+**O que foi alterado**
+
+- Ajustada a coleta de linhas da SP02 para ordenar as linhas válidas pelo número da spool em ordem decrescente.
+- Ajustada a lista de candidatas `BOLETO (CONTAS A RECEBER)` para também seguir ordem decrescente antes da validação do par `Nota acompanh.ISD &` → boleto.
+- Atualizada a versão do projeto de `1.1.1` para `1.1.2` em backend, frontend, JSON de configuração e arquivo de versão.
+
+**Arquivos alterados**
+
+- `backend/flows/f110_boleto.py`
+- `backend/settings.py`
+- `embasa_settings.json`
+- `interface/app.js`
+- `interface/index.html`
+- `VERSAO.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+Ao abrir a SP02, o sistema deve avaliar primeiro as spools mais recentes, reduzindo o risco de selecionar um boleto antigo caso existam várias linhas semelhantes na lista.
+
+**Validação realizada**
+
+- `python -m py_compile backend\flows\f110_boleto.py backend\flows\f110.py backend\settings.py`
+- Importação local de `finalizar_boleto_f110`, `montar_nome_pdf_sugerido` e leitura da versão `1.1.2`.
+
 ## Segunda-feira, 18/05/2026 20:32:44 - Versão 1.1.1
 
 **Problema identificado**
