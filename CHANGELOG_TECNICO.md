@@ -1,5 +1,31 @@
 # Registro técnico de alterações
 
+## Domingo, 17/05/2026 21:43:46 - Versão 1.1.1
+
+**Problema identificado**
+
+Era necessário gerar um material técnico completo e portátil contendo o resumo da solução F110/SP02 e o código atual da função `f110_boleto.py`.
+
+**O que foi alterado**
+
+- Criado o arquivo `RESUMO_TECNICO_F110_BOLETO.txt`.
+- O arquivo contém contexto técnico, problema identificado, solução aplicada, validações e o código completo atual do `backend/flows/f110_boleto.py`.
+- Não houve alteração funcional no código nesta etapa; a versão permanece `1.1.1`.
+
+**Arquivos alterados**
+
+- `RESUMO_TECNICO_F110_BOLETO.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+Permitir que o resumo técnico e o código da F110 boleto sejam enviados, lidos ou reaplicados em outro ambiente sem depender do histórico do chat.
+
+**Validação realizada**
+
+- Conferência de existência do arquivo técnico.
+- Manutenção da versão funcional `1.1.1`.
+
 ## Domingo, 17/05/2026 21:23:40 - Versão 1.1.1
 
 **Problema identificado**
