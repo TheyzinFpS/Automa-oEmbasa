@@ -1,5 +1,38 @@
 # Registro técnico de alterações
 
+## Segunda-feira, 18/05/2026 20:32:44 - Versão 1.1.1
+
+**Problema identificado**
+
+O fluxo F110/SP02 ainda podia travar porque aguardava confirmação manual depois que o PDFCreator era aberto. A interação externa com o PDFCreator e o popup de confirmação fazia o SAP GUI Scripting perder estabilidade no controle da tela.
+
+**O que foi alterado**
+
+- Reescrito o arquivo `backend/flows/f110_boleto.py`.
+- Removido o popup bloqueante de confirmação do PDF.
+- Mantida a abertura da SP02 na mesma sessão SAP usando `/nSP02`.
+- Adicionada leitura dinâmica das linhas visíveis da SP02 por componentes `lbl[x,y]`, `txt[x,y]` e `chk[x,y]`.
+- Adicionada localização automática da spool correta pelo título `BOLETO (CONTAS A RECEBER)`, dando preferência ao par `Nota acompanh.ISD &` seguido de boleto.
+- Adicionada validação por F2 da spool selecionada, conferindo número, título, data, hora e a marcação de encerramento/anexação quando disponível.
+- Adicionada cópia automática do nome sugerido do PDF para a área de transferência.
+- Adicionado disparo automático da impressão com `Ctrl + Shift + F8` (`sendVKey(44)`).
+- Mantido o retorno para F110 no BOL correto e a execução do meio de pagamento.
+
+**Arquivos alterados**
+
+- `backend/flows/f110_boleto.py`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+O sistema deve abrir a SP02, identificar a spool correta do boleto, copiar o nome sugerido do PDF, disparar a impressão e continuar automaticamente para F110/meio de pagamento sem aguardar confirmação manual após o PDFCreator.
+
+**Validação realizada**
+
+- `python -m py_compile backend\flows\f110_boleto.py backend\flows\f110.py`
+- Importação local de `finalizar_boleto_f110` e `montar_nome_pdf_sugerido`.
+- Busca local confirmando remoção de `MessageBox`, `ctypes` e confirmação bloqueante.
+
 ## Domingo, 17/05/2026 21:43:46 - Versão 1.1.1
 
 **Problema identificado**

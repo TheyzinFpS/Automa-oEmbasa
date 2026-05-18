@@ -1,6 +1,6 @@
-import ctypes
 import re
 import time
+import unicodedata
 
 from backend.documentos import formatar_doc
 from backend.utils.sap_waits import wait_for_element, wait_until_ready
@@ -12,15 +12,15 @@ _TIPOS_LABEL = {
     "esgoto": "Projeto Esgoto",
 }
 
-_MB_YESNO = 0x00000004
-_MB_ICONQUESTION = 0x00000020
-_MB_TOPMOST = 0x00040000
-_IDYES = 6
+_CELL_ID_RE = re.compile(r"/(?P<tipo>lbl|txt|chk)\[(?P<x>\d+),(?P<y>\d+)\]$")
+_DATA_RE = re.compile(r"\b\d{2}\.\d{2}\.\d{4}\b")
+_HORA_RE = re.compile(r"\b\d{2}:\d{2}\b")
+_SPOOL_RE = re.compile(r"^\d{5,}$")
 
 
 def _abrir_transacao(session, codigo, wait_id="wnd[0]/usr", timeout=10):
-    # Mantém a automação na mesma sessão SAP. Isso evita a perda de controle
-    # causada pela abertura da SP02 em uma segunda janela via /oSP02.
+    # Mantém a automação na mesma sessão SAP. Para este fluxo, a SP02 deve ser
+    # aberta por /nSP02, evitando a segunda janela que causava perda de controle.
     wait_for_element(session, "wnd[0]").maximize()
 
     campo_ok = wait_for_element(
@@ -47,6 +47,41 @@ def _notificar(progress_callback, mensagem, percentual, status="processando"):
         progress_callback("F110", status, mensagem, percentual)
     except Exception:
         return
+
+
+def _texto_seguro(valor):
+    try:
+        return str(valor or "").strip()
+    except Exception:
+        return ""
+
+
+def _normalizar_texto(valor):
+    texto = unicodedata.normalize("NFKD", _texto_seguro(valor))
+    texto = "".join(ch for ch in texto if not unicodedata.combining(ch))
+    texto = re.sub(r"\s+", " ", texto)
+    return texto.strip().upper()
+
+
+def _safe_getattr(objeto, *nomes, default=""):
+    for nome in nomes:
+        try:
+            valor = getattr(objeto, nome)
+        except Exception:
+            continue
+
+        if valor is not None:
+            return valor
+
+    return default
+
+
+def _texto_elemento(elemento):
+    return _texto_seguro(_safe_getattr(elemento, "Text", "text", default=""))
+
+
+def _id_elemento(elemento):
+    return _texto_seguro(_safe_getattr(elemento, "Id", "id", default=""))
 
 
 def _limpar_parte_nome_arquivo(valor, fallback="INFORMAR"):
@@ -91,135 +126,19 @@ def montar_nome_pdf_sugerido(numero_boleto, dados=None, cliente=None):
     return " - ".join(partes)
 
 
-def _mensagem_confirmacao_pdf(nome_pdf_sugerido):
-    return (
-        "Gere o boleto no PDFCreator antes de continuar.\n\n"
-        "Use o seguinte padrão para o nome do PDF:\n\n"
-        f"{nome_pdf_sugerido}\n\n"
-        "Depois de criar/salvar o PDF, clique em SIM para prosseguir.\n\n"
-        "Clique em NÃO se ainda não finalizou o PDF."
-    )
-
-
-def _confirmar_pdf_boleto_messagebox(nome_pdf_sugerido):
-    resposta = ctypes.windll.user32.MessageBoxW(
-        None,
-        _mensagem_confirmacao_pdf(nome_pdf_sugerido),
-        "EMBASA - Confirmação do boleto",
-        _MB_YESNO | _MB_ICONQUESTION | _MB_TOPMOST,
-    )
-
-    if resposta != _IDYES:
-        raise RuntimeError("Geração do PDF do boleto não confirmada pelo usuário.")
-
-
-def confirmar_pdf_boleto(nome_pdf_sugerido):
+def _copiar_nome_pdf(nome_pdf_sugerido):
     try:
         import tkinter as tk
-    except Exception:
-        _confirmar_pdf_boleto_messagebox(nome_pdf_sugerido)
-        return
 
-    confirmado = {"valor": False}
-    root = tk.Tk()
-    root.title("EMBASA - Confirmação do boleto")
-    root.resizable(False, False)
-    root.attributes("-topmost", True)
-
-    def copiar_nome():
+        root = tk.Tk()
+        root.withdraw()
         root.clipboard_clear()
         root.clipboard_append(nome_pdf_sugerido)
         root.update()
-        status_var.set("Nome copiado. Cole no PDFCreator.")
-
-    def confirmar():
-        confirmado["valor"] = True
         root.destroy()
-
-    def cancelar():
-        confirmado["valor"] = False
-        root.destroy()
-
-    root.protocol("WM_DELETE_WINDOW", cancelar)
-
-    frame = tk.Frame(root, padx=18, pady=16)
-    frame.pack(fill="both", expand=True)
-
-    tk.Label(
-        frame,
-        text="Gere o boleto no PDFCreator antes de continuar.",
-        font=("Segoe UI", 10, "bold"),
-        anchor="w",
-        justify="left",
-    ).pack(fill="x")
-
-    tk.Label(
-        frame,
-        text="Use o nome abaixo para salvar o PDF:",
-        font=("Segoe UI", 9),
-        anchor="w",
-        justify="left",
-    ).pack(fill="x", pady=(10, 4))
-
-    nome_var = tk.StringVar(value=nome_pdf_sugerido)
-    nome_input = tk.Entry(
-        frame,
-        textvariable=nome_var,
-        width=96,
-        font=("Segoe UI", 9),
-        state="readonly",
-        readonlybackground="#ffffff",
-    )
-    nome_input.pack(fill="x")
-
-    status_var = tk.StringVar(value="Clique em Copiar nome para usar no PDFCreator.")
-    tk.Label(
-        frame,
-        textvariable=status_var,
-        font=("Segoe UI", 8),
-        fg="#345",
-        anchor="w",
-        justify="left",
-    ).pack(fill="x", pady=(8, 12))
-
-    botoes = tk.Frame(frame)
-    botoes.pack(fill="x")
-
-    tk.Button(
-        botoes,
-        text="Copiar nome",
-        width=16,
-        command=copiar_nome,
-    ).pack(side="left")
-
-    tk.Button(
-        botoes,
-        text="PDF gerado, prosseguir",
-        width=24,
-        command=confirmar,
-    ).pack(side="right")
-
-    tk.Button(
-        botoes,
-        text="Cancelar",
-        width=12,
-        command=cancelar,
-    ).pack(side="right", padx=(0, 8))
-
-    root.update_idletasks()
-
-    largura = root.winfo_width()
-    altura = root.winfo_height()
-    x = (root.winfo_screenwidth() // 2) - (largura // 2)
-    y = (root.winfo_screenheight() // 2) - (altura // 2)
-
-    root.geometry(f"+{max(0, x)}+{max(0, y)}")
-    root.lift()
-    root.focus_force()
-    root.mainloop()
-
-    if not confirmado["valor"]:
-        raise RuntimeError("Geração do PDF do boleto não confirmada pelo usuário.")
+        return True
+    except Exception:
+        return False
 
 
 def fechar_popups_se_existirem(session, max_tentativas=5):
@@ -243,11 +162,369 @@ def fechar_popups_se_existirem(session, max_tentativas=5):
             pass
 
 
-def _texto_seguro(valor):
+def _iterar_filhos(container, profundidade=0, limite=5):
+    if profundidade > limite:
+        return
+
     try:
-        return str(valor or "").strip()
+        filhos = container.Children
+        total = int(filhos.Count)
     except Exception:
-        return ""
+        return
+
+    for indice in range(total):
+        try:
+            filho = filhos(indice)
+        except Exception:
+            continue
+
+        yield filho
+        yield from _iterar_filhos(filho, profundidade + 1, limite)
+
+
+def _componentes_usuario(session, recursivo=False):
+    container = wait_for_element(session, "wnd[0]/usr", timeout=10)
+
+    if recursivo:
+        return list(_iterar_filhos(container))
+
+    try:
+        filhos = container.Children
+        return [filhos(indice) for indice in range(int(filhos.Count))]
+    except Exception:
+        return []
+
+
+def _montar_linha_sp02(numero_linha, dados):
+    textos = [
+        item
+        for item in dados.get("cells", [])
+        if item.get("text")
+    ]
+    textos.sort(key=lambda item: item.get("x", 0))
+
+    texto_completo = " ".join(item["text"] for item in textos)
+    texto_normalizado = _normalizar_texto(texto_completo)
+
+    titulo_item = None
+    for item in textos:
+        item_norm = _normalizar_texto(item["text"])
+        if "BOLETO" in item_norm or "NOTA ACOMPANH" in item_norm:
+            titulo_item = item
+            break
+
+    if titulo_item is None:
+        for item in reversed(textos):
+            texto = item.get("text", "")
+            if any(ch.isalpha() for ch in texto):
+                titulo_item = item
+                break
+
+    spool = ""
+    data = ""
+    hora = ""
+    paginas = ""
+    status = ""
+
+    for item in textos:
+        texto = item.get("text", "")
+        texto_norm = _normalizar_texto(texto)
+
+        if not spool and _SPOOL_RE.match(texto):
+            spool = texto
+            continue
+
+        if not data:
+            data_match = _DATA_RE.search(texto)
+            if data_match:
+                data = data_match.group(0)
+                continue
+
+        if not hora:
+            hora_match = _HORA_RE.search(texto)
+            if hora_match:
+                hora = hora_match.group(0)
+                continue
+
+        if not status and texto_norm in {"-", "CONCL.", "CONCL", "ESPERA"}:
+            status = texto
+            continue
+
+        if not paginas and texto.isdigit() and len(texto) <= 3 and texto != spool:
+            paginas = texto
+
+    return {
+        "linha": numero_linha,
+        "spool": spool,
+        "data": data,
+        "hora": hora,
+        "status": status,
+        "paginas": paginas,
+        "titulo": titulo_item.get("text", "") if titulo_item else "",
+        "titulo_id": titulo_item.get("id", "") if titulo_item else "",
+        "checkbox_id": dados.get("checkbox_id", ""),
+        "texto": texto_completo,
+        "texto_normalizado": texto_normalizado,
+    }
+
+
+def _coletar_linhas_sp02(session):
+    linhas = {}
+
+    for elemento in _componentes_usuario(session):
+        elemento_id = _id_elemento(elemento)
+        match = _CELL_ID_RE.search(elemento_id)
+
+        if not match:
+            continue
+
+        tipo = match.group("tipo")
+        x = int(match.group("x"))
+        y = int(match.group("y"))
+        linha = linhas.setdefault(y, {"cells": [], "checkbox_id": ""})
+
+        if tipo == "chk":
+            linha["checkbox_id"] = elemento_id
+            continue
+
+        texto = _texto_elemento(elemento)
+        if texto:
+            linha["cells"].append(
+                {
+                    "id": elemento_id,
+                    "x": x,
+                    "y": y,
+                    "text": texto,
+                }
+            )
+
+    linhas_montadas = [
+        _montar_linha_sp02(numero_linha, dados)
+        for numero_linha, dados in sorted(linhas.items())
+    ]
+
+    return [
+        linha
+        for linha in linhas_montadas
+        if linha["spool"] or linha["titulo"] or "BOLETO" in linha["texto_normalizado"]
+    ]
+
+
+def _linha_e_boleto(linha):
+    texto = linha.get("texto_normalizado", "")
+    return "BOLETO" in texto and "CONTAS A RECEBER" in texto
+
+
+def _linha_e_nota_acompanhamento(linha):
+    texto = linha.get("texto_normalizado", "")
+    return "NOTA ACOMPANH" in texto
+
+
+def _localizar_linha_boleto_sp02(session):
+    linhas = _coletar_linhas_sp02(session)
+    candidatas = [linha for linha in linhas if _linha_e_boleto(linha)]
+
+    if not candidatas:
+        resumo = "; ".join(
+            linha.get("texto", "")
+            for linha in linhas[:8]
+            if linha.get("texto")
+        )
+        raise RuntimeError(
+            "Nenhuma spool com título 'BOLETO (CONTAS A RECEBER)' foi encontrada. "
+            f"Primeiras linhas lidas: {resumo or 'nenhuma'}."
+        )
+
+    por_linha = {linha["linha"]: linha for linha in linhas}
+
+    for candidata in candidatas:
+        linha_anterior = por_linha.get(candidata["linha"] - 1)
+        if linha_anterior and _linha_e_nota_acompanhamento(linha_anterior):
+            return candidata
+
+    return candidatas[0]
+
+
+def _focar_elemento(session, element_id, caret_position=0):
+    if not element_id:
+        return False
+
+    elemento = session.findById(element_id)
+
+    try:
+        elemento.setFocus()
+    except Exception:
+        try:
+            elemento.SetFocus()
+        except Exception:
+            pass
+
+    try:
+        elemento.caretPosition = int(caret_position or 0)
+    except Exception:
+        pass
+
+    return True
+
+
+def _focar_linha_spool(session, linha):
+    titulo_id = linha.get("titulo_id")
+    if titulo_id:
+        return _focar_elemento(session, titulo_id, caret_position=2)
+
+    checkbox_id = linha.get("checkbox_id")
+    if checkbox_id:
+        return _focar_elemento(session, checkbox_id)
+
+    raise RuntimeError(
+        f"Não foi possível focar a linha da spool {linha.get('spool') or linha.get('linha')}."
+    )
+
+
+def _coletar_textos_tela(session):
+    textos = []
+
+    for elemento in _componentes_usuario(session, recursivo=True):
+        texto = _texto_elemento(elemento)
+        if texto:
+            textos.append(texto)
+
+    return textos
+
+
+def _tela_contem(textos, valor):
+    valor_norm = _normalizar_texto(valor)
+
+    if not valor_norm:
+        return True
+
+    return any(valor_norm in _normalizar_texto(texto) for texto in textos)
+
+
+def _checkbox_encerrado_marcado(session):
+    for elemento in _componentes_usuario(session, recursivo=True):
+        elemento_id = _id_elemento(elemento)
+        texto = _texto_elemento(elemento)
+        texto_norm = _normalizar_texto(f"{elemento_id} {texto}")
+
+        if "ENCERRADO" not in texto_norm and "ANEXAR" not in texto_norm:
+            continue
+
+        if "/CHK" not in elemento_id.upper() and "GUICHECKBOX" not in _normalizar_texto(
+            _safe_getattr(elemento, "Type", "type", default="")
+        ):
+            continue
+
+        try:
+            return bool(elemento.selected)
+        except Exception:
+            try:
+                return bool(elemento.Selected)
+            except Exception:
+                return False
+
+    return None
+
+
+def _validar_detalhes_spool(session, linha, logger=None):
+    _focar_linha_spool(session, linha)
+    session.findById("wnd[0]").sendVKey(2)
+    wait_until_ready(session)
+
+    try:
+        textos = _coletar_textos_tela(session)
+        numero_detalhe = ""
+
+        try:
+            numero_detalhe = _texto_elemento(
+                session.findById("wnd[0]/usr/txtTSP01_SP0R-RQID_CHAR")
+            )
+        except Exception:
+            pass
+
+        if linha.get("spool"):
+            if numero_detalhe and numero_detalhe != linha["spool"]:
+                raise RuntimeError(
+                    "Detalhe da spool divergente: "
+                    f"lista={linha['spool']} detalhe={numero_detalhe}."
+                )
+
+            if not numero_detalhe and not _tela_contem(textos, linha["spool"]):
+                raise RuntimeError(
+                    f"Detalhe da spool não confirmou o número {linha['spool']}."
+                )
+
+        for campo in ("titulo", "data", "hora"):
+            valor = linha.get(campo)
+            if valor and not _tela_contem(textos, valor):
+                raise RuntimeError(
+                    f"Detalhe da spool não confirmou {campo}: {valor}."
+                )
+
+        encerrado = _checkbox_encerrado_marcado(session)
+        if encerrado is True:
+            raise RuntimeError(
+                "A spool do boleto está marcada como encerrada/já anexada. "
+                "Impressão interrompida para evitar reprocessamento."
+            )
+
+        if logger and encerrado is None:
+            logger.add(
+                6,
+                "Checkbox de encerramento da spool não localizado; validação seguiu pelos dados visíveis.",
+                nivel="AVISO",
+                publico=False,
+            )
+
+        return {
+            "spool_numero": linha.get("spool", ""),
+            "spool_titulo": linha.get("titulo", ""),
+            "spool_data": linha.get("data", ""),
+            "spool_hora": linha.get("hora", ""),
+            "spool_encerrado": bool(encerrado),
+        }
+
+    finally:
+        try:
+            session.findById("wnd[0]").sendVKey(12)
+            wait_until_ready(session)
+        except Exception:
+            pass
+
+
+def _selecionar_linha_spool(session, linha):
+    linhas = _coletar_linhas_sp02(session)
+
+    for item in linhas:
+        checkbox_id = item.get("checkbox_id")
+        if not checkbox_id:
+            continue
+
+        try:
+            session.findById(checkbox_id).selected = False
+        except Exception:
+            pass
+
+    checkbox_id = linha.get("checkbox_id")
+    if not checkbox_id:
+        raise RuntimeError(
+            f"Checkbox da linha da spool {linha.get('spool') or linha.get('linha')} não encontrado."
+        )
+
+    checkbox = session.findById(checkbox_id)
+    checkbox.selected = True
+
+    try:
+        checkbox.setFocus()
+    except Exception:
+        pass
+
+    wait_until_ready(session)
+
+
+def _imprimir_spool_selecionada(session):
+    session.findById("wnd[0]").sendVKey(44)
+    wait_until_ready(session, timeout=12)
 
 
 def _transacao_atual(session):
@@ -259,18 +536,14 @@ def _transacao_atual(session):
 
 def _titulo_janela_atual(session):
     try:
-        return _texto_seguro(session.findById("wnd[0]").text).upper()
+        return _texto_elemento(session.findById("wnd[0]")).upper()
     except Exception:
-        try:
-            return _texto_seguro(session.findById("wnd[0]").Text).upper()
-        except Exception:
-            return ""
+        return ""
 
 
 def _esta_na_sp02(session):
-    # Identifica a SP02 tanto pela transação quanto pelo título da janela.
     transacao = _transacao_atual(session)
-    titulo = _titulo_janela_atual(session)
+    titulo = _normalizar_texto(_titulo_janela_atual(session))
 
     if transacao in {"SP01", "SP02"}:
         return True
@@ -280,34 +553,9 @@ def _esta_na_sp02(session):
         "SPOOL",
         "ORDENS SPOOL",
         "SINTESE DAS ORDENS",
-        "SÍNTESE DAS ORDENS",
     )
 
     return any(marcador in titulo for marcador in marcadores)
-
-
-def _focar_janela_sp02(session):
-    # Reforça o foco antes do fallback com F12, sem depender do foco visual do Windows.
-    janela = wait_for_element(session, "wnd[0]", timeout=5)
-
-    try:
-        janela.maximize()
-    except Exception:
-        pass
-
-    for element_id in ("wnd[0]", "wnd[0]/usr"):
-        try:
-            elemento = session.findById(element_id)
-            elemento.setFocus()
-            break
-        except Exception:
-            try:
-                elemento.SetFocus()
-                break
-            except Exception:
-                continue
-
-    wait_until_ready(session)
 
 
 def _aguardar_saida_sp02(session, timeout=2):
@@ -324,46 +572,12 @@ def _aguardar_saida_sp02(session, timeout=2):
     return not _esta_na_sp02(session)
 
 
-def _fallback_sair_sp02_com_f12(session, logger=None, tentativas=4):
-    for tentativa in range(1, int(tentativas or 1) + 1):
-        try:
-            _focar_janela_sp02(session)
-            session.findById("wnd[0]").sendVKey(12)
-            wait_until_ready(session)
-            fechar_popups_se_existirem(session, max_tentativas=2)
-
-            if _aguardar_saida_sp02(session, timeout=1.5):
-                if logger:
-                    logger.add(
-                        6,
-                        f"Saiu da SP02 usando F12 no fallback ({tentativa}/{tentativas}).",
-                        publico=True,
-                    )
-                return True
-
-        except Exception as exc:
-            if logger:
-                logger.add(
-                    6,
-                    f"Fallback F12 na SP02 falhou ({tentativa}/{tentativas}): {exc}",
-                    nivel="AVISO",
-                    publico=False,
-                )
-
-    return False
-
-
 def abrir_ordens_spool_boleto(
     session,
     logger=None,
     progress_callback=None,
 ):
-    # Abre a SP02 na mesma sessão SAP para evitar criação de segunda janela.
-    _notificar(
-        progress_callback,
-        "Abrindo ordens spool próprias...",
-        97,
-    )
+    _notificar(progress_callback, "Abrindo ordens spool próprias...", 97)
 
     _abrir_transacao(
         session,
@@ -372,18 +586,14 @@ def abrir_ordens_spool_boleto(
         timeout=12,
     )
 
-    if logger:
-        logger.add(
-            6,
-            "Ordens spool próprias abertas.",
-            publico=True,
-        )
+    linhas = _coletar_linhas_sp02(session)
+    if not linhas:
+        raise RuntimeError("SP02 aberta, mas nenhuma linha de spool foi lida.")
 
-    _notificar(
-        progress_callback,
-        "Ordens spool abertas. Gere o PDF no PDFCreator.",
-        98,
-    )
+    if logger:
+        logger.add(6, "Ordens spool próprias abertas.", publico=True)
+
+    _notificar(progress_callback, "SP02 aberta. Localizando boleto...", 97)
 
     return {
         "spool_boleto": "ABERTO",
@@ -396,46 +606,23 @@ def voltar_tela_inicial_com_f3(
     logger=None,
     progress_callback=None,
 ):
-    # Retorna da tela da SP02 antes de reabrir a F110 no BOL correto.
-    _notificar(
-        progress_callback,
-        "Voltando da tela do boleto...",
-        98,
-    )
+    _notificar(progress_callback, "Retornando da SP02...", 99)
 
-    try:
-        session.findById("wnd[0]").sendVKey(3)
-        wait_until_ready(session)
+    for tecla in (12, 3, 3):
+        if not _esta_na_sp02(session):
+            break
 
-    except Exception as exc:
-        raise RuntimeError(f"Erro ao voltar da tela do boleto: {exc}") from exc
+        try:
+            session.findById("wnd[0]").sendVKey(tecla)
+            wait_until_ready(session)
+        except Exception:
+            continue
 
-    if _aguardar_saida_sp02(session, timeout=2):
-        if logger:
-            logger.add(
-                6,
-                "Retornou da tela de spool utilizando F3.",
-                publico=True,
-            )
-        return
+        if _aguardar_saida_sp02(session, timeout=1.2):
+            break
 
     if logger:
-        logger.add(
-            6,
-            "F3 não saiu da SP02. Tentando fallback com F12.",
-            nivel="AVISO",
-            publico=True,
-        )
-
-    if not _fallback_sair_sp02_com_f12(session, logger=logger):
-        raise RuntimeError("Não foi possível sair da SP02 após F3 e fallback com F12.")
-
-    if logger:
-        logger.add(
-            6,
-            "Retornou da tela de spool após fallback.",
-            publico=True,
-        )
+        logger.add(6, "Retorno da SP02 executado.", publico=True)
 
 
 def abrir_f110_com_bol(
@@ -451,11 +638,7 @@ def abrir_f110_com_bol(
     if not identificacao:
         raise RuntimeError("Identificação BOL não informada.")
 
-    _notificar(
-        progress_callback,
-        f"Reabrindo F110 no {identificacao}...",
-        99,
-    )
+    _notificar(progress_callback, f"Reabrindo F110 no {identificacao}...", 99)
 
     _abrir_transacao(
         session,
@@ -482,17 +665,9 @@ def abrir_f110_com_bol(
     wait_until_ready(session)
 
     if logger:
-        logger.add(
-            6,
-            f"F110 reaberta no {identificacao}.",
-            publico=True,
-        )
+        logger.add(6, f"F110 reaberta no {identificacao}.", publico=True)
 
-    _notificar(
-        progress_callback,
-        f"F110 reaberta no {identificacao}.",
-        99,
-    )
+    _notificar(progress_callback, f"F110 reaberta no {identificacao}.", 99)
 
     return {
         "f110_reaberta": "OK",
@@ -506,21 +681,10 @@ def baixar_arquivo_meio_pagamento(
     data_exec=None,
     identificacao=None,
 ):
-    # Fluxo validado via VBS:
-    # Ambiente > Meio de pagamento > Dados administrativos IDS > F8 > F7
-    # > F4 > confirmar download > F3 > F3.
-    _notificar(
-        progress_callback,
-        "Abrindo meio de pagamento...",
-        99,
-    )
+    _notificar(progress_callback, "Abrindo meio de pagamento...", 99)
 
     try:
-        wait_for_element(
-            session,
-            "wnd[0]",
-            timeout=10,
-        ).maximize()
+        wait_for_element(session, "wnd[0]", timeout=10).maximize()
         wait_until_ready(session)
         fechar_popups_se_existirem(session)
 
@@ -537,18 +701,10 @@ def baixar_arquivo_meio_pagamento(
         session.findById("wnd[0]").sendVKey(18)
         wait_until_ready(session)
 
-        wait_for_element(
-            session,
-            "wnd[1]",
-            timeout=10,
-        ).sendVKey(4)
+        wait_for_element(session, "wnd[1]", timeout=10).sendVKey(4)
         wait_until_ready(session)
 
-        wait_for_element(
-            session,
-            "wnd[1]/tbar[0]/btn[0]",
-            timeout=10,
-        ).press()
+        wait_for_element(session, "wnd[1]/tbar[0]/btn[0]", timeout=10).press()
         wait_until_ready(session)
 
         session.findById("wnd[0]").sendVKey(3)
@@ -564,7 +720,6 @@ def baixar_arquivo_meio_pagamento(
             99,
             status="erro",
         )
-
         raise RuntimeError(f"Erro ao gerar meio de pagamento: {exc}") from exc
 
     if logger:
@@ -574,11 +729,7 @@ def baixar_arquivo_meio_pagamento(
             publico=True,
         )
 
-    _notificar(
-        progress_callback,
-        "Meio de pagamento concluído.",
-        100,
-    )
+    _notificar(progress_callback, "Meio de pagamento concluído.", 100)
 
     return {
         "arquivo_meio_pagamento": "CONFIRMADO",
@@ -595,12 +746,6 @@ def finalizar_boleto_f110(
     data_exec=None,
     identificacao=None,
 ):
-    # Fluxo final da F110:
-    # 1. Abre SP02 na mesma sessão
-    # 2. Usuário gera o PDF
-    # 3. Retorna com F3
-    # 4. Reabre F110 no BOL
-    # 5. Gera/baixa o meio de pagamento
     resultado = {}
 
     resultado.update(
@@ -611,6 +756,23 @@ def finalizar_boleto_f110(
         )
     )
 
+    _notificar(progress_callback, "Identificando spool do boleto...", 97)
+    linha_boleto = _localizar_linha_boleto_sp02(session)
+
+    if logger:
+        logger.add(
+            6,
+            "Spool de boleto localizada: "
+            f"{linha_boleto.get('spool') or 'sem número'} - {linha_boleto.get('titulo')}",
+            publico=True,
+        )
+
+    _notificar(progress_callback, "Validando spool do boleto...", 98)
+    dados_spool = _validar_detalhes_spool(session, linha_boleto, logger=logger)
+    resultado.update(dados_spool)
+
+    _selecionar_linha_spool(session, linha_boleto)
+
     nome_pdf_sugerido = montar_nome_pdf_sugerido(
         numero_boleto,
         dados=dados,
@@ -618,25 +780,25 @@ def finalizar_boleto_f110(
     )
     resultado["nome_pdf_sugerido"] = nome_pdf_sugerido
 
+    if not _copiar_nome_pdf(nome_pdf_sugerido):
+        raise RuntimeError("Não foi possível copiar o nome sugerido do PDF.")
+
+    if logger:
+        logger.add(
+            6,
+            "Nome do PDF copiado. Cole no PDFCreator.",
+            publico=True,
+        )
+
     _notificar(
         progress_callback,
-        "Aguardando confirmação do PDF...",
+        "Nome do PDF copiado. Imprimindo boleto...",
         98,
     )
 
-    try:
-        confirmar_pdf_boleto(nome_pdf_sugerido)
-
-    except Exception:
-        _notificar(
-            progress_callback,
-            "PDF não confirmado pelo usuário.",
-            98,
-            status="erro",
-        )
-        raise
-
-    resultado["pdf_boleto"] = "CONFIRMADO"
+    _imprimir_spool_selecionada(session)
+    resultado["pdf_boleto"] = "IMPRESSAO_DISPARADA"
+    resultado["spool_boleto"] = "IMPRESSAO_DISPARADA"
 
     voltar_tela_inicial_com_f3(
         session,
