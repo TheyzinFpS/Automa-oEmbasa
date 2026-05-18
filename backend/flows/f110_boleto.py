@@ -456,7 +456,7 @@ def _checkbox_encerrado_marcado(session):
     return None
 
 
-def _validar_detalhes_spool(session, linha, logger=None):
+def _validar_detalhes_spool(session, linha, logger=None, voltar_apos_validar=True):
     _focar_linha_spool(session, linha)
     session.findById("wnd[0]").sendVKey(2)
     wait_until_ready(session)
@@ -515,11 +515,12 @@ def _validar_detalhes_spool(session, linha, logger=None):
         }
 
     finally:
-        try:
-            session.findById("wnd[0]").sendVKey(12)
-            wait_until_ready(session)
-        except Exception:
-            pass
+        if voltar_apos_validar:
+            try:
+                session.findById("wnd[0]").sendVKey(12)
+                wait_until_ready(session)
+            except Exception:
+                pass
 
 
 def _imprimir_spool_selecionada(session):
@@ -776,15 +777,23 @@ def finalizar_boleto_f110(
         )
 
     _notificar(progress_callback, "Validando spool da nota...", 98)
-    dados_nota = _validar_detalhes_spool(session, linha_nota, logger=logger)
+    dados_nota = _validar_detalhes_spool(
+        session,
+        linha_nota,
+        logger=logger,
+        voltar_apos_validar=True,
+    )
     resultado.update(_prefixar_dados_spool("nota", dados_nota))
 
     _notificar(progress_callback, "Validando spool do boleto...", 98)
-    dados_boleto = _validar_detalhes_spool(session, linha_boleto, logger=logger)
+    dados_boleto = _validar_detalhes_spool(
+        session,
+        linha_boleto,
+        logger=logger,
+        voltar_apos_validar=False,
+    )
     resultado.update(dados_boleto)
     resultado.update(_prefixar_dados_spool("boleto", dados_boleto))
-
-    _focar_linha_spool(session, linha_boleto)
 
     nome_pdf_sugerido = montar_nome_pdf_sugerido(
         numero_boleto,

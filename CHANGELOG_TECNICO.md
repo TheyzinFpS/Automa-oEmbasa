@@ -1,5 +1,39 @@
 # Registro técnico de alterações
 
+## Segunda-feira, 18/05/2026 20:58:11 - Versão 1.1.4
+
+**Problema identificado**
+
+Após validar a spool do boleto com F2, não era necessário voltar para a lista da SP02 antes de imprimir. A impressão deve ocorrer diretamente na tela de detalhes do boleto, logo após a validação.
+
+**O que foi alterado**
+
+- Ajustada a validação da spool para permitir permanecer na tela de detalhes quando necessário.
+- A validação da nota continua voltando com F12 após o F2.
+- A validação do boleto permanece na tela de detalhes após o F2.
+- Removido o foco extra na linha do boleto antes da impressão, pois o comando agora é enviado diretamente na tela de detalhes do boleto.
+- Mantida a impressão por `Ctrl + Shift + F8` (`sendVKey(44)`) logo após copiar o nome sugerido do PDF.
+- Atualizada a versão do projeto de `1.1.3` para `1.1.4` em backend, frontend, JSON de configuração e arquivo de versão.
+
+**Arquivos alterados**
+
+- `backend/flows/f110_boleto.py`
+- `backend/settings.py`
+- `embasa_settings.json`
+- `interface/app.js`
+- `interface/index.html`
+- `VERSAO.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+O sistema deve validar a nota, voltar para a lista, validar o boleto e imprimir diretamente da própria tela de detalhes do boleto, evitando um retorno desnecessário e reduzindo risco de perder o foco correto.
+
+**Validação realizada**
+
+- `python -m py_compile backend\flows\f110_boleto.py backend\flows\f110.py backend\settings.py`
+- Importação local de `finalizar_boleto_f110`, `montar_nome_pdf_sugerido` e leitura da versão `1.1.4`.
+
 ## Segunda-feira, 18/05/2026 20:49:01 - Versão 1.1.3
 
 **Problema identificado**
