@@ -1,5 +1,39 @@
 # Registro técnico de alterações
 
+## Segunda-feira, 18/05/2026 20:49:01 - Versão 1.1.3
+
+**Problema identificado**
+
+O fluxo de impressão da SP02 precisava validar o par completo do boleto antes do comando de impressão: primeiro a spool `Nota acompanh.ISD &` e depois a spool `BOLETO (CONTAS A RECEBER)`. Também não deveria marcar checkbox na lista antes de imprimir.
+
+**O que foi alterado**
+
+- Ajustada a localização da SP02 para retornar o par `Nota acompanh.ISD &` seguido imediatamente por `BOLETO (CONTAS A RECEBER)`.
+- A validação com F2 agora ocorre primeiro na nota e depois no boleto.
+- Removida a etapa de marcar/desmarcar checkbox da linha na lista da SP02.
+- Após validar o boleto, o script apenas foca a linha do boleto e executa `Ctrl + Shift + F8` (`sendVKey(44)`).
+- Mantida a cópia automática do nome sugerido do PDF antes da impressão.
+- Atualizada a versão do projeto de `1.1.2` para `1.1.3` em backend, frontend, JSON de configuração e arquivo de versão.
+
+**Arquivos alterados**
+
+- `backend/flows/f110_boleto.py`
+- `backend/settings.py`
+- `embasa_settings.json`
+- `interface/app.js`
+- `interface/index.html`
+- `VERSAO.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+O sistema deve conferir a nota e o boleto em sequência, garantir que o boleto pertence ao par correto mais recente e imprimir sem alterar checkboxes da lista da SP02.
+
+**Validação realizada**
+
+- `python -m py_compile backend\flows\f110_boleto.py backend\flows\f110.py backend\settings.py`
+- Importação local de `finalizar_boleto_f110`, `montar_nome_pdf_sugerido` e leitura da versão `1.1.3`.
+
 ## Segunda-feira, 18/05/2026 20:37:39 - Versão 1.1.2
 
 **Problema identificado**

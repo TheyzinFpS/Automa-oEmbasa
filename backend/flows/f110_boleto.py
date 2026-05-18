@@ -342,31 +342,37 @@ def _linha_e_nota_acompanhamento(linha):
     return "NOTA ACOMPANH" in texto
 
 
-def _localizar_linha_boleto_sp02(session):
+def _localizar_par_spool_sp02(session):
     linhas = _coletar_linhas_sp02(session)
-    candidatas = _ordenar_linhas_sp02_decrescente(
+    notas = _ordenar_linhas_sp02_decrescente(
+        [linha for linha in linhas if _linha_e_nota_acompanhamento(linha)]
+    )
+    por_linha = {linha["linha"]: linha for linha in linhas}
+
+    for nota in notas:
+        boleto = por_linha.get(nota["linha"] + 1)
+        if boleto and _linha_e_boleto(boleto):
+            return nota, boleto
+
+    boletos = _ordenar_linhas_sp02_decrescente(
         [linha for linha in linhas if _linha_e_boleto(linha)]
     )
 
-    if not candidatas:
-        resumo = "; ".join(
-            linha.get("texto", "")
-            for linha in linhas[:8]
-            if linha.get("texto")
-        )
-        raise RuntimeError(
-            "Nenhuma spool com título 'BOLETO (CONTAS A RECEBER)' foi encontrada. "
-            f"Primeiras linhas lidas: {resumo or 'nenhuma'}."
-        )
+    for boleto in boletos:
+        nota = por_linha.get(boleto["linha"] - 1)
+        if nota and _linha_e_nota_acompanhamento(nota):
+            return nota, boleto
 
-    por_linha = {linha["linha"]: linha for linha in linhas}
-
-    for candidata in candidatas:
-        linha_anterior = por_linha.get(candidata["linha"] - 1)
-        if linha_anterior and _linha_e_nota_acompanhamento(linha_anterior):
-            return candidata
-
-    return candidatas[0]
+    resumo = "; ".join(
+        linha.get("texto", "")
+        for linha in linhas[:8]
+        if linha.get("texto")
+    )
+    raise RuntimeError(
+        "Nenhum par válido 'Nota acompanh.ISD &' seguido de "
+        "'BOLETO (CONTAS A RECEBER)' foi encontrado. "
+        f"Primeiras linhas lidas: {resumo or 'nenhuma'}."
+    )
 
 
 def _focar_elemento(session, element_id, caret_position=0):
@@ -516,39 +522,16 @@ def _validar_detalhes_spool(session, linha, logger=None):
             pass
 
 
-def _selecionar_linha_spool(session, linha):
-    linhas = _coletar_linhas_sp02(session)
-
-    for item in linhas:
-        checkbox_id = item.get("checkbox_id")
-        if not checkbox_id:
-            continue
-
-        try:
-            session.findById(checkbox_id).selected = False
-        except Exception:
-            pass
-
-    checkbox_id = linha.get("checkbox_id")
-    if not checkbox_id:
-        raise RuntimeError(
-            f"Checkbox da linha da spool {linha.get('spool') or linha.get('linha')} não encontrado."
-        )
-
-    checkbox = session.findById(checkbox_id)
-    checkbox.selected = True
-
-    try:
-        checkbox.setFocus()
-    except Exception:
-        pass
-
-    wait_until_ready(session)
-
-
 def _imprimir_spool_selecionada(session):
     session.findById("wnd[0]").sendVKey(44)
     wait_until_ready(session, timeout=12)
+
+
+def _prefixar_dados_spool(prefixo, dados_spool):
+    return {
+        f"{prefixo}_{chave}": valor
+        for chave, valor in dados_spool.items()
+    }
 
 
 def _transacao_atual(session):
@@ -780,22 +763,28 @@ def finalizar_boleto_f110(
         )
     )
 
-    _notificar(progress_callback, "Identificando spool do boleto...", 97)
-    linha_boleto = _localizar_linha_boleto_sp02(session)
+    _notificar(progress_callback, "Identificando par nota/boleto...", 97)
+    linha_nota, linha_boleto = _localizar_par_spool_sp02(session)
 
     if logger:
         logger.add(
             6,
-            "Spool de boleto localizada: "
-            f"{linha_boleto.get('spool') or 'sem número'} - {linha_boleto.get('titulo')}",
+            "Par de spools localizado: "
+            f"nota {linha_nota.get('spool') or 'sem número'} / "
+            f"boleto {linha_boleto.get('spool') or 'sem número'}.",
             publico=True,
         )
 
-    _notificar(progress_callback, "Validando spool do boleto...", 98)
-    dados_spool = _validar_detalhes_spool(session, linha_boleto, logger=logger)
-    resultado.update(dados_spool)
+    _notificar(progress_callback, "Validando spool da nota...", 98)
+    dados_nota = _validar_detalhes_spool(session, linha_nota, logger=logger)
+    resultado.update(_prefixar_dados_spool("nota", dados_nota))
 
-    _selecionar_linha_spool(session, linha_boleto)
+    _notificar(progress_callback, "Validando spool do boleto...", 98)
+    dados_boleto = _validar_detalhes_spool(session, linha_boleto, logger=logger)
+    resultado.update(dados_boleto)
+    resultado.update(_prefixar_dados_spool("boleto", dados_boleto))
+
+    _focar_linha_spool(session, linha_boleto)
 
     nome_pdf_sugerido = montar_nome_pdf_sugerido(
         numero_boleto,
