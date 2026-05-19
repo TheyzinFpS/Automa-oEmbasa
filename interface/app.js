@@ -39,7 +39,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.2.1";
+const APP_VERSION = "1.3.0";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -102,7 +102,9 @@ const state = {
   flowRunning: false,
   cancelRequested: false,
   currentPdfNameNotice: "",
-  lastPdfNameNotice: ""
+  lastPdfNameNotice: "",
+  historicoItens: [],
+  historicoSelecionado: null
 };
 
 const domCache = new Map();
@@ -127,6 +129,7 @@ let ultimoEnderecoAutoCep = {
   cidade: "",
   complemento: ""
 };
+let historySearchTimer = 0;
 
 // Cache simples de elementos DOM para evitar buscas repetidas.
 function el(id) {
@@ -1766,6 +1769,182 @@ async function copyPdfNameAndClose() {
   closePdfNameModal();
 }
 
+function historyResumoItem(item = {}) {
+  const dataHora = [item.data, item.hora].filter(Boolean).join(" ");
+  const pedido = item.numero_pedido || item.doc_fat || "--";
+  const cliente = item.nome_cliente || "Cliente não identificado";
+  const empreendimento = item.empreendimento || "Empreendimento não informado";
+
+  return `
+    <button
+      type="button"
+      class="history-item"
+      onclick="selecionarHistorico('${escapeHtml(item.id)}')"
+    >
+      <span>${escapeHtml(dataHora || "Sem data")}</span>
+      <strong>Pedido ${escapeHtml(pedido)}</strong>
+      <small>${escapeHtml(cliente)} • ${escapeHtml(empreendimento)}</small>
+    </button>
+  `;
+}
+
+function renderHistoryList(items = []) {
+  const list = el("historyList");
+
+  if (!items.length) {
+    list.innerHTML = '<div class="history-empty">Nenhum registro encontrado.</div>';
+    return;
+  }
+
+  list.innerHTML = items.map(historyResumoItem).join("");
+}
+
+function campoHistorico(label, value) {
+  return `
+    <div class="history-field">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value || "--")}</strong>
+    </div>
+  `;
+}
+
+function renderHistoryDetail(registro = null) {
+  const detail = el("historyDetail");
+
+  if (!registro) {
+    detail.innerHTML = `
+      <div class="history-empty">
+        Selecione um pedido para visualizar cliente, documento, número SAP e texto padrão.
+      </div>
+    `;
+    return;
+  }
+
+  const endereco = registro.endereco || {};
+  const documento = `${registro.documento_formatado || "--"} (${registro.tipo_pessoa_label || "--"})`;
+  const pedido = registro.numero_pedido || registro.faturamento || registro.doc_fat || "--";
+  const docFat = registro.doc_fat || registro.faturamento || "--";
+
+  detail.innerHTML = `
+    <div class="history-detail-head">
+      <span>${escapeHtml([registro.data, registro.hora].filter(Boolean).join(" "))}</span>
+      <strong>Pedido ${escapeHtml(pedido)}</strong>
+    </div>
+
+    <div class="history-field-grid">
+      ${campoHistorico("Nome do cliente", registro.nome_cliente)}
+      ${campoHistorico("CPF/CNPJ", documento)}
+      ${campoHistorico("Tipo de pessoa", registro.tipo_pessoa_label)}
+      ${campoHistorico("Número do cliente", registro.numero_cliente)}
+      ${campoHistorico("Número do pedido", pedido)}
+      ${campoHistorico("Doc. fat", docFat)}
+      ${campoHistorico("Boleto/BOL", registro.boleto || registro.identificacao_pagamento)}
+      ${campoHistorico("Tipo", registro.tipo_solicitacao_label)}
+      ${campoHistorico("Valor", registro.valor)}
+      ${campoHistorico("Empreendimento", endereco.empreendimento)}
+      ${campoHistorico("Endereço", `${endereco.rua || "--"}, ${endereco.numero || "--"}`)}
+      ${campoHistorico("Bairro", endereco.bairro)}
+      ${campoHistorico("Cidade/UF", `${endereco.cidade || "--"}-${endereco.estado || "--"}`)}
+      ${campoHistorico("CEP", endereco.cep)}
+    </div>
+
+    <div class="history-text-block">
+      <span>Texto padrão VA01</span>
+      <pre>${escapeHtml(registro.texto_padrao || "--")}</pre>
+    </div>
+  `;
+}
+
+async function carregarHistorico() {
+  const list = el("historyList");
+  const filtro = el("historySearch")?.value || "";
+
+  list.innerHTML = '<div class="history-empty">Carregando histórico...</div>';
+
+  try {
+    if (!window.pywebview?.api?.listar_historico) {
+      list.innerHTML = '<div class="history-empty">Histórico disponível apenas dentro do aplicativo pywebview.</div>';
+      renderHistoryDetail(null);
+      return;
+    }
+
+    const resposta = await window.pywebview.api.listar_historico(filtro);
+
+    if (!resposta?.ok) {
+      list.innerHTML = `<div class="history-empty">${escapeHtml(resposta?.msg || "Falha ao carregar histórico.")}</div>`;
+      return;
+    }
+
+    state.historicoItens = resposta.itens || [];
+    renderHistoryList(state.historicoItens);
+
+    if (state.historicoItens.length) {
+      await selecionarHistorico(state.historicoItens[0].id);
+    } else {
+      renderHistoryDetail(null);
+    }
+  } catch (error) {
+    list.innerHTML = `<div class="history-empty">Falha ao carregar histórico: ${escapeHtml(error)}</div>`;
+  }
+}
+
+function scheduleHistorySearch() {
+  window.clearTimeout(historySearchTimer);
+  historySearchTimer = window.setTimeout(carregarHistorico, 350);
+}
+
+function handleHistorySearchKey(event) {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    carregarHistorico();
+  }
+}
+
+async function selecionarHistorico(id) {
+  const registroId = String(id || "").trim();
+
+  if (!registroId) {
+    return;
+  }
+
+  try {
+    const resposta = await window.pywebview.api.obter_historico(registroId);
+
+    if (!resposta?.ok) {
+      renderHistoryDetail({
+        numero_pedido: "--",
+        texto_padrao: resposta?.msg || "Registro não encontrado."
+      });
+      return;
+    }
+
+    state.historicoSelecionado = resposta.registro;
+    renderHistoryDetail(resposta.registro);
+
+    Array.from(document.querySelectorAll(".history-item")).forEach((button) => {
+      button.classList.toggle(
+        "selected",
+        button.getAttribute("onclick")?.includes(registroId)
+      );
+    });
+  } catch (error) {
+    renderHistoryDetail({
+      numero_pedido: "--",
+      texto_padrao: `Falha ao abrir histórico: ${error}`
+    });
+  }
+}
+
+function openHistoryModal() {
+  openModal("historyModal");
+  carregarHistorico();
+  window.setTimeout(() => el("historySearch")?.focus(), 50);
+}
+
+function closeHistoryModal() {
+  closeModal("historyModal");
+}
+
 // Adiciona uma linha ao balao de logs publicos.
 function log(msg, classe = "") {
   const box = el("logBox");
@@ -1995,6 +2174,7 @@ const MODAL_IDS = [
   "contactModal",
   "contactSuccessModal",
   "pdfNameModal",
+  "historyModal",
   "aboutModal",
   "batchConfirmModal",
   "cancelFlowModal"
@@ -2108,6 +2288,7 @@ async function carregarDiagnosticoSobre() {
     const app = diagnostico?.app || {};
     const runtime = diagnostico?.runtime || {};
     const cache = diagnostico?.cache || {};
+    const history = diagnostico?.history || {};
     const loadedFrom = Array.isArray(runtime.loaded_from)
       ? runtime.loaded_from.join(" | ")
       : "";
@@ -2119,8 +2300,10 @@ async function carregarDiagnosticoSobre() {
       ["Integração", "pywebview + SAP GUI Scripting"],
       ["Empresa SAP", app.company_code || "EMBA"],
       ["Cache de clientes", `${cache.total || 0} registro(s)`],
+      ["Histórico", `${history.total || 0} registro(s)`],
       ["Pasta do executável", runtime.project_root || "--", true],
       ["Runtime local", runtime.runtime_root || "--", true],
+      ["Pasta do histórico", history.root || "--", true],
       ["Configuração carregada", loadedFrom || "Configuração padrão", true],
       ["Log técnico", diagnostico?.log_file || "--", true],
     ]);
@@ -2585,6 +2768,7 @@ function montarCheckpointClienteParaProximo(payload, resultado) {
     resume_from: "VA01",
     contexto: {
       cliente,
+      nome_cliente: resultado?.resultado?.nome_cliente,
       documento: payload.doc,
       tipo_documento: payload.doc.length === 14 ? "CNPJ" : "CPF",
       valor: payload.valor
@@ -2882,6 +3066,11 @@ document.addEventListener("keydown", (event) => {
 
   if (modalEstaAberto("pdfNameModal")) {
     closePdfNameModal();
+    return;
+  }
+
+  if (modalEstaAberto("historyModal")) {
+    closeHistoryModal();
     return;
   }
 

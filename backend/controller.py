@@ -1,4 +1,6 @@
 import json
+import re
+from datetime import datetime
 
 from backend.flows.f110 import f110
 from backend.flows.va01 import criar_pedido
@@ -32,6 +34,11 @@ STAGE_TRANSACTION = {
     "VF02_RESALVAR": "VF02",
     "F110": "F110",
 }
+
+
+def _extrair_numero_sap(texto):
+    numeros = re.findall(r"\b\d{6,12}\b", str(texto or ""))
+    return numeros[-1] if numeros else ""
 
 
 # Modelo unico de resposta para todas as etapas do fluxo SAP.
@@ -123,7 +130,6 @@ class SAPController:
                 "Etapa já concluída antes da retomada.",
                 100,
             )
-            return session
 
     # Fecha popups simples antes de retomar, sem mandar o SAP para Easy Access.
     def _fechar_popups_retomada(self, session):
@@ -197,13 +203,16 @@ class SAPController:
         retorno = {
             "cliente": contexto.get("cliente"),
             "nome_cliente": contexto.get("nome_cliente"),
+            "pedido": contexto.get("pedido"),
             "faturamento": contexto.get("faturamento"),
             "doc_fat": contexto.get("doc_fat"),
             "boleto": contexto.get("boleto"),
             "identificacao_pagamento": contexto.get("identificacao_pagamento"),
             "documento": dados["doc"],
             "tipo_documento": dados["doc_info"]["rotulo"],
+            "tipo": dados.get("tipo"),
             "valor": dados["valor_info"]["formatado"],
+            "endereco": dados.get("endereco") or {},
         }
 
         return {
@@ -216,7 +225,12 @@ class SAPController:
     def _montar_checkpoint(self, resume_from, dados, contexto):
         return {
             "resume_from": resume_from,
+            "criado_em": datetime.now().isoformat(timespec="seconds"),
             "contexto": self._montar_dados_publicos(dados, contexto),
+            "orientacao": (
+                "Confira a tela do SAP, corrija o problema da etapa indicada "
+                "e use a retomada para continuar sem reiniciar as etapas anteriores."
+            ),
         }
 
     # Centraliza resposta de erro e inclui checkpoint quando a etapa pode ser retomada.
@@ -351,6 +365,7 @@ class SAPController:
         contexto = {
             "cliente": contexto_checkpoint.get("cliente"),
             "nome_cliente": contexto_checkpoint.get("nome_cliente"),
+            "pedido": contexto_checkpoint.get("pedido"),
             "faturamento": contexto_checkpoint.get("faturamento"),
             "doc_fat": contexto_checkpoint.get("doc_fat"),
             "boleto": contexto_checkpoint.get("boleto"),
@@ -500,6 +515,13 @@ class SAPController:
                     resume_from="VA01",
                 )
 
+            dados_va01 = resultado_va01.get("dados") or {}
+            contexto["pedido"] = (
+                dados_va01.get("pedido")
+                or dados_va01.get("ordem")
+                or _extrair_numero_sap(dados_va01.get("status_sap"))
+                or contexto.get("pedido")
+            )
             self._garantir_janela_unica_sap(session, origem="VA01")
 
             cancelado = self._verificar_cancelamento(

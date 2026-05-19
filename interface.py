@@ -9,6 +9,12 @@ import webview
 
 from backend.controller import SAPController
 from backend.documentos import analisar_doc, limpar_doc
+from backend.history import (
+    diagnostico_historico,
+    listar_historico_pedidos,
+    obter_historico_pedido,
+    registrar_historico_pedido,
+)
 from backend.logger import Logger
 from backend.support_mail import process_support_request
 from backend.settings import SETTINGS
@@ -266,10 +272,23 @@ class API:
                     )
                     return
 
+                dados_resultado = resultado.get("dados") or {}
+                resultado["dados"] = dados_resultado
+
+                registro_historico = registrar_historico_pedido(
+                    dados_tratados,
+                    dados_resultado,
+                    logger=self._logger,
+                )
+
+                if registro_historico:
+                    dados_resultado["historico_id"] = registro_historico.get("id")
+                    dados_resultado["historico_txt"] = registro_historico.get("txt_path")
+
                 payload_sucesso = {
                     "ok": True,
                     "logs": self._logger.get_logs(public_only=True),
-                    "resultado": resultado["dados"],
+                    "resultado": dados_resultado,
                     "doc_info": dados_tratados["doc_info"],
                     "valor_info": dados_tratados["valor_info"],
                     "checkpoint": None,
@@ -384,6 +403,46 @@ class API:
                 "app": SETTINGS.get("app", {}),
                 "runtime": SETTINGS.get("_meta", {}),
                 "cache": cache_cliente.stats(),
+                "history": diagnostico_historico(),
                 "log_file": self._logger.log_file_path,
+            }
+        )
+
+    # Lista registros gravados no historico compartilhado/local.
+    def listar_historico(self, filtro="", limite=None):
+        try:
+            return _serializar_para_front(
+                {
+                    "ok": True,
+                    "itens": listar_historico_pedidos(filtro=filtro, limite=limite),
+                }
+            )
+        except Exception as exc:
+            return {
+                "ok": False,
+                "msg": f"Falha ao carregar histórico: {exc}",
+                "itens": [],
+            }
+
+    # Retorna o detalhe completo de um registro de historico.
+    def obter_historico(self, registro_id):
+        try:
+            registro = obter_historico_pedido(registro_id)
+        except Exception as exc:
+            return {
+                "ok": False,
+                "msg": f"Falha ao abrir histórico: {exc}",
+            }
+
+        if not registro:
+            return {
+                "ok": False,
+                "msg": "Registro de histórico não encontrado.",
+            }
+
+        return _serializar_para_front(
+            {
+                "ok": True,
+                "registro": registro,
             }
         )

@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "EMBASA",
-    "version": "1.2.1",
+    "version": "1.3.0",
     "company_code": "EMBA"
   },
   "startup": {
@@ -24,6 +24,15 @@
     "fallback_to_local": true,
     "reload_on_read": true,
     "lock_timeout_seconds": 3
+  },
+  "history": {
+    "enabled": true,
+    "shared_dir": "dados_compartilhados/historico",
+    "db_file": "historico_pedidos.json",
+    "max_entries": 5000,
+    "max_results": 200,
+    "fallback_to_local": true,
+    "lock_timeout_seconds": 5
   },
   "support": {
     "notification_email_enabled": false

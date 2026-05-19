@@ -10,7 +10,7 @@ from pathlib import Path
 DEFAULT_SETTINGS = {
     "app": {
         "name": "EMBASA",
-        "version": "1.2.1",
+        "version": "1.3.0",
         "company_code": "EMBA",
     },
     "security": {
@@ -26,6 +26,15 @@ DEFAULT_SETTINGS = {
         "fallback_to_local": True,
         "reload_on_read": True,
         "lock_timeout_seconds": 3,
+    },
+    "history": {
+        "enabled": True,
+        "shared_dir": "dados_compartilhados/historico",
+        "db_file": "historico_pedidos.json",
+        "max_entries": 5000,
+        "max_results": 200,
+        "fallback_to_local": True,
+        "lock_timeout_seconds": 5,
     },
     "startup": {
         "require_sap_session": True,

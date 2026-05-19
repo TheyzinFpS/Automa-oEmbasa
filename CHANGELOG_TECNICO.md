@@ -1,5 +1,47 @@
 # Registro técnico de alterações
 
+## Terça-feira, 19/05/2026 20:13:21 - Versão 1.3.0
+
+**Problema identificado**
+
+O sistema precisava de uma base confiável para retomada e auditoria: quando uma etapa parava, o checkpoint não carregava todo o contexto útil, e os pedidos concluídos não ficavam registrados em uma consulta central para o setor.
+
+**O que foi alterado**
+
+- Criado o módulo `backend/history.py` para registrar cada pedido concluído em duas camadas: banco JSON pesquisável em `dados_compartilhados/historico/historico_pedidos.json` e arquivo TXT legível por data, usuário Windows e nome do cliente.
+- Adicionado texto padrão VA01 no histórico, com cliente, documento, tipo de pessoa, número do cliente, número do pedido, doc.fat, boleto/BOL, valor e endereço do empreendimento.
+- Integrada a gravação automática do histórico ao sucesso de `gerar_boleto`.
+- Criadas APIs pywebview `listar_historico` e `obter_historico` para consulta pela interface.
+- Adicionado botão `Histórico` no painel de monitoramento.
+- Criado modal de histórico com busca por data, pedido, cliente, CPF/CNPJ ou empreendimento e detalhe completo do registro selecionado.
+- Corrigida a sincronização visual da retomada, removendo um retorno prematuro que marcava apenas a primeira etapa anterior.
+- Enriquecido o checkpoint com pedido, tipo, endereço, data de criação e orientação de retomada.
+- Adicionada captura tentativa do número do pedido a partir do retorno SAP da VA01 quando disponível.
+- Atualizada a versão do projeto de `1.2.1` para `1.3.0` em backend, frontend, JSON de configuração, HTML e arquivo de versão.
+
+**Arquivos alterados**
+
+- `backend/history.py`
+- `backend/controller.py`
+- `backend/settings.py`
+- `interface.py`
+- `interface/index.html`
+- `interface/app.js`
+- `interface/style.css`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+Cada boleto concluído passa a gerar registro compartilhado para consulta futura. O usuário consegue abrir `Histórico`, pesquisar por pedido/data/cliente e visualizar os dados essenciais sem abrir arquivos manualmente. Em paralelo, a pasta da rede mantém TXT organizado para auditoria ou conferência fora da interface.
+
+**Validação realizada**
+
+- `python -m py_compile backend\history.py backend\controller.py interface.py backend\settings.py`
+- `node --check interface\app.js`
+- Teste local do gerador de texto padrão e leitura da lista de histórico.
+
 ## Terça-feira, 19/05/2026 18:01:59 - Versão 1.2.1
 
 **Problema identificado**
