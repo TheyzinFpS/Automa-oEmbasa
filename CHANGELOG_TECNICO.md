@@ -1,5 +1,34 @@
 # Registro técnico de alterações
 
+## Terça-feira, 19/05/2026 18:01:59 - Versão 1.2.1
+
+**Problema identificado**
+
+O modal final de impressão manual tinha dois botões de fechamento: `Copiar nome e fechar` e `Fechar`. Como a ação esperada é copiar o nome padrão e encerrar o aviso, o botão `Fechar` era redundante e podia confundir o usuário.
+
+**O que foi alterado**
+
+- Removido o botão `Fechar` do modal de impressão manual.
+- Mantido apenas o botão `Copiar nome e fechar`.
+- Atualizada a versão do projeto de `1.2.0` para `1.2.1` em backend, frontend, JSON de configuração e arquivo de versão.
+
+**Arquivos alterados**
+
+- `interface/index.html`
+- `interface/app.js`
+- `backend/settings.py`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+O usuário terá uma única ação clara no modal final: copiar o nome padrão do PDF e fechar o aviso.
+
+**Validação realizada**
+
+- `node --check interface\app.js`
+
 ## Terça-feira, 19/05/2026 17:56:11 - Versão 1.2.0
 
 **Problema identificado**
