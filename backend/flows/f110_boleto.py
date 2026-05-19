@@ -411,6 +411,20 @@ def _focar_linha_spool(session, linha):
     )
 
 
+def _focar_linha_spool_por_modo(session, linha, modo):
+    if modo == "titulo":
+        titulo_id = linha.get("titulo_id")
+        if titulo_id:
+            return _focar_elemento(session, titulo_id, caret_position=2)
+
+    if modo == "checkbox":
+        checkbox_id = linha.get("checkbox_id")
+        if checkbox_id:
+            return _focar_elemento(session, checkbox_id)
+
+    return False
+
+
 def _coletar_textos_tela(session):
     textos = []
 
@@ -456,71 +470,106 @@ def _checkbox_encerrado_marcado(session):
     return None
 
 
-def _validar_detalhes_spool(session, linha, logger=None, voltar_apos_validar=True):
-    _focar_linha_spool(session, linha)
-    session.findById("wnd[0]").sendVKey(2)
-    wait_until_ready(session)
+def _validar_conteudo_detalhe_spool(session, linha, logger=None):
+    textos = _coletar_textos_tela(session)
+    numero_detalhe = ""
 
     try:
-        textos = _coletar_textos_tela(session)
-        numero_detalhe = ""
+        numero_detalhe = _texto_elemento(
+            session.findById("wnd[0]/usr/txtTSP01_SP0R-RQID_CHAR")
+        )
+    except Exception:
+        pass
 
-        try:
-            numero_detalhe = _texto_elemento(
-                session.findById("wnd[0]/usr/txtTSP01_SP0R-RQID_CHAR")
-            )
-        except Exception:
-            pass
-
-        if linha.get("spool"):
-            if numero_detalhe and numero_detalhe != linha["spool"]:
-                raise RuntimeError(
-                    "Detalhe da spool divergente: "
-                    f"lista={linha['spool']} detalhe={numero_detalhe}."
-                )
-
-            if not numero_detalhe and not _tela_contem(textos, linha["spool"]):
-                raise RuntimeError(
-                    f"Detalhe da spool não confirmou o número {linha['spool']}."
-                )
-
-        for campo in ("titulo", "data", "hora"):
-            valor = linha.get(campo)
-            if valor and not _tela_contem(textos, valor):
-                raise RuntimeError(
-                    f"Detalhe da spool não confirmou {campo}: {valor}."
-                )
-
-        encerrado = _checkbox_encerrado_marcado(session)
-        if encerrado is True:
+    if linha.get("spool"):
+        if numero_detalhe and numero_detalhe != linha["spool"]:
             raise RuntimeError(
-                "A spool do boleto está marcada como encerrada/já anexada. "
-                "Impressão interrompida para evitar reprocessamento."
+                "Detalhe da spool divergente: "
+                f"lista={linha['spool']} detalhe={numero_detalhe}."
             )
 
-        if logger and encerrado is None:
-            logger.add(
-                6,
-                "Checkbox de encerramento da spool não localizado; validação seguiu pelos dados visíveis.",
-                nivel="AVISO",
-                publico=False,
+        if not numero_detalhe and not _tela_contem(textos, linha["spool"]):
+            raise RuntimeError(
+                f"Detalhe da spool não confirmou o número {linha['spool']}."
             )
 
-        return {
-            "spool_numero": linha.get("spool", ""),
-            "spool_titulo": linha.get("titulo", ""),
-            "spool_data": linha.get("data", ""),
-            "spool_hora": linha.get("hora", ""),
-            "spool_encerrado": bool(encerrado),
-        }
+    for campo in ("titulo", "data", "hora"):
+        valor = linha.get(campo)
+        if valor and not _tela_contem(textos, valor):
+            raise RuntimeError(f"Detalhe da spool não confirmou {campo}: {valor}.")
 
-    finally:
-        if voltar_apos_validar:
-            try:
-                session.findById("wnd[0]").sendVKey(12)
-                wait_until_ready(session)
-            except Exception:
-                pass
+    encerrado = _checkbox_encerrado_marcado(session)
+    if encerrado is True:
+        raise RuntimeError(
+            "A spool do boleto está marcada como encerrada/já anexada. "
+            "Impressão interrompida para evitar reprocessamento."
+        )
+
+    if logger and encerrado is None:
+        logger.add(
+            6,
+            "Checkbox de encerramento da spool não localizado; validação seguiu pelos dados visíveis.",
+            nivel="AVISO",
+            publico=False,
+        )
+
+    return {
+        "spool_numero": linha.get("spool", ""),
+        "spool_titulo": linha.get("titulo", ""),
+        "spool_data": linha.get("data", ""),
+        "spool_hora": linha.get("hora", ""),
+        "spool_encerrado": bool(encerrado),
+    }
+
+
+def _voltar_para_lista_sp02(session):
+    try:
+        session.findById("wnd[0]").sendVKey(12)
+        wait_until_ready(session)
+    except Exception:
+        pass
+
+
+def _validar_detalhes_spool(session, linha, logger=None, voltar_apos_validar=True):
+    ultimo_erro = None
+
+    for modo in ("titulo", "checkbox"):
+        try:
+            if not _focar_linha_spool_por_modo(session, linha, modo):
+                continue
+
+            session.findById("wnd[0]").sendVKey(2)
+            wait_until_ready(session)
+
+            dados = _validar_conteudo_detalhe_spool(session, linha, logger=logger)
+
+            if voltar_apos_validar:
+                _voltar_para_lista_sp02(session)
+
+            if logger and modo == "checkbox":
+                logger.add(
+                    6,
+                    "Detalhe da spool aberto pelo fallback de foco no checkbox.",
+                    publico=False,
+                )
+
+            return dados
+
+        except Exception as exc:
+            ultimo_erro = exc
+            _voltar_para_lista_sp02(session)
+
+            if logger:
+                logger.add(
+                    6,
+                    f"Tentativa de abrir detalhe da spool por {modo} falhou: {exc}",
+                    nivel="AVISO",
+                    publico=False,
+                )
+
+    raise RuntimeError(
+        f"Não foi possível validar a spool {linha.get('spool') or linha.get('linha')}: {ultimo_erro}"
+    )
 
 
 def _imprimir_spool_selecionada(session):

@@ -1,5 +1,38 @@
 # Registro técnico de alterações
 
+## Segunda-feira, 18/05/2026 21:35:54 - Versão 1.1.5
+
+**Problema identificado**
+
+O acesso aos detalhes da spool por `F2` podia depender do ponto de foco da linha na SP02. O foco no título da linha pode não ser suficiente em todos os ambientes SAP.
+
+**O que foi alterado**
+
+- Adicionado fallback de foco por checkbox da mesma linha quando o foco pelo título não abrir/validar os detalhes corretamente.
+- O fallback usa o checkbox apenas como ponto de foco/seleção da linha, sem marcar ou desmarcar manualmente.
+- A validação tenta primeiro o título da linha e, em caso de falha, volta para a lista e tenta o checkbox.
+- Mantida a regra de imprimir diretamente da tela de detalhes do boleto após validação.
+- Atualizada a versão do projeto de `1.1.4` para `1.1.5` em backend, frontend, JSON de configuração e arquivo de versão.
+
+**Arquivos alterados**
+
+- `backend/flows/f110_boleto.py`
+- `backend/settings.py`
+- `embasa_settings.json`
+- `interface/app.js`
+- `interface/index.html`
+- `VERSAO.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+O sistema deve conseguir entrar com F2 nos detalhes da nota e do boleto mesmo se o SAP não aceitar o foco no título da linha, usando o checkbox como fallback de foco sem alterar sua marcação.
+
+**Validação realizada**
+
+- `python -m py_compile backend\flows\f110_boleto.py backend\flows\f110.py backend\settings.py`
+- Importação local de `finalizar_boleto_f110`, `montar_nome_pdf_sugerido` e leitura da versão `1.1.5`.
+
 ## Segunda-feira, 18/05/2026 20:58:11 - Versão 1.1.4
 
 **Problema identificado**
