@@ -1,4 +1,4 @@
-import re
+﻿import re
 import time
 import unicodedata
 
@@ -1105,6 +1105,16 @@ def finalizar_boleto_f110(
     resultado = {}
 
     resultado.update(
+        baixar_arquivo_meio_pagamento(
+            session,
+            logger=logger,
+            progress_callback=progress_callback,
+            data_exec=data_exec,
+            identificacao=identificacao,
+        )
+    )
+
+    resultado.update(
         abrir_ordens_spool_boleto(
             session,
             logger=logger,
@@ -1141,39 +1151,19 @@ def finalizar_boleto_f110(
     )
     resultado["nome_pdf_sugerido"] = nome_pdf_sugerido
 
-    if not _copiar_nome_pdf(nome_pdf_sugerido):
-        raise RuntimeError("Não foi possível copiar o nome sugerido do PDF.")
-
     if logger:
         logger.add(
             6,
-            "Nome do PDF copiado. Cole no PDFCreator.",
+            "Linha de boleto selecionada na SP02. ImpressÃ£o manual liberada.",
             publico=True,
         )
 
-    _imprimir_spool_selecionada(session)
+    # O PDFCreator precisa ser acionado manualmente; comandos SAP que abrem
+    # programa externo não são confiáveis neste ambiente.
 
-    _notificar(progress_callback, f"{_PDF_NOTICE_PREFIX}{nome_pdf_sugerido}", 98)
-    resultado["pdf_boleto"] = "IMPRESSAO_DISPARADA"
-    resultado["spool_boleto"] = "IMPRESSAO_DISPARADA"
-    resultado.update(
-        abrir_f110_com_bol(
-            session,
-            logger=logger,
-            progress_callback=progress_callback,
-            data_exec=data_exec,
-            identificacao=identificacao,
-        )
-    )
-
-    resultado.update(
-        baixar_arquivo_meio_pagamento(
-            session,
-            logger=logger,
-            progress_callback=progress_callback,
-            data_exec=data_exec,
-            identificacao=identificacao,
-        )
-    )
-
+    _notificar(progress_callback, f"{_PDF_NOTICE_PREFIX}{nome_pdf_sugerido}", 100)
+    resultado["pdf_boleto"] = "LINHA_SELECIONADA"
+    resultado["spool_boleto"] = "LINHA_SELECIONADA"
+    resultado["impressao_manual"] = True
     return resultado
+

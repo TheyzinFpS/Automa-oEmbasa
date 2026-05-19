@@ -1,5 +1,40 @@
 # Registro técnico de alterações
 
+## Terça-feira, 19/05/2026 17:33:16 - Versão 1.1.8
+
+**Problema identificado**
+
+Os testes reais confirmaram que comandos SAP acionados pelo Python não executam de forma confiável ações que forçam a abertura de outro programa, como o PDFCreator. A impressão/exportação automática da spool, mesmo com linha correta selecionada, permanecia instável.
+
+**O que foi alterado**
+
+- Invertida a ordem final do fluxo F110: o meio de pagamento agora é executado antes da etapa SP02.
+- Após concluir o meio de pagamento, o sistema abre a SP02, localiza o primeiro `BOLETO (CONTAS A RECEBER)` em ordem decrescente, valida a spool e marca a checkbox da linha correta.
+- Removida a tentativa automática de abrir o PDFCreator pelo menu de impressão/exportação.
+- O sistema agora mantém o SAP na SP02 com a linha do boleto selecionada para o usuário executar manualmente `Shift + F5`, `Ctrl + Shift + F8` ou clicar no ícone de impressão.
+- O aviso interno da interface foi ajustado para informar que a linha do boleto foi selecionada e exibir o nome padrão do PDF com botão `Copiar nome e fechar`.
+- O backend passa a retornar `pdf_boleto` e `spool_boleto` como `LINHA_SELECIONADA`, além de `impressao_manual=True`.
+- Atualizada a versão do projeto de `1.1.7` para `1.1.8` em backend, frontend, JSON de configuração e arquivo de versão.
+
+**Arquivos alterados**
+
+- `backend/flows/f110_boleto.py`
+- `interface/app.js`
+- `interface/index.html`
+- `backend/settings.py`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+O fluxo deve concluir automaticamente a F110 e o meio de pagamento, depois deixar a SP02 pronta com a spool correta do boleto selecionada. A partir daí, o usuário executa apenas a impressão manual no SAP/PDFCreator e copia o nome padrão pelo aviso da interface.
+
+**Validação realizada**
+
+- `python -m py_compile backend\flows\f110.py backend\flows\f110_boleto.py backend\settings.py`
+- `node --check interface\app.js`
+
 ## Terça-feira, 19/05/2026 17:15:40 - Versão 1.1.7
 
 **Problema identificado**

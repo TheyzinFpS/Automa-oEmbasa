@@ -10,7 +10,7 @@ from pathlib import Path
 DEFAULT_SETTINGS = {
     "app": {
         "name": "EMBASA",
-        "version": "1.1.7",
+        "version": "1.1.8",
         "company_code": "EMBA",
     },
     "security": {

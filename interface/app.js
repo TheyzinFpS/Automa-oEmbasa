@@ -39,7 +39,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.1.7";
+const APP_VERSION = "1.1.8";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -1673,11 +1673,11 @@ function limparMensagemAvisoPdf(mensagem) {
   const texto = String(mensagem || "").trim();
 
   if (texto.startsWith(PDF_NAME_NOTICE_PREFIX)) {
-    return "Nome do PDF copiado. Cole no PDFCreator.";
+    return "Linha de boleto selecionada. Impressão manual liberada.";
   }
 
   if (extrairNomePdfDoAviso(texto)) {
-    return "Nome do PDF copiado. Cole no PDFCreator.";
+    return "Linha de boleto selecionada. Impressão manual liberada.";
   }
 
   return texto;
