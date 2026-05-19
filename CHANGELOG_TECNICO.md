@@ -1,5 +1,40 @@
 # Registro técnico de alterações
 
+## Terça-feira, 19/05/2026 07:29:09 - Versão 1.1.6
+
+**Problema identificado**
+
+Após remover o popup bloqueante do PDFCreator, o usuário ainda precisava de um aviso claro na interface informando que o nome padrão do PDF já estava copiado e disponível para colar no PDFCreator.
+
+**O que foi alterado**
+
+- Adicionado evento interno `PDF_NAME_READY::` no fluxo `F110/SP02` logo após copiar o nome sugerido do PDF.
+- O log público agora envia o nome sugerido completo, mas a interface exibe a mensagem resumida para não poluir os logs operacionais.
+- Criado modal interno na interface com fundo desfocado, título, instrução e o nome padrão do PDF.
+- Adicionado botão `Copiar nome e fechar`, que copia novamente o nome sugerido e fecha o aviso.
+- O modal não usa `MessageBoxW` nem janela Tkinter, evitando o travamento que acontecia com popups externos durante o controle SAP/PDFCreator.
+- Atualizada a versão do projeto de `1.1.5` para `1.1.6` em backend, frontend, JSON de configuração e arquivo de versão.
+
+**Arquivos alterados**
+
+- `backend/flows/f110_boleto.py`
+- `interface/app.js`
+- `interface/index.html`
+- `interface/style.css`
+- `backend/settings.py`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+Quando o sistema entrar na spool do boleto e disparar a impressão, a interface exibirá um aviso visual com o nome do PDF. O usuário poderá clicar em `Copiar nome e fechar`, colar no PDFCreator e seguir sem bloquear o fluxo SAP com popup externo.
+
+**Validação realizada**
+
+- `python -m py_compile backend\flows\f110_boleto.py backend\flows\f110.py backend\settings.py`
+- Validação estática dos IDs `pdfNameModal`, `pdfNameValue`, `copyPdfNameAndClose` e do evento `PDF_NAME_READY::` no frontend.
+
 ## Segunda-feira, 18/05/2026 21:35:54 - Versão 1.1.5
 
 **Problema identificado**

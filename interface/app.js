@@ -39,7 +39,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.1.5";
+const APP_VERSION = "1.1.6";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -55,6 +55,7 @@ const STATUS_CONCLUIDOS = new Set([
 const STATUS_ERRO = new Set(["erro", "error", "falha", "failed"]);
 const STATUS_CANCELADO = new Set(["cancelado", "cancelada", "cancel", "canceled", "cancelled"]);
 const EMPTY_LOG_MARKUP = '<div class="log-empty">Os logs do fluxo aparecerão aqui.</div>';
+const PDF_NAME_NOTICE_PREFIX = "PDF_NAME_READY::";
 // Mapeia eventos vindos do Python para a etapa visual correspondente.
 const DISPLAY_STAGE_MAP = (() => {
   const map = new Map();
@@ -99,7 +100,9 @@ const state = {
   empreendimentosFila: [],
   batchRunning: false,
   flowRunning: false,
-  cancelRequested: false
+  cancelRequested: false,
+  currentPdfNameNotice: "",
+  lastPdfNameNotice: ""
 };
 
 const domCache = new Map();
@@ -1602,7 +1605,7 @@ function processarEtapaTempoReal(payloadOrEtapa, status, mensagem = "", percentu
   const meta = getDisplayStageMeta(payload.etapa);
   const index = meta ? meta.index : -1;
   const statusNormalizado = normalizarStatusTempoReal(payload.status);
-  const mensagemEtapa = String(payload.mensagem || "");
+  const mensagemEtapa = tratarAvisoNomePdf(String(payload.mensagem || ""));
   const percentualEtapa = normalizeGroupedPercent(meta, statusNormalizado, payload.percentual);
 
   if (index === -1) {
@@ -1645,9 +1648,128 @@ function limparLogs() {
   renderLogEmptyState();
 }
 
+function extrairNomePdfDoAviso(mensagem) {
+  const texto = String(mensagem || "").trim();
+
+  if (!texto) {
+    return "";
+  }
+
+  if (texto.startsWith(PDF_NAME_NOTICE_PREFIX)) {
+    return texto.slice(PDF_NAME_NOTICE_PREFIX.length).trim();
+  }
+
+  const marcador = "Nome do PDF copiado. Cole no PDFCreator:";
+  const indice = texto.indexOf(marcador);
+
+  if (indice === -1) {
+    return "";
+  }
+
+  return texto.slice(indice + marcador.length).trim();
+}
+
+function limparMensagemAvisoPdf(mensagem) {
+  const texto = String(mensagem || "").trim();
+
+  if (texto.startsWith(PDF_NAME_NOTICE_PREFIX)) {
+    return "Nome do PDF copiado. Cole no PDFCreator.";
+  }
+
+  if (extrairNomePdfDoAviso(texto)) {
+    return "Nome do PDF copiado. Cole no PDFCreator.";
+  }
+
+  return texto;
+}
+
+function tratarAvisoNomePdf(mensagem) {
+  const nomePdf = extrairNomePdfDoAviso(mensagem);
+
+  if (nomePdf) {
+    openPdfNameModal(nomePdf);
+  }
+
+  return limparMensagemAvisoPdf(mensagem);
+}
+
+function copiarTextoFallback(texto) {
+  const textarea = document.createElement("textarea");
+  textarea.value = texto;
+  textarea.setAttribute("readonly", "readonly");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    document.execCommand("copy");
+  } finally {
+    textarea.remove();
+  }
+}
+
+async function copiarTextoParaAreaTransferencia(texto) {
+  const conteudo = String(texto || "");
+
+  if (!conteudo) {
+    return;
+  }
+
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(conteudo);
+      return;
+    } catch (error) {
+      // O WebView pode bloquear clipboard moderno em alguns ambientes.
+    }
+  }
+
+  copiarTextoFallback(conteudo);
+}
+
+function openPdfNameModal(nomePdf) {
+  const nomeLimpo = String(nomePdf || "").trim();
+
+  if (!nomeLimpo) {
+    return;
+  }
+
+  if (state.lastPdfNameNotice === nomeLimpo) {
+    return;
+  }
+
+  state.currentPdfNameNotice = nomeLimpo;
+  state.lastPdfNameNotice = nomeLimpo;
+
+  try {
+    window.focus();
+  } catch (error) {
+    // O foco visual pode depender do Windows/SAP, mas o aviso fica pronto na interface.
+  }
+
+  const value = el("pdfNameValue");
+
+  if (value) {
+    value.textContent = nomeLimpo;
+  }
+
+  openModal("pdfNameModal");
+}
+
+function closePdfNameModal() {
+  closeModal("pdfNameModal");
+}
+
+async function copyPdfNameAndClose() {
+  await copiarTextoParaAreaTransferencia(state.currentPdfNameNotice);
+  closePdfNameModal();
+}
+
 // Adiciona uma linha ao balao de logs publicos.
 function log(msg, classe = "") {
   const box = el("logBox");
+  const mensagemVisivel = tratarAvisoNomePdf(msg);
 
   if (state.logCount === 0 && box.firstElementChild?.classList.contains("log-empty")) {
     box.innerHTML = "";
@@ -1655,7 +1777,7 @@ function log(msg, classe = "") {
 
   const line = document.createElement("div");
   line.className = `log-line ${classe}`.trim();
-  line.textContent = msg;
+  line.textContent = mensagemVisivel;
   box.appendChild(line);
   box.scrollTop = box.scrollHeight;
 
@@ -1872,6 +1994,7 @@ function closeContactSuccessModal() {
 const MODAL_IDS = [
   "contactModal",
   "contactSuccessModal",
+  "pdfNameModal",
   "aboutModal",
   "batchConfirmModal",
   "cancelFlowModal"
@@ -2263,6 +2386,9 @@ function limparPainel() {
   resetarEtapas();
   esconderResultado();
   hideResumeBox();
+  state.currentPdfNameNotice = "";
+  state.lastPdfNameNotice = "";
+  closePdfNameModal();
   limparMensagensValidacao();
   setStatus("Aguardando", "idle");
   closeLogsPopover();
@@ -2751,6 +2877,11 @@ document.addEventListener("keydown", (event) => {
 
   if (modalEstaAberto("contactSuccessModal")) {
     closeContactSuccessModal();
+    return;
+  }
+
+  if (modalEstaAberto("pdfNameModal")) {
+    closePdfNameModal();
     return;
   }
 

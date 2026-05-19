@@ -54,7 +54,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.1.5</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.1.6</span>
           </div>
         </div>
       </div>
@@ -590,6 +590,37 @@
       >
         Entendi
       </button>
+    </div>
+  </div>
+
+  <div id="pdfNameModal" class="contact-success-modal hidden" aria-live="polite">
+    <div class="contact-backdrop"></div>
+
+    <div class="contact-success-card pdf-name-card">
+      <p class="section-kicker">PDFCreator</p>
+      <h2>Nome do PDF copiado</h2>
+      <p>
+        Cole o nome abaixo no PDFCreator para salvar o boleto no padr&atilde;o correto.
+      </p>
+
+      <div id="pdfNameValue" class="pdf-name-value"></div>
+
+      <div class="batch-confirm-actions pdf-name-actions">
+        <button
+          type="button"
+          class="primary-action"
+          onclick="copyPdfNameAndClose()"
+        >
+          Copiar nome e fechar
+        </button>
+        <button
+          type="button"
+          class="ghost-action"
+          onclick="closePdfNameModal()"
+        >
+          Fechar
+        </button>
+      </div>
     </div>
   </div>
 

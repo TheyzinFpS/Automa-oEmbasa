@@ -16,6 +16,7 @@ _CELL_ID_RE = re.compile(r"/(?P<tipo>lbl|txt|chk)\[(?P<x>\d+),(?P<y>\d+)\]$")
 _DATA_RE = re.compile(r"\b\d{2}\.\d{2}\.\d{4}\b")
 _HORA_RE = re.compile(r"\b\d{2}:\d{2}\b")
 _SPOOL_RE = re.compile(r"^\d{5,}$")
+_PDF_NOTICE_PREFIX = "PDF_NAME_READY::"
 
 
 def _abrir_transacao(session, codigo, wait_id="wnd[0]/usr", timeout=10):
@@ -857,13 +858,13 @@ def finalizar_boleto_f110(
     if logger:
         logger.add(
             6,
-            "Nome do PDF copiado. Cole no PDFCreator.",
+            f"Nome do PDF copiado. Cole no PDFCreator: {nome_pdf_sugerido}",
             publico=True,
         )
 
     _notificar(
         progress_callback,
-        "Nome do PDF copiado. Imprimindo boleto...",
+        f"{_PDF_NOTICE_PREFIX}{nome_pdf_sugerido}",
         98,
     )
 
