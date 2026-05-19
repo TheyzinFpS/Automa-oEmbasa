@@ -1,5 +1,34 @@
 # Registro técnico de alterações
 
+## Terça-feira, 19/05/2026 17:38:05 - Versão 1.1.9
+
+**Problema identificado**
+
+O texto do aviso final da SP02 separava `Shift + F5` e `Ctrl + Shift + F8` por vírgula, mas ambos representam comandos/opções de impressão. A orientação precisava deixar essa equivalência mais clara para o usuário.
+
+**O que foi alterado**
+
+- Ajustado o texto do modal de impressão manual para exibir `Shift + F5 / Ctrl + Shift + F8`.
+- Mantida a opção de selecionar o ícone de impressão no SAP.
+- Atualizada a versão do projeto de `1.1.8` para `1.1.9` em backend, frontend, JSON de configuração e arquivo de versão.
+
+**Arquivos alterados**
+
+- `interface/index.html`
+- `interface/app.js`
+- `backend/settings.py`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+O usuário verá os dois atalhos de impressão como alternativas equivalentes, separados por barra, reduzindo ambiguidade na etapa manual final.
+
+**Validação realizada**
+
+- `node --check interface\app.js`
+
 ## Terça-feira, 19/05/2026 17:33:16 - Versão 1.1.8
 
 **Problema identificado**
