@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "EMBASA",
-    "version": "1.1.9",
+    "version": "1.2.0",
     "company_code": "EMBA"
   },
   "startup": {

@@ -1161,7 +1161,12 @@ def finalizar_boleto_f110(
     # O PDFCreator precisa ser acionado manualmente; comandos SAP que abrem
     # programa externo não são confiáveis neste ambiente.
 
-    _notificar(progress_callback, f"{_PDF_NOTICE_PREFIX}{nome_pdf_sugerido}", 100)
+    _notificar(
+        progress_callback,
+        f"{_PDF_NOTICE_PREFIX}{nome_pdf_sugerido}",
+        100,
+        status="concluido",
+    )
     resultado["pdf_boleto"] = "LINHA_SELECIONADA"
     resultado["spool_boleto"] = "LINHA_SELECIONADA"
     resultado["impressao_manual"] = True

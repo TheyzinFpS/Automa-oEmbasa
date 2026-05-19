@@ -1,5 +1,37 @@
 # Registro técnico de alterações
 
+## Terça-feira, 19/05/2026 17:56:11 - Versão 1.2.0
+
+**Problema identificado**
+
+Quando a linha do boleto já estava selecionada e o modal de impressão manual era exibido, a etapa F110 ainda podia permanecer visualmente como processamento, mesmo que a automação controlada pelo sistema já tivesse terminado.
+
+**O que foi alterado**
+
+- O evento `PDF_NAME_READY::` agora é enviado com status `concluido`.
+- A barra de progresso da etapa F110 passa para 100% quando o modal de impressão manual aparece.
+- O sistema considera concluída a parte automatizada assim que a SP02 fica com a linha correta do boleto selecionada e o nome padrão fica disponível para copiar.
+- Atualizada a versão do projeto de `1.1.9` para `1.2.0` em backend, frontend, JSON de configuração e arquivo de versão.
+
+**Arquivos alterados**
+
+- `backend/flows/f110_boleto.py`
+- `interface/app.js`
+- `interface/index.html`
+- `backend/settings.py`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+Ao aparecer o modal final de impressão manual, a etapa F110 ficará marcada como concluída no andamento em tempo real, deixando claro que o restante é apenas a ação manual do usuário no SAP/PDFCreator.
+
+**Validação realizada**
+
+- `python -m py_compile backend\flows\f110.py backend\flows\f110_boleto.py backend\settings.py`
+- `node --check interface\app.js`
+
 ## Terça-feira, 19/05/2026 17:38:05 - Versão 1.1.9
 
 **Problema identificado**
