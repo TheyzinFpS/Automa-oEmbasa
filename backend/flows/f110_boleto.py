@@ -85,6 +85,13 @@ def _id_elemento(elemento):
     return _texto_seguro(_safe_getattr(elemento, "Id", "id", default=""))
 
 
+
+def _normalizar_numero_spool(valor):
+    texto = str(valor or "").strip()
+    texto = "".join(ch for ch in texto if ch.isdigit())
+    return str(int(texto)) if texto else ""
+
+
 def _limpar_parte_nome_arquivo(valor, fallback="INFORMAR"):
     texto = str(valor or "").strip() or fallback
     texto = re.sub(r'[<>:"/\\|?*]+', "-", texto)
@@ -376,6 +383,112 @@ def _localizar_par_spool_sp02(session):
     )
 
 
+def _limpar_selecao_sp02_com_shift_f6(session, logger=None):
+    """
+    Limpa a seleção da SP02 com SHIFT + F6 antes de ir para a linha do boleto.
+    No SAP GUI Scripting, sendVKey(30) corresponde ao SHIFT + F6.
+    """
+
+    try:
+        session.findById("wnd[0]").sendVKey(30)
+        wait_until_ready(session)
+        time.sleep(0.4)
+
+        if logger:
+            logger.add(
+                6,
+                "Seleção da SP02 limpa com SHIFT+F6.",
+                publico=False,
+            )
+
+        return True
+
+    except Exception as exc:
+        if logger:
+            logger.add(
+                6,
+                f"Falha ao limpar seleção da SP02 com SHIFT+F6: {exc}",
+                nivel="AVISO",
+                publico=False,
+            )
+
+        return False
+
+
+def _localizar_primeiro_boleto_sp02(session):
+    """
+    Localiza diretamente o primeiro BOLETO (CONTAS A RECEBER) em ordem decrescente.
+    A nota de acompanhamento não é mais validada nem acessada.
+    """
+
+    linhas = _coletar_linhas_sp02(session)
+    boletos = _ordenar_linhas_sp02_decrescente(
+        [linha for linha in linhas if _linha_e_boleto(linha)]
+    )
+
+    if not boletos:
+        resumo = "; ".join(
+            linha.get("texto", "")
+            for linha in linhas[:8]
+            if linha.get("texto")
+        )
+        raise RuntimeError(
+            "Nenhuma spool BOLETO (CONTAS A RECEBER) foi encontrada na SP02. "
+            f"Primeiras linhas lidas: {resumo or 'nenhuma'}."
+        )
+
+    boleto = boletos[0]
+    linha_y = int(boleto.get("linha"))
+
+    # Força os IDs reais da linha do boleto encontrada.
+    boleto["linha"] = linha_y
+    boleto["titulo_id"] = f"wnd[0]/usr/lbl[51,{linha_y}]"
+    boleto["checkbox_id"] = f"wnd[0]/usr/chk[1,{linha_y}]"
+
+    return boleto
+
+
+def _relocalizar_boleto_apos_nota(session, linha_nota_original, logger=None):
+    """
+    Depois de validar a nota e voltar com F12, limpa a seleção com SHIFT+F6
+    e força a próxima linha visual da SP02 como boleto.
+
+    Regra validada no SAP:
+    Nota   -> lbl[51,Y]
+    Boleto -> lbl[51,Y+1]
+    """
+
+    _limpar_selecao_sp02_com_shift_f6(session, logger=logger)
+
+    linha_nota_y = int(linha_nota_original.get("linha"))
+    linha_boleto_y = linha_nota_y + 1
+
+    linhas = _coletar_linhas_sp02(session)
+    por_linha = {int(linha["linha"]): linha for linha in linhas}
+    linha_boleto = por_linha.get(linha_boleto_y)
+
+    if not linha_boleto:
+        linha_boleto = {
+            "linha": linha_boleto_y,
+            "spool": "",
+            "data": "",
+            "hora": "",
+            "status": "",
+            "paginas": "",
+            "titulo": "BOLETO (CONTAS A RECEBER)",
+            "titulo_id": f"wnd[0]/usr/lbl[51,{linha_boleto_y}]",
+            "checkbox_id": f"wnd[0]/usr/chk[1,{linha_boleto_y}]",
+            "texto": "BOLETO (CONTAS A RECEBER)",
+            "texto_normalizado": "BOLETO (CONTAS A RECEBER)",
+        }
+
+    linha_boleto["linha"] = linha_boleto_y
+    linha_boleto["titulo_id"] = f"wnd[0]/usr/lbl[51,{linha_boleto_y}]"
+    linha_boleto["checkbox_id"] = f"wnd[0]/usr/chk[1,{linha_boleto_y}]"
+
+    return linha_boleto
+
+
 def _focar_elemento(session, element_id, caret_position=0):
     if not element_id:
         return False
@@ -398,21 +511,55 @@ def _focar_elemento(session, element_id, caret_position=0):
     return True
 
 
-def _focar_linha_spool(session, linha):
-    titulo_id = linha.get("titulo_id")
-    if titulo_id:
-        return _focar_elemento(session, titulo_id, caret_position=2)
+def _selecionar_linha_por_y(session, y_linha, caret_position=13):
+    """
+    Seleciona/foca a linha visual da SP02 pelo mesmo princípio usado na nota:
+    foco no label da coluna 51 e depois F2.
 
-    checkbox_id = linha.get("checkbox_id")
-    if checkbox_id:
-        return _focar_elemento(session, checkbox_id)
+    A limpeza de seleção deve ocorrer antes com SHIFT+F6.
+    """
 
-    raise RuntimeError(
-        f"Não foi possível focar a linha da spool {linha.get('spool') or linha.get('linha')}."
-    )
+    y_linha = int(y_linha)
+    label_id = f"wnd[0]/usr/lbl[51,{y_linha}]"
+
+    label = session.findById(label_id)
+
+    try:
+        label.setFocus()
+    except Exception:
+        try:
+            label.SetFocus()
+        except Exception:
+            pass
+
+    try:
+        label.caretPosition = int(caret_position)
+    except Exception:
+        pass
+
+    wait_until_ready(session)
+    time.sleep(0.3)
+
+    return True
 
 
 def _focar_linha_spool_por_modo(session, linha, modo):
+    linha_y = linha.get("linha")
+
+    if modo == "selecionar_y" and linha_y is not None:
+        return _selecionar_linha_por_y(
+            session,
+            int(linha_y),
+            caret_position=13,
+        )
+
+    if modo == "coluna_51" and linha_y is not None:
+        return _focar_elemento(
+            session,
+            f"wnd[0]/usr/lbl[51,{int(linha_y)}]",
+            caret_position=13,
+        )
+
     if modo == "titulo":
         titulo_id = linha.get("titulo_id")
         if titulo_id:
@@ -421,7 +568,17 @@ def _focar_linha_spool_por_modo(session, linha, modo):
     if modo == "checkbox":
         checkbox_id = linha.get("checkbox_id")
         if checkbox_id:
-            return _focar_elemento(session, checkbox_id)
+            try:
+                checkbox = session.findById(checkbox_id)
+                checkbox.setFocus()
+            except Exception:
+                try:
+                    checkbox = session.findById(checkbox_id)
+                    checkbox.SetFocus()
+                except Exception:
+                    pass
+
+            return True
 
     return False
 
@@ -483,13 +640,16 @@ def _validar_conteudo_detalhe_spool(session, linha, logger=None):
         pass
 
     if linha.get("spool"):
-        if numero_detalhe and numero_detalhe != linha["spool"]:
+        spool_lista = _normalizar_numero_spool(linha.get("spool"))
+        spool_detalhe = _normalizar_numero_spool(numero_detalhe)
+
+        if spool_lista and spool_detalhe and spool_lista != spool_detalhe:
             raise RuntimeError(
                 "Detalhe da spool divergente: "
                 f"lista={linha['spool']} detalhe={numero_detalhe}."
             )
 
-        if not numero_detalhe and not _tela_contem(textos, linha["spool"]):
+        if not spool_detalhe and not _tela_contem(textos, linha["spool"]):
             raise RuntimeError(
                 f"Detalhe da spool não confirmou o número {linha['spool']}."
             )
@@ -500,11 +660,8 @@ def _validar_conteudo_detalhe_spool(session, linha, logger=None):
             raise RuntimeError(f"Detalhe da spool não confirmou {campo}: {valor}.")
 
     encerrado = _checkbox_encerrado_marcado(session)
-    if encerrado is True:
-        raise RuntimeError(
-            "A spool do boleto está marcada como encerrada/já anexada. "
-            "Impressão interrompida para evitar reprocessamento."
-        )
+    # A checkbox "Encerrado, já não é possível anexar" é apenas informativa
+    # neste fluxo e não deve bloquear a impressão do boleto.
 
     if logger and encerrado is None:
         logger.add(
@@ -531,52 +688,193 @@ def _voltar_para_lista_sp02(session):
         pass
 
 
-def _validar_detalhes_spool(session, linha, logger=None, voltar_apos_validar=True):
-    ultimo_erro = None
+def _validar_detalhes_spool(session, linha, logger=None, voltar_apos_validar=False):
+    """
+    Entra UMA única vez no detalhe do boleto, valida os dados visíveis
+    e permanece nessa tela para disparar a impressão.
 
-    for modo in ("titulo", "checkbox"):
+    Importante:
+    - Não volta para a lista da SP02 após validar.
+    - Não tenta outros modos/fallbacks se algo falhar.
+    - Não entra novamente na spool.
+    """
+
+    try:
+        # Prioridade: usa o ID real do título lido na SP02.
+        titulo_id = linha.get("titulo_id")
+        linha_y = linha.get("linha")
+
+        if titulo_id:
+            _focar_elemento(session, titulo_id, caret_position=13)
+        elif linha_y is not None:
+            _focar_elemento(
+                session,
+                f"wnd[0]/usr/lbl[51,{int(linha_y)}]",
+                caret_position=13,
+            )
+        else:
+            raise RuntimeError("Linha do boleto sem título_id e sem coordenada Y.")
+
+        session.findById("wnd[0]").sendVKey(2)
+        wait_until_ready(session)
+
+        dados = _validar_conteudo_detalhe_spool(session, linha, logger=logger)
+
+        if logger:
+            logger.add(
+                6,
+                "Detalhe do boleto aberto e validado uma única vez. "
+                "Permanecendo na tela do boleto para impressão.",
+                publico=True,
+            )
+
+        return dados
+
+    except Exception as exc:
+        raise RuntimeError(
+            f"Erro ao entrar/validar a spool do boleto uma única vez: {exc}"
+        ) from exc
+
+
+def _voltar_lista_e_selecionar_checkbox_boleto(session, linha_boleto, logger=None):
+    """
+    Depois de validar o detalhe do boleto, volta com F12 para a lista da SP02,
+    marca a checkbox da mesma linha do boleto e deixa a linha em foco para impressão.
+    """
+
+    y_linha = int(linha_boleto.get("linha"))
+    checkbox_id = f"wnd[0]/usr/chk[1,{y_linha}]"
+    label_id = f"wnd[0]/usr/lbl[51,{y_linha}]"
+
+    try:
+        session.findById("wnd[0]").sendVKey(12)
+        wait_until_ready(session, timeout=8)
+        time.sleep(0.5)
+    except Exception as exc:
+        raise RuntimeError(f"Erro ao voltar do detalhe do boleto para a lista SP02: {exc}") from exc
+
+    try:
+        checkbox = wait_for_element(session, checkbox_id, timeout=10)
+        checkbox.selected = True
+
         try:
-            if not _focar_linha_spool_por_modo(session, linha, modo):
-                continue
+            checkbox.setFocus()
+        except Exception:
+            try:
+                checkbox.SetFocus()
+            except Exception:
+                pass
 
-            session.findById("wnd[0]").sendVKey(2)
-            wait_until_ready(session)
+        # Reforça foco no título da mesma linha, sem perder a seleção da checkbox.
+        try:
+            label = session.findById(label_id)
+            label.setFocus()
+            label.caretPosition = 13
+        except Exception:
+            pass
 
-            dados = _validar_conteudo_detalhe_spool(session, linha, logger=logger)
+        wait_until_ready(session, timeout=5)
+        time.sleep(0.3)
 
-            if voltar_apos_validar:
-                _voltar_para_lista_sp02(session)
+        if logger:
+            logger.add(
+                6,
+                f"Checkbox da spool do boleto selecionada na linha Y={y_linha}.",
+                publico=True,
+            )
 
-            if logger and modo == "checkbox":
-                logger.add(
-                    6,
-                    "Detalhe da spool aberto pelo fallback de foco no checkbox.",
-                    publico=False,
-                )
+        return True
 
-            return dados
+    except Exception as exc:
+        raise RuntimeError(
+            f"Erro ao selecionar checkbox da spool do boleto em {checkbox_id}: {exc}"
+        ) from exc
 
-        except Exception as exc:
-            ultimo_erro = exc
-            _voltar_para_lista_sp02(session)
 
-            if logger:
-                logger.add(
-                    6,
-                    f"Tentativa de abrir detalhe da spool por {modo} falhou: {exc}",
-                    nivel="AVISO",
-                    publico=False,
-                )
+def _abrir_validar_voltar_e_marcar_boleto(session, linha_boleto, logger=None):
+    """
+    Fluxo equivalente ao VBS validado pelo usuário:
 
-    raise RuntimeError(
-        f"Não foi possível validar a spool {linha.get('spool') or linha.get('linha')}: {ultimo_erro}"
+    session.findById("wnd[0]").maximize
+    session.findById("wnd[0]/usr/chk[1,Y]").selected = false
+    session.findById("wnd[0]/usr/lbl[51,Y]").setFocus
+    session.findById("wnd[0]/usr/lbl[51,Y]").caretPosition = 5
+    session.findById("wnd[0]").sendVKey 2
+    session.findById("wnd[0]").sendVKey 12
+    session.findById("wnd[0]/usr/chk[1,Y]").selected = true
+    session.findById("wnd[0]/usr/chk[1,Y]").setFocus
+    """
+
+    y_linha = int(linha_boleto.get("linha"))
+    chk_id = f"wnd[0]/usr/chk[1,{y_linha}]"
+    lbl_id = f"wnd[0]/usr/lbl[51,{y_linha}]"
+
+    wait_for_element(session, "wnd[0]", timeout=10).maximize()
+    wait_until_ready(session)
+
+    checkbox = wait_for_element(session, chk_id, timeout=10)
+    checkbox.selected = False
+
+    label = wait_for_element(session, lbl_id, timeout=10)
+    label.setFocus()
+    label.caretPosition = 5
+
+    session.findById("wnd[0]").sendVKey(2)
+    wait_until_ready(session)
+
+    dados_boleto = _validar_conteudo_detalhe_spool(
+        session,
+        linha_boleto,
+        logger=logger,
     )
+
+    session.findById("wnd[0]").sendVKey(12)
+    wait_until_ready(session)
+
+    checkbox = wait_for_element(session, chk_id, timeout=10)
+    checkbox.selected = True
+    checkbox.setFocus()
+
+    wait_until_ready(session)
+    time.sleep(0.3)
+
+    if logger:
+        logger.add(
+            6,
+            f"Boleto validado e checkbox marcada na SP02 na linha Y={y_linha}.",
+            publico=True,
+        )
+
+    return dados_boleto
 
 
 def _imprimir_spool_selecionada(session):
-    session.findById("wnd[0]").sendVKey(44)
-    wait_until_ready(session, timeout=12)
+    """
+    Dispara a impressão/exportação da spool pela opção de menu informada pelo VBS:
 
+        session.findById("wnd[0]/mbar/menu[0]/menu[0]/menu[0]").select()
+
+    Esta função não aguarda confirmação do usuário e não tenta confirmar popup.
+    Após o comando, o fluxo segue direto para F110 e Meio de pagamento.
+    """
+
+    try:
+        wait_for_element(session, "wnd[0]", timeout=10).maximize()
+        wait_until_ready(session)
+
+        wait_for_element(
+            session,
+            "wnd[0]/mbar/menu[0]/menu[0]/menu[0]",
+            timeout=10,
+        ).select()
+
+        wait_until_ready(session, timeout=12)
+        time.sleep(0.8)
+
+    except Exception as exc:
+        raise RuntimeError(
+            f"Erro ao acionar impressão/exportação da spool pelo menu: {exc}"
+        ) from exc
 
 def _prefixar_dados_spool(prefixo, dados_spool):
     return {
@@ -814,33 +1112,24 @@ def finalizar_boleto_f110(
         )
     )
 
-    _notificar(progress_callback, "Identificando par nota/boleto...", 97)
-    linha_nota, linha_boleto = _localizar_par_spool_sp02(session)
+    _notificar(progress_callback, "Localizando boleto mais recente...", 97)
+    linha_boleto = _localizar_primeiro_boleto_sp02(session)
 
     if logger:
         logger.add(
             6,
-            "Par de spools localizado: "
-            f"nota {linha_nota.get('spool') or 'sem número'} / "
-            f"boleto {linha_boleto.get('spool') or 'sem número'}.",
+            "Spool de boleto localizada diretamente: "
+            f"{linha_boleto.get('spool') or 'sem número'} - "
+            f"{linha_boleto.get('titulo') or 'sem título'} "
+            f"(linha Y={linha_boleto.get('linha')}).",
             publico=True,
         )
 
-    _notificar(progress_callback, "Validando spool da nota...", 98)
-    dados_nota = _validar_detalhes_spool(
-        session,
-        linha_nota,
-        logger=logger,
-        voltar_apos_validar=True,
-    )
-    resultado.update(_prefixar_dados_spool("nota", dados_nota))
-
     _notificar(progress_callback, "Validando spool do boleto...", 98)
-    dados_boleto = _validar_detalhes_spool(
+    dados_boleto = _abrir_validar_voltar_e_marcar_boleto(
         session,
         linha_boleto,
         logger=logger,
-        voltar_apos_validar=False,
     )
     resultado.update(dados_boleto)
     resultado.update(_prefixar_dados_spool("boleto", dados_boleto))
@@ -858,26 +1147,15 @@ def finalizar_boleto_f110(
     if logger:
         logger.add(
             6,
-            f"Nome do PDF copiado. Cole no PDFCreator: {nome_pdf_sugerido}",
+            "Nome do PDF copiado. Cole no PDFCreator.",
             publico=True,
         )
 
-    _notificar(
-        progress_callback,
-        f"{_PDF_NOTICE_PREFIX}{nome_pdf_sugerido}",
-        98,
-    )
-
     _imprimir_spool_selecionada(session)
+
+    _notificar(progress_callback, f"{_PDF_NOTICE_PREFIX}{nome_pdf_sugerido}", 98)
     resultado["pdf_boleto"] = "IMPRESSAO_DISPARADA"
     resultado["spool_boleto"] = "IMPRESSAO_DISPARADA"
-
-    voltar_tela_inicial_com_f3(
-        session,
-        logger=logger,
-        progress_callback=progress_callback,
-    )
-
     resultado.update(
         abrir_f110_com_bol(
             session,

@@ -1,5 +1,50 @@
 # Registro técnico de alterações
 
+## Terça-feira, 19/05/2026 17:15:40 - Versão 1.1.7
+
+**Problema identificado**
+
+Os testes reais da F110 apontaram dois pontos principais: a identificação BOL podia parar/travar por volta de `BOL10/BOL11`, e a rotina da SP02 ainda sofria com foco/seleção ao tentar validar nota e boleto em sequência antes da impressão/exportação.
+
+**O que foi alterado**
+
+- Substituído `backend/flows/f110.py` pelo novo arquivo validado `f110_padrao_final.py`.
+- Substituído `backend/flows/f110_boleto.py` pelo novo arquivo validado `f110_boleto_final.py`.
+- A busca de identificação da F110 agora testa `BOL01` até `BOL100` e considera a BOL ocupada quando já existe cliente preenchido na aba Parâmetro.
+- A validação da próxima data de lançamento passou a comparar somente dígitos, aceitando equivalência entre `31052026` e `31.05.2026`.
+- A seleção livre passou a forçar a troca de aba e validar o preenchimento do documento formatado com `00 + doc_fat`.
+- A SP02 deixou de depender do par nota/boleto e agora localiza diretamente o primeiro `BOLETO (CONTAS A RECEBER)` em ordem decrescente.
+- A validação da spool normaliza números com zeros à esquerda, evitando divergência entre lista e detalhe.
+- A checkbox `Encerrado, já não é possível anexar` passou a ser apenas informativa no fluxo.
+- O fluxo da SP02 agora valida o boleto, volta para a lista, marca a checkbox da linha correta e aciona impressão/exportação pelo menu `wnd[0]/mbar/menu[0]/menu[0]/menu[0]`.
+- Mantido o aviso visual interno da interface via `PDF_NAME_READY::`, exibido após o comando de impressão/exportação, sem popup externo bloqueante.
+- Atualizada a versão do projeto de `1.1.6` para `1.1.7` em backend, frontend, JSON de configuração e arquivo de versão.
+
+**Arquivos alterados**
+
+- `backend/flows/f110.py`
+- `backend/flows/f110_boleto.py`
+- `interface/app.js`
+- `interface/index.html`
+- `backend/settings.py`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+A F110 deve conseguir avançar com identificações acima de `BOL10/BOL11`, preencher e validar parâmetros/seleção livre com mais segurança, localizar o boleto correto na SP02, marcar a checkbox adequada, tentar abrir o PDFCreator pelo menu de impressão/exportação e seguir automaticamente para F110/meio de pagamento.
+
+**Problema atual conhecido**
+
+Se o menu `wnd[0]/mbar/menu[0]/menu[0]/menu[0]` também não abrir o PDFCreator no ambiente SAP, a alternativa segura indicada no resumo técnico é manter a checkbox correta já marcada e transformar somente o clique de impressão/exportação em uma ação manual, preservando o restante do fluxo automático.
+
+**Validação realizada**
+
+- `python -m py_compile C:\Users\Taylor\Desktop\f110_padrao_final.py C:\Users\Taylor\Desktop\f110_boleto_final.py`
+- `python -m py_compile backend\flows\f110.py backend\flows\f110_boleto.py backend\settings.py`
+- `node --check interface\app.js`
+
 ## Terça-feira, 19/05/2026 07:29:09 - Versão 1.1.6
 
 **Problema identificado**

@@ -99,6 +99,11 @@ def safe_find(session, element_id):
     except Exception:
         return None
 
+def _somente_digitos(valor):
+    return "".join(ch for ch in str(valor or "") if ch.isdigit())
+
+
+
 
 def abrir_f110(session):
     # Abre a F110 diretamente por OKCODE, sem depender da árvore do SAP.
@@ -133,67 +138,132 @@ def ultimo_dia_mes():
 
 
 def gerar_identificacao(session, data_exec):
-    # Encontra a primeira identificação BOLxx livre para a data de execução.
-    for i in range(1, 100):
+    """
+    Encontra a primeira identificação BOLxx livre para a data de execução.
+
+    Ajuste importante:
+    - Testa BOL01 até BOL100.
+    - Não usa mais o botão de status btn[20] para decidir se a BOL está livre,
+      porque isso estava fazendo o fluxo parar/travar em BOL10/BOL11.
+    - A BOL é considerada ocupada quando, na aba Parâmetro, já existe cliente
+      preenchido no campo de cliente.
+    - Ao encontrar uma BOL livre, volta para Status e retorna a identificação.
+    """
+
+    for i in range(1, 101):
         ident = f"BOL{i:02d}"
 
-        wait_for_element(session, _CAMPO_DATA_EXEC).text = data_exec
-        session.findById(_CAMPO_IDENT).text = ident
+        wait_for_element(session, _CAMPO_DATA_EXEC, timeout=10).text = data_exec
+        wait_for_element(session, _CAMPO_IDENT, timeout=10).text = ident
         session.findById("wnd[0]").sendVKey(0)
         wait_until_ready(session)
 
         try:
-            wait_for_element(session, _ABA_PAR).select()
+            wait_for_element(session, _ABA_PAR, timeout=10).select()
             wait_until_ready(session)
 
-            campo_cliente = wait_for_element(session, _CAMPO_PAR_CLIENTE)
-            if campo_cliente.text.strip() != "":
-                session.findById(_ABA_STA).select()
+            campo_cliente = wait_for_element(
+                session,
+                _CAMPO_PAR_CLIENTE,
+                timeout=8,
+            )
+
+            if campo_cliente.text.strip():
+                wait_for_element(session, _ABA_STA, timeout=10).select()
                 wait_until_ready(session)
                 continue
 
-        except Exception:
-            pass
-
-        try:
-            session.findById("wnd[0]/tbar[1]/btn[20]").press()
+            wait_for_element(session, _ABA_STA, timeout=10).select()
             wait_until_ready(session)
-            popup = safe_find(session, "wnd[1]")
-            if popup:
-                popup.findById("tbar[0]/btn[12]").press()
-                wait_until_ready(session)
-            continue
-        except Exception:
             return ident
 
-    raise Exception("Nenhuma identificação disponível para o F110.")
+        except Exception:
+            # Se a aba Parâmetro/campo cliente não existir ainda para a BOL,
+            # tratamos como livre, mas deixamos a tela estabilizada em Status.
+            try:
+                wait_for_element(session, _ABA_STA, timeout=5).select()
+                wait_until_ready(session)
+            except Exception:
+                pass
+
+            return ident
+
+    raise Exception("Nenhuma identificação disponível entre BOL01 e BOL100 para o F110.")
+
 
 
 def preencher_parametros(session, cliente, data_lanc):
-    # Preenche empresa, método de pagamento, data de lançamento e cliente.
-    wait_for_element(session, _ABA_PAR).select()
+    """
+    Preenche empresa, método de pagamento, próxima data de lançamento e cliente.
+
+    Correção:
+    - O SAP recebe 31052026, mas exibe 31.05.2026.
+    - Por isso a validação da data compara apenas os dígitos.
+    """
+
+    wait_for_element(session, _ABA_PAR, timeout=10).select()
     wait_until_ready(session)
 
-    wait_for_element(session, _CAMPO_PAR_EMPRESA).text = "EMBA"
-    session.findById(_CAMPO_PAR_FORMA).text = "A"
-    session.findById(_CAMPO_PAR_DATA_LANC).text = data_lanc
-    session.findById(_CAMPO_PAR_CLIENTE).text = str(cliente).strip()
+    campo_empresa = wait_for_element(session, _CAMPO_PAR_EMPRESA, timeout=10)
+    campo_forma = wait_for_element(session, _CAMPO_PAR_FORMA, timeout=10)
+    campo_data_lanc = wait_for_element(session, _CAMPO_PAR_DATA_LANC, timeout=10)
+    campo_cliente = wait_for_element(session, _CAMPO_PAR_CLIENTE, timeout=10)
 
-    campo_cliente = session.findById(_CAMPO_PAR_CLIENTE)
+    campo_empresa.setFocus()
+    campo_empresa.text = "EMBA"
+
+    campo_forma.setFocus()
+    campo_forma.text = "A"
+
+    campo_data_lanc.setFocus()
+    campo_data_lanc.text = data_lanc
+
+    cliente_txt = str(cliente).strip()
     campo_cliente.setFocus()
-    campo_cliente.caretPosition = len(str(cliente).strip())
+    campo_cliente.text = cliente_txt
+    campo_cliente.caretPosition = len(cliente_txt)
+
+    session.findById("wnd[0]").sendVKey(0)
+    wait_until_ready(session)
+
+    campo_empresa = wait_for_element(session, _CAMPO_PAR_EMPRESA, timeout=10)
+    campo_forma = wait_for_element(session, _CAMPO_PAR_FORMA, timeout=10)
+    campo_data_lanc = wait_for_element(session, _CAMPO_PAR_DATA_LANC, timeout=10)
+    campo_cliente = wait_for_element(session, _CAMPO_PAR_CLIENTE, timeout=10)
+
+    if campo_empresa.text.strip().upper() != "EMBA":
+        raise Exception("Empresa EMBA não foi preenchida nos parâmetros da F110.")
+
+    if campo_forma.text.strip().upper() != "A":
+        raise Exception("Forma de pagamento A não foi preenchida nos parâmetros da F110.")
+
+    if _somente_digitos(campo_data_lanc.text) != _somente_digitos(data_lanc):
+        raise Exception(
+            "Próxima data de lançamento não foi preenchida nos parâmetros da F110. "
+            f"SAP={campo_data_lanc.text} esperado={data_lanc}"
+        )
+
+    if campo_cliente.text.strip() != cliente_txt:
+        raise Exception("Cliente não foi preenchido nos parâmetros da F110.")
+
 
 
 def preencher_selecao_livre(session, doc_formatado):
-    # Preenche a seleção livre com 00 + doc_fat.
-    wait_for_element(session, _ABA_SEL).select()
-    wait_until_ready(session)
+    """
+    Preenche a seleção livre com 00 + doc_fat.
+    Força a troca para a aba Seleção livre após os parâmetros.
+    """
 
-    campo_texto1 = wait_for_element(session, _CAMPO_SEL_TEXTO1)
+    for _ in range(2):
+        wait_for_element(session, _ABA_SEL, timeout=10).select()
+        wait_until_ready(session)
+
+    campo_texto1 = wait_for_element(session, _CAMPO_SEL_TEXTO1, timeout=10)
     campo_texto1.setFocus()
     campo_texto1.caretPosition = 0
+
     session.findById("wnd[0]").sendVKey(4)
-    wait_for_element(session, "wnd[1]", timeout=5)
+    wait_for_element(session, "wnd[1]", timeout=8)
 
     try:
         session.findById("wnd[1]").sendVKey(2)
@@ -205,13 +275,18 @@ def preencher_selecao_livre(session, doc_formatado):
         except Exception:
             pass
 
-    campo_lista = wait_for_element(session, _CAMPO_SEL_LISTA1)
+    campo_lista = wait_for_element(session, _CAMPO_SEL_LISTA1, timeout=10)
     campo_lista.text = doc_formatado
     campo_lista.setFocus()
     campo_lista.caretPosition = len(doc_formatado)
 
+    session.findById("wnd[0]").sendVKey(0)
+    wait_until_ready(session)
+
+    campo_lista = wait_for_element(session, _CAMPO_SEL_LISTA1, timeout=10)
     if campo_lista.text.strip() != doc_formatado:
         raise Exception("Erro ao preencher a seleção livre do F110.")
+
 
 
 def configurar_log(session, cliente):
@@ -302,6 +377,10 @@ def executar_proposta(session):
     popup.findById("tbar[0]/btn[0]").press()
     wait_until_ready(session)
     session.findById("wnd[0]").sendVKey(0)
+    session.findById("wnd[0]").sendVKey(0)
+    session.findById("wnd[0]").sendVKey(0)
+    session.findById("wnd[0]").sendVKey(0)
+    session.findById("wnd[0]").sendVKey(0)
     wait_until_ready(session)
 
 
@@ -316,6 +395,10 @@ def executar_pagamento_e_impressao(session, identificacao):
     popup_pag.findById("tbar[0]/btn[0]").press()
     wait_until_ready(session)
 
+    session.findById("wnd[0]").sendVKey(0)
+    session.findById("wnd[0]").sendVKey(0)
+    session.findById("wnd[0]").sendVKey(0)
+    session.findById("wnd[0]").sendVKey(0)
     session.findById("wnd[0]").sendVKey(0)
     wait_until_ready(session)
 
@@ -357,9 +440,11 @@ def f110(session, cliente, doc_fat, logger, progress_callback=None, dados=None):
 
         _notificar(progress_callback, "processando", "Preenchendo parâmetros do F110...", 34)
         preencher_parametros(session, cliente, data_lanc)
+        logger.add(6, "Parâmetros da F110 preenchidos e validados.", publico=True)
 
         _notificar(progress_callback, "processando", "Preenchendo seleção livre...", 48)
         preencher_selecao_livre(session, doc_formatado)
+        logger.add(6, "Seleção livre da F110 preenchida e validada.", publico=True)
 
         _notificar(progress_callback, "processando", "Configurando log...", 60)
         configurar_log(session, cliente)
