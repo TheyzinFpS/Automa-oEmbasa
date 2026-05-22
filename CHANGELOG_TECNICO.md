@@ -1,5 +1,56 @@
 # Registro técnico de alterações
 
+## Sexta-feira, 22/05/2026 00:13:29 - Versão 1.4.0
+
+**Problema identificado**
+
+Era necessário adicionar um tipo composto `Água + Esgoto`, sem duplicar preenchimento de cliente, e controlar duas F110 no mesmo fluxo mantendo os dois `doc_fat`. Também faltava orientar o usuário no momento de salvar o arquivo de meio de pagamento com um nome padronizado.
+
+**O que foi alterado**
+
+- Adicionado o tipo `Água + Esgoto` na seleção de pedido da interface.
+- Adicionado suporte XD03 para validar, no mesmo cliente, os setores `AG` e `EG` quando o tipo composto for selecionado.
+- Criada rota especial no controller para o fluxo composto:
+  - valida cliente uma vez;
+  - cria Água até o re-salvamento da VF02 e guarda o `doc_fat`;
+  - cria Esgoto até o re-salvamento da VF02 e guarda o `doc_fat`;
+  - executa F110 da Água sem abrir SP02;
+  - executa F110 do Esgoto sem abrir SP02;
+  - abre SP02 apenas no final e seleciona as duas linhas mais recentes de `BOLETO (CONTAS A RECEBER)`.
+- Ajustada a F110 para aceitar execução sem seleção imediata da spool, permitindo o fluxo composto.
+- Criada função `selecionar_boletos_sp02` para seleção final de múltiplas spools de boleto.
+- Criado padrão de nome do arquivo de meio de pagamento: `ano.mês.dia - doc.fat`, exemplo `2026.05.22 - 10031261`.
+- Adicionado evento `PAYMENT_FILE_READY::` para abrir modal na interface com botão `Copiar nome e fechar` ao chegar no salvamento do meio de pagamento.
+- A interface tenta voltar ao primeiro plano quando recebe eventos de nome de PDF ou arquivo de meio de pagamento.
+- Atualizado o histórico para reconhecer o tipo `Projeto Água + Esgoto`.
+- Atualizada a versão do projeto de `1.3.0` para `1.4.0`.
+
+**Arquivos alterados**
+
+- `backend/controller.py`
+- `backend/flows/f110.py`
+- `backend/flows/f110_boleto.py`
+- `backend/flows/xd03.py`
+- `backend/history.py`
+- `backend/settings.py`
+- `interface.py`
+- `interface/index.html`
+- `interface/app.js`
+- `interface/style.css`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+Ao selecionar `Água + Esgoto`, o sistema deve gerar os dois pedidos/faturamentos em sequência, executar duas F110 com BOLs diferentes, abrir o meio de pagamento para cada `doc_fat` com nome padronizado para copiar e, no final, deixar as duas linhas de boleto selecionadas na SP02 para impressão manual.
+
+**Validação realizada**
+
+- `python -m py_compile backend\controller.py backend\flows\f110.py backend\flows\f110_boleto.py backend\flows\xd03.py backend\history.py interface.py backend\settings.py`
+- `node --check interface\app.js`
+- Teste local de importação do controller e geração dos nomes padrão de PDF/meio de pagamento.
+
 ## Terça-feira, 19/05/2026 20:13:21 - Versão 1.3.0
 
 **Problema identificado**

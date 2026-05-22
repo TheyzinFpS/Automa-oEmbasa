@@ -18,12 +18,17 @@ TIPOS_DESCRICAO = {
     "viabilidade": "ANÁLISE DE VIABILIDADE TÉCNICA",
     "agua": "APROVAÇÃO DE PROJETO DE ABASTECIMENTO DE ÁGUA",
     "esgoto": "APROVAÇÃO DE PROJETO DE ESGOTAMENTO SANITÁRIO",
+    "agua_esgoto": (
+        "APROVAÇÃO DE PROJETOS DE ABASTECIMENTO DE ÁGUA "
+        "E ESGOTAMENTO SANITÁRIO"
+    ),
 }
 
 TIPOS_LABEL = {
     "viabilidade": "Viabilidade",
     "agua": "Projeto Água",
     "esgoto": "Projeto Esgoto",
+    "agua_esgoto": "Projeto Água + Esgoto",
 }
 
 

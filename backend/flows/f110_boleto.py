@@ -17,6 +17,7 @@ _DATA_RE = re.compile(r"\b\d{2}\.\d{2}\.\d{4}\b")
 _HORA_RE = re.compile(r"\b\d{2}:\d{2}\b")
 _SPOOL_RE = re.compile(r"^\d{5,}$")
 _PDF_NOTICE_PREFIX = "PDF_NAME_READY::"
+_PAYMENT_NOTICE_PREFIX = "PAYMENT_FILE_READY::"
 
 
 def _abrir_transacao(session, codigo, wait_id="wnd[0]/usr", timeout=10):
@@ -132,6 +133,12 @@ def montar_nome_pdf_sugerido(numero_boleto, dados=None, cliente=None):
     ]
 
     return " - ".join(partes)
+
+
+def montar_nome_arquivo_meio_pagamento(doc_fat, data=None):
+    data_base = data or time.strftime("%Y.%m.%d")
+    doc = _limpar_parte_nome_arquivo(doc_fat, "DOC_FAT")
+    return f"{data_base} - {doc}"
 
 
 def _copiar_nome_pdf(nome_pdf_sugerido):
@@ -1036,6 +1043,7 @@ def baixar_arquivo_meio_pagamento(
     progress_callback=None,
     data_exec=None,
     identificacao=None,
+    doc_fat=None,
 ):
     _notificar(progress_callback, "Abrindo meio de pagamento...", 99)
 
@@ -1056,6 +1064,14 @@ def baixar_arquivo_meio_pagamento(
 
         session.findById("wnd[0]").sendVKey(18)
         wait_until_ready(session)
+
+        nome_arquivo = montar_nome_arquivo_meio_pagamento(doc_fat)
+        _copiar_nome_pdf(nome_arquivo)
+        _notificar(
+            progress_callback,
+            f"{_PAYMENT_NOTICE_PREFIX}{nome_arquivo}",
+            99,
+        )
 
         wait_for_element(session, "wnd[1]", timeout=10).sendVKey(4)
         wait_until_ready(session)
@@ -1089,6 +1105,7 @@ def baixar_arquivo_meio_pagamento(
 
     return {
         "arquivo_meio_pagamento": "CONFIRMADO",
+        "nome_arquivo_meio_pagamento": montar_nome_arquivo_meio_pagamento(doc_fat),
     }
 
 
@@ -1101,6 +1118,7 @@ def finalizar_boleto_f110(
     numero_boleto=None,
     data_exec=None,
     identificacao=None,
+    selecionar_boleto=True,
 ):
     resultado = {}
 
@@ -1111,8 +1129,12 @@ def finalizar_boleto_f110(
             progress_callback=progress_callback,
             data_exec=data_exec,
             identificacao=identificacao,
+            doc_fat=numero_boleto,
         )
     )
+
+    if not selecionar_boleto:
+        return resultado
 
     resultado.update(
         abrir_ordens_spool_boleto(
@@ -1170,5 +1192,94 @@ def finalizar_boleto_f110(
     resultado["pdf_boleto"] = "LINHA_SELECIONADA"
     resultado["spool_boleto"] = "LINHA_SELECIONADA"
     resultado["impressao_manual"] = True
+    return resultado
+
+
+def selecionar_boletos_sp02(
+    session,
+    boletos,
+    logger=None,
+    progress_callback=None,
+):
+    boletos = list(boletos or [])
+
+    if not boletos:
+        raise RuntimeError("Nenhum boleto informado para selecionar na SP02.")
+
+    resultado = {}
+
+    resultado.update(
+        abrir_ordens_spool_boleto(
+            session,
+            logger=logger,
+            progress_callback=progress_callback,
+        )
+    )
+
+    linhas = _ordenar_linhas_sp02_decrescente(
+        [linha for linha in _coletar_linhas_sp02(session) if _linha_e_boleto(linha)]
+    )
+
+    if len(linhas) < len(boletos):
+        raise RuntimeError(
+            "Quantidade insuficiente de spools de boleto na SP02. "
+            f"Esperado {len(boletos)}, encontrado {len(linhas)}."
+        )
+
+    nomes_pdf = []
+    spools = []
+
+    for indice, boleto in enumerate(boletos):
+        linha = linhas[indice]
+
+        if logger:
+            logger.add(
+                6,
+                "Selecionando spool de boleto composta: "
+                f"{linha.get('spool') or 'sem número'} - "
+                f"{linha.get('titulo') or 'sem título'} "
+                f"(linha Y={linha.get('linha')}).",
+                publico=True,
+            )
+
+        dados_boleto = _abrir_validar_voltar_e_marcar_boleto(
+            session,
+            linha,
+            logger=logger,
+        )
+        spools.append(
+            {
+                "tipo": boleto.get("tipo"),
+                "doc_fat": boleto.get("doc_fat"),
+                **dados_boleto,
+            }
+        )
+        nomes_pdf.append(
+            montar_nome_pdf_sugerido(
+                boleto.get("doc_fat"),
+                dados=boleto.get("dados"),
+                cliente=boleto.get("cliente"),
+            )
+        )
+
+    nomes_texto = "\n".join(nomes_pdf)
+    _copiar_nome_pdf(nomes_texto)
+
+    _notificar(
+        progress_callback,
+        f"{_PDF_NOTICE_PREFIX}{nomes_texto}",
+        100,
+        status="concluido",
+    )
+
+    resultado.update(
+        {
+            "pdf_boleto": "LINHAS_SELECIONADAS",
+            "spool_boleto": "LINHAS_SELECIONADAS",
+            "impressao_manual": True,
+            "nomes_pdf_sugeridos": nomes_pdf,
+            "spools_boletos": spools,
+        }
+    )
     return resultado
 

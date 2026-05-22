@@ -54,7 +54,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.3.0</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.4.0</span>
           </div>
         </div>
       </div>
@@ -168,6 +168,9 @@
               </button>
               <button type="button" onclick="selecionarTipo('esgoto', 'Esgoto')">
                 Esgoto
+              </button>
+              <button type="button" onclick="selecionarTipo('agua_esgoto', '\u00c1gua + Esgoto')">
+                &Aacute;gua + Esgoto
               </button>
             </div>
           </div>
@@ -616,6 +619,31 @@
           type="button"
           class="primary-action"
           onclick="copyPdfNameAndClose()"
+        >
+          Copiar nome e fechar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="paymentFileModal" class="contact-success-modal hidden" aria-live="polite">
+    <div class="contact-backdrop"></div>
+
+    <div class="contact-success-card pdf-name-card">
+      <p class="section-kicker">Meio de pagamento</p>
+      <h2>Nome do arquivo copiado</h2>
+      <p>
+        Use o nome abaixo na janela de salvamento do arquivo de meio de pagamento.
+        O padr&atilde;o &eacute; <strong>ano.m&ecirc;s.dia - doc.fat</strong>.
+      </p>
+
+      <div id="paymentFileNameValue" class="pdf-name-value"></div>
+
+      <div class="batch-confirm-actions pdf-name-actions">
+        <button
+          type="button"
+          class="primary-action"
+          onclick="copyPaymentFileNameAndClose()"
         >
           Copiar nome e fechar
         </button>

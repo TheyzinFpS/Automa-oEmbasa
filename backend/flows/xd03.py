@@ -14,6 +14,7 @@ _TIPO_PARA_SETOR = {
     "viabilidade": "AE",
     "agua": "AG",
     "esgoto": "EG",
+    "agua_esgoto": ("AG", "EG"),
 }
 
 _SETOR_PARA_TIPO = {
@@ -26,6 +27,7 @@ _TIPO_LABEL = {
     "viabilidade": "Viabilidade",
     "agua": "Água",
     "esgoto": "Esgoto",
+    "agua_esgoto": "Água + Esgoto",
 }
 
 _CAMPO_CNPJ = (
@@ -448,14 +450,23 @@ def _ler_setores_atividade_cliente(session, logger, progress_callback=None):
 
 
 def _validar_suporte_tipo(setores, tipo_solicitacao):
-    setor_necessario = _TIPO_PARA_SETOR[tipo_solicitacao]
+    setores_necessarios = _setores_necessarios(tipo_solicitacao)
 
     codigos_disponiveis = {
         str(setor.get("codigo") or "").strip().upper()
         for setor in setores
     }
 
-    return setor_necessario in codigos_disponiveis
+    return all(setor in codigos_disponiveis for setor in setores_necessarios)
+
+
+def _setores_necessarios(tipo_solicitacao):
+    setor = _TIPO_PARA_SETOR[tipo_solicitacao]
+
+    if isinstance(setor, (tuple, list, set)):
+        return tuple(str(item).strip().upper() for item in setor)
+
+    return (str(setor).strip().upper(),)
 
 
 def _tipos_suportados_por_setor(setores):
@@ -677,7 +688,7 @@ def buscar_cliente(session, dados, logger, progress_callback=None):
 
             if not _validar_suporte_tipo(setores, tipo_solicitacao):
                 tipo_label = _TIPO_LABEL.get(tipo_solicitacao, tipo_solicitacao)
-                setor_necessario = _TIPO_PARA_SETOR[tipo_solicitacao]
+                setor_necessario = " + ".join(_setores_necessarios(tipo_solicitacao))
                 disponiveis = _formatar_tipos_suportados(tipos_suportados)
 
                 mensagem = (

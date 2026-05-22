@@ -12,7 +12,8 @@
 const VALORES = {
   viabilidade: "R$ 1.038,02",
   agua: "R$ 2.357,70",
-  esgoto: "R$ 2.357,70"
+  esgoto: "R$ 2.357,70",
+  agua_esgoto: "R$ 2.357,70"
 };
 
 // Rótulos amigáveis para o campo Tipo de solicitação.
@@ -20,7 +21,8 @@ const TIPOS_SOLICITACAO = {
   "": "Selecione",
   viabilidade: "Viabilidade",
   agua: "Água",
-  esgoto: "Esgoto"
+  esgoto: "Esgoto",
+  agua_esgoto: "Água + Esgoto"
 };
 
 // Status operacional exibido no card de status da base.
@@ -39,7 +41,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.4.0";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -56,6 +58,7 @@ const STATUS_ERRO = new Set(["erro", "error", "falha", "failed"]);
 const STATUS_CANCELADO = new Set(["cancelado", "cancelada", "cancel", "canceled", "cancelled"]);
 const EMPTY_LOG_MARKUP = '<div class="log-empty">Os logs do fluxo aparecerão aqui.</div>';
 const PDF_NAME_NOTICE_PREFIX = "PDF_NAME_READY::";
+const PAYMENT_FILE_NOTICE_PREFIX = "PAYMENT_FILE_READY::";
 // Mapeia eventos vindos do Python para a etapa visual correspondente.
 const DISPLAY_STAGE_MAP = (() => {
   const map = new Map();
@@ -103,6 +106,8 @@ const state = {
   cancelRequested: false,
   currentPdfNameNotice: "",
   lastPdfNameNotice: "",
+  currentPaymentFileNotice: "",
+  lastPaymentFileNotice: "",
   historicoItens: [],
   historicoSelecionado: null
 };
@@ -1608,7 +1613,7 @@ function processarEtapaTempoReal(payloadOrEtapa, status, mensagem = "", percentu
   const meta = getDisplayStageMeta(payload.etapa);
   const index = meta ? meta.index : -1;
   const statusNormalizado = normalizarStatusTempoReal(payload.status);
-  const mensagemEtapa = tratarAvisoNomePdf(String(payload.mensagem || ""));
+  const mensagemEtapa = tratarAvisosOperacionais(String(payload.mensagem || ""));
   const percentualEtapa = normalizeGroupedPercent(meta, statusNormalizado, payload.percentual);
 
   if (index === -1) {
@@ -1672,6 +1677,20 @@ function extrairNomePdfDoAviso(mensagem) {
   return texto.slice(indice + marcador.length).trim();
 }
 
+function extrairNomeMeioPagamentoDoAviso(mensagem) {
+  const texto = String(mensagem || "").trim();
+
+  if (!texto) {
+    return "";
+  }
+
+  if (texto.startsWith(PAYMENT_FILE_NOTICE_PREFIX)) {
+    return texto.slice(PAYMENT_FILE_NOTICE_PREFIX.length).trim();
+  }
+
+  return "";
+}
+
 function limparMensagemAvisoPdf(mensagem) {
   const texto = String(mensagem || "").trim();
 
@@ -1686,6 +1705,16 @@ function limparMensagemAvisoPdf(mensagem) {
   return texto;
 }
 
+function limparMensagemAvisoMeioPagamento(mensagem) {
+  const texto = String(mensagem || "").trim();
+
+  if (texto.startsWith(PAYMENT_FILE_NOTICE_PREFIX)) {
+    return "Nome do arquivo de meio de pagamento pronto para copiar.";
+  }
+
+  return texto;
+}
+
 function tratarAvisoNomePdf(mensagem) {
   const nomePdf = extrairNomePdfDoAviso(mensagem);
 
@@ -1694,6 +1723,20 @@ function tratarAvisoNomePdf(mensagem) {
   }
 
   return limparMensagemAvisoPdf(mensagem);
+}
+
+function tratarAvisoMeioPagamento(mensagem) {
+  const nomeArquivo = extrairNomeMeioPagamentoDoAviso(mensagem);
+
+  if (nomeArquivo) {
+    openPaymentFileModal(nomeArquivo);
+  }
+
+  return limparMensagemAvisoMeioPagamento(mensagem);
+}
+
+function tratarAvisosOperacionais(mensagem) {
+  return tratarAvisoMeioPagamento(tratarAvisoNomePdf(mensagem));
 }
 
 function copiarTextoFallback(texto) {
@@ -1767,6 +1810,44 @@ function closePdfNameModal() {
 async function copyPdfNameAndClose() {
   await copiarTextoParaAreaTransferencia(state.currentPdfNameNotice);
   closePdfNameModal();
+}
+
+function openPaymentFileModal(nomeArquivo) {
+  const nomeLimpo = String(nomeArquivo || "").trim();
+
+  if (!nomeLimpo) {
+    return;
+  }
+
+  if (state.lastPaymentFileNotice === nomeLimpo) {
+    return;
+  }
+
+  state.currentPaymentFileNotice = nomeLimpo;
+  state.lastPaymentFileNotice = nomeLimpo;
+
+  try {
+    window.focus();
+  } catch (error) {
+    // O foco depende do Windows/SAP, mas o aviso fica pronto na interface.
+  }
+
+  const value = el("paymentFileNameValue");
+
+  if (value) {
+    value.textContent = nomeLimpo;
+  }
+
+  openModal("paymentFileModal");
+}
+
+function closePaymentFileModal() {
+  closeModal("paymentFileModal");
+}
+
+async function copyPaymentFileNameAndClose() {
+  await copiarTextoParaAreaTransferencia(state.currentPaymentFileNotice);
+  closePaymentFileModal();
 }
 
 function historyResumoItem(item = {}) {
@@ -1948,7 +2029,7 @@ function closeHistoryModal() {
 // Adiciona uma linha ao balao de logs publicos.
 function log(msg, classe = "") {
   const box = el("logBox");
-  const mensagemVisivel = tratarAvisoNomePdf(msg);
+  const mensagemVisivel = tratarAvisosOperacionais(msg);
 
   if (state.logCount === 0 && box.firstElementChild?.classList.contains("log-empty")) {
     box.innerHTML = "";
@@ -2174,6 +2255,7 @@ const MODAL_IDS = [
   "contactModal",
   "contactSuccessModal",
   "pdfNameModal",
+  "paymentFileModal",
   "historyModal",
   "aboutModal",
   "batchConfirmModal",
@@ -2571,7 +2653,10 @@ function limparPainel() {
   hideResumeBox();
   state.currentPdfNameNotice = "";
   state.lastPdfNameNotice = "";
+  state.currentPaymentFileNotice = "";
+  state.lastPaymentFileNotice = "";
   closePdfNameModal();
+  closePaymentFileModal();
   limparMensagensValidacao();
   setStatus("Aguardando", "idle");
   closeLogsPopover();
@@ -3066,6 +3151,11 @@ document.addEventListener("keydown", (event) => {
 
   if (modalEstaAberto("pdfNameModal")) {
     closePdfNameModal();
+    return;
+  }
+
+  if (modalEstaAberto("paymentFileModal")) {
+    closePaymentFileModal();
     return;
   }
 

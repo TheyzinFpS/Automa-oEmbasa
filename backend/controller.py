@@ -3,6 +3,7 @@ import re
 from datetime import datetime
 
 from backend.flows.f110 import f110
+from backend.flows.f110_boleto import selecionar_boletos_sp02
 from backend.flows.va01 import criar_pedido
 from backend.flows.vf01 import criar_doc_faturamento
 from backend.flows.vf02 import pos_faturamento
@@ -33,6 +34,14 @@ STAGE_TRANSACTION = {
     "FB03": "FB03",
     "VF02_RESALVAR": "VF02",
     "F110": "F110",
+}
+
+TIPO_COMPOSTO_AGUA_ESGOTO = "agua_esgoto"
+TIPOS_AGUA_ESGOTO = ("agua", "esgoto")
+TIPO_LABEL = {
+    "agua": "Água",
+    "esgoto": "Esgoto",
+    "agua_esgoto": "Água + Esgoto",
 }
 
 
@@ -204,10 +213,18 @@ class SAPController:
             "cliente": contexto.get("cliente"),
             "nome_cliente": contexto.get("nome_cliente"),
             "pedido": contexto.get("pedido"),
+            "pedido_agua": contexto.get("pedido_agua"),
+            "pedido_esgoto": contexto.get("pedido_esgoto"),
             "faturamento": contexto.get("faturamento"),
             "doc_fat": contexto.get("doc_fat"),
+            "doc_fat_agua": contexto.get("doc_fat_agua"),
+            "doc_fat_esgoto": contexto.get("doc_fat_esgoto"),
             "boleto": contexto.get("boleto"),
             "identificacao_pagamento": contexto.get("identificacao_pagamento"),
+            "identificacoes_pagamento": contexto.get("identificacoes_pagamento"),
+            "agua_esgoto": contexto.get("agua_esgoto"),
+            "nomes_pdf_sugeridos": contexto.get("nomes_pdf_sugeridos"),
+            "spools_boletos": contexto.get("spools_boletos"),
             "documento": dados["doc"],
             "tipo_documento": dados["doc_info"]["rotulo"],
             "tipo": dados.get("tipo"),
@@ -353,6 +370,359 @@ class SAPController:
 
         return None
 
+    def _dados_com_tipo(self, dados, tipo):
+        dados_tipo = dict(dados)
+        dados_tipo["tipo"] = tipo
+        return dados_tipo
+
+    def _executar_criacao_ate_vf02(
+        self,
+        session,
+        dados_tipo,
+        contexto_base,
+        cancel_event=None,
+        progress_callback=None,
+    ):
+        tipo = str(dados_tipo.get("tipo") or "").strip().lower()
+        tipo_label = TIPO_LABEL.get(tipo, tipo)
+        contexto = dict(contexto_base)
+
+        self.logger.add(-1, f"Iniciando criação do pedido de {tipo_label}.", publico=True)
+
+        cancelado = self._verificar_cancelamento(
+            cancel_event,
+            "VA01",
+            dados_tipo,
+            contexto,
+            progress_callback=progress_callback,
+        )
+
+        if cancelado:
+            return cancelado, None
+
+        resultado_va01 = criar_pedido(
+            session,
+            dados_tipo,
+            contexto["cliente"],
+            self.logger,
+            progress_callback=progress_callback,
+        )
+
+        if not resultado_va01["ok"]:
+            return self._falha(
+                etapa="VA01",
+                mensagem=resultado_va01["mensagem"],
+                erro_tecnico=resultado_va01.get("erro_tecnico"),
+                dados=dados_tipo,
+                contexto=contexto,
+                resume_from="VA01",
+            ), None
+
+        dados_va01 = resultado_va01.get("dados") or {}
+        pedido = (
+            dados_va01.get("pedido")
+            or dados_va01.get("ordem")
+            or _extrair_numero_sap(dados_va01.get("status_sap"))
+            or ""
+        )
+        contexto["pedido"] = pedido
+        self._garantir_janela_unica_sap(session, origem=f"VA01 {tipo_label}")
+
+        cancelado = self._verificar_cancelamento(
+            cancel_event,
+            "VF01",
+            dados_tipo,
+            contexto,
+            progress_callback=progress_callback,
+        )
+
+        if cancelado:
+            return cancelado, None
+
+        resultado_vf01 = criar_doc_faturamento(
+            session,
+            self.logger,
+            progress_callback=progress_callback,
+        )
+
+        if not resultado_vf01["ok"]:
+            return self._falha(
+                etapa="VF01",
+                mensagem=resultado_vf01["mensagem"],
+                erro_tecnico=resultado_vf01.get("erro_tecnico"),
+                dados=dados_tipo,
+                contexto=contexto,
+                resume_from="VF01",
+            ), None
+
+        faturamento = resultado_vf01["dados"]["faturamento"]
+        doc_fat = (
+            resultado_vf01["dados"].get("doc_fat")
+            or resultado_vf01["dados"].get("faturamento")
+            or faturamento
+        )
+        contexto["faturamento"] = faturamento
+        contexto["doc_fat"] = doc_fat
+        self._garantir_janela_unica_sap(session, origem=f"VF01 {tipo_label}")
+
+        cancelado = self._verificar_cancelamento(
+            cancel_event,
+            "FB03",
+            dados_tipo,
+            contexto,
+            progress_callback=progress_callback,
+        )
+
+        if cancelado:
+            return cancelado, None
+
+        resultado_vf02 = pos_faturamento(
+            session,
+            faturamento,
+            self.logger,
+            progress_callback=progress_callback,
+            start_from="FB03",
+        )
+
+        if not resultado_vf02["ok"]:
+            contexto["faturamento"] = (
+                (resultado_vf02.get("dados") or {}).get("faturamento")
+                or contexto.get("faturamento")
+            )
+
+            return self._falha(
+                etapa=resultado_vf02.get("etapa") or "FB03",
+                mensagem=resultado_vf02["mensagem"],
+                erro_tecnico=resultado_vf02.get("erro_tecnico"),
+                dados=dados_tipo,
+                contexto=contexto,
+                resume_from=resultado_vf02.get("etapa") or "FB03",
+            ), None
+
+        faturamento = resultado_vf02["dados"]["faturamento"]
+        contexto["faturamento"] = faturamento
+        self._garantir_janela_unica_sap(session, origem=f"FB03/VF02 {tipo_label}")
+
+        item = {
+            "tipo": tipo,
+            "tipo_label": tipo_label,
+            "pedido": pedido,
+            "faturamento": faturamento,
+            "doc_fat": doc_fat,
+            "dados": {
+                **dados_tipo,
+                "nome_cliente": contexto_base.get("nome_cliente"),
+            },
+        }
+        self.logger.add(
+            -1,
+            f"{tipo_label} criado até o re-salvamento. Doc.fat: {doc_fat}.",
+            publico=True,
+        )
+        return None, item
+
+    def _executar_fluxo_agua_esgoto(
+        self,
+        dados,
+        progress_callback=None,
+        resume_checkpoint=None,
+        cancel_event=None,
+    ):
+        if resume_checkpoint:
+            self.logger.add(
+                -1,
+                "Retomada do tipo Água + Esgoto ainda reinicia pelo ponto seguro do fluxo composto.",
+                nivel="AVISO",
+                publico=True,
+            )
+
+        contexto = {
+            "cliente": None,
+            "nome_cliente": None,
+            "pedido": None,
+            "faturamento": None,
+            "doc_fat": None,
+            "boleto": None,
+            "identificacao_pagamento": None,
+        }
+
+        try:
+            self.logger.add(-1, "Conectando ao SAP...", publico=True)
+            self.logger.add(-1, "Fluxo composto selecionado: Água + Esgoto.", publico=True)
+
+            session = conectar_sap()
+            self._garantir_janela_unica_sap(session, origem="conexão")
+
+            cancelado = self._verificar_cancelamento(
+                cancel_event,
+                "XD03",
+                dados,
+                contexto,
+                progress_callback=progress_callback,
+            )
+
+            if cancelado:
+                return cancelado
+
+            resultado_xd03 = buscar_cliente(
+                session,
+                dados,
+                self.logger,
+                progress_callback=progress_callback,
+            )
+
+            if not resultado_xd03["ok"]:
+                return self._falha(
+                    etapa="XD03",
+                    mensagem=resultado_xd03["mensagem"],
+                    erro_tecnico=resultado_xd03.get("erro_tecnico"),
+                    dados=dados,
+                    contexto=contexto,
+                    resume_from="XD03",
+                )
+
+            contexto["cliente"] = resultado_xd03["dados"]["cliente"]
+            contexto["nome_cliente"] = resultado_xd03["dados"].get("nome_cliente")
+            self.logger.add(
+                0,
+                f"Cliente validado para Água + Esgoto: {contexto['cliente']}",
+                publico=True,
+            )
+            self._garantir_janela_unica_sap(session, origem="XD03")
+
+            itens = []
+
+            for tipo in TIPOS_AGUA_ESGOTO:
+                dados_tipo = self._dados_com_tipo(dados, tipo)
+                falha, item = self._executar_criacao_ate_vf02(
+                    session,
+                    dados_tipo,
+                    contexto,
+                    cancel_event=cancel_event,
+                    progress_callback=progress_callback,
+                )
+
+                if falha:
+                    return falha
+
+                itens.append(item)
+                contexto[f"pedido_{tipo}"] = item.get("pedido")
+                contexto[f"doc_fat_{tipo}"] = item.get("doc_fat")
+
+            resultados_f110 = []
+
+            for item in itens:
+                cancelado = self._verificar_cancelamento(
+                    cancel_event,
+                    "F110",
+                    item["dados"],
+                    contexto,
+                    progress_callback=progress_callback,
+                )
+
+                if cancelado:
+                    return cancelado
+
+                self.logger.add(
+                    6,
+                    f"Iniciando F110 do pedido de {item['tipo_label']} com doc.fat {item['doc_fat']}.",
+                    publico=True,
+                )
+
+                resultado_f110 = f110(
+                    session,
+                    contexto["cliente"],
+                    item["doc_fat"],
+                    self.logger,
+                    progress_callback=progress_callback,
+                    dados=item["dados"],
+                    selecionar_boleto=False,
+                )
+
+                if not resultado_f110["ok"]:
+                    contexto["doc_fat"] = item.get("doc_fat")
+                    contexto["faturamento"] = item.get("faturamento")
+                    return self._falha(
+                        etapa="F110",
+                        mensagem=resultado_f110["mensagem"],
+                        erro_tecnico=resultado_f110.get("erro_tecnico"),
+                        dados=item["dados"],
+                        contexto=contexto,
+                        resume_from="F110",
+                    )
+
+                dados_f110 = resultado_f110.get("dados") or {}
+                item.update(
+                    {
+                        "identificacao_pagamento": dados_f110.get("identificacao_pagamento"),
+                        "job_name": dados_f110.get("job_name"),
+                        "nome_arquivo_meio_pagamento": dados_f110.get(
+                            "nome_arquivo_meio_pagamento"
+                        ),
+                    }
+                )
+                resultados_f110.append(dados_f110)
+
+            finalizacao_sp02 = selecionar_boletos_sp02(
+                session,
+                [
+                    {
+                        "tipo": item["tipo"],
+                        "doc_fat": item["doc_fat"],
+                        "dados": item["dados"],
+                        "cliente": contexto["cliente"],
+                    }
+                    for item in reversed(itens)
+                ],
+                logger=self.logger,
+                progress_callback=progress_callback,
+            )
+
+            contexto["pedido"] = " | ".join(
+                f"{item['tipo_label']}: {item.get('pedido') or '--'}"
+                for item in itens
+            )
+            contexto["doc_fat"] = " | ".join(
+                f"{item['tipo_label']}: {item.get('doc_fat') or '--'}"
+                for item in itens
+            )
+            contexto["faturamento"] = contexto["doc_fat"]
+            contexto["boleto"] = "GERADO"
+            contexto["identificacao_pagamento"] = " | ".join(
+                f"{item['tipo_label']}: {item.get('identificacao_pagamento') or '--'}"
+                for item in itens
+            )
+            contexto["identificacoes_pagamento"] = {
+                item["tipo"]: item.get("identificacao_pagamento")
+                for item in itens
+            }
+            contexto["agua_esgoto"] = itens
+            contexto.update(finalizacao_sp02)
+
+            return resultado_padrao(
+                ok=True,
+                etapa="F110",
+                mensagem="Processo Água + Esgoto completo com sucesso.",
+                dados=self._montar_dados_publicos(dados, contexto),
+            )
+
+        except Exception as exc:
+            self.logger.add(-1, f"Erro no fluxo Água + Esgoto: {exc}", nivel="ERRO")
+            self._notificar_progresso(
+                progress_callback,
+                "F110",
+                "erro",
+                "Falha no fluxo Água + Esgoto.",
+            )
+            return self._falha(
+                etapa="F110",
+                mensagem="Erro ao executar o fluxo Água + Esgoto.",
+                erro_tecnico=str(exc),
+                dados=dados,
+                contexto=contexto,
+                resume_from="F110",
+            )
+
     # Executa o fluxo SAP real: conexao, XD03, VA01, VF01, FB03/VF02 e F110.
     def executar_fluxo(
         self,
@@ -366,11 +736,25 @@ class SAPController:
             "cliente": contexto_checkpoint.get("cliente"),
             "nome_cliente": contexto_checkpoint.get("nome_cliente"),
             "pedido": contexto_checkpoint.get("pedido"),
+            "pedido_agua": contexto_checkpoint.get("pedido_agua"),
+            "pedido_esgoto": contexto_checkpoint.get("pedido_esgoto"),
             "faturamento": contexto_checkpoint.get("faturamento"),
             "doc_fat": contexto_checkpoint.get("doc_fat"),
+            "doc_fat_agua": contexto_checkpoint.get("doc_fat_agua"),
+            "doc_fat_esgoto": contexto_checkpoint.get("doc_fat_esgoto"),
             "boleto": contexto_checkpoint.get("boleto"),
             "identificacao_pagamento": contexto_checkpoint.get("identificacao_pagamento"),
+            "identificacoes_pagamento": contexto_checkpoint.get("identificacoes_pagamento"),
+            "agua_esgoto": contexto_checkpoint.get("agua_esgoto"),
         }
+
+        if str(dados.get("tipo") or "").strip().lower() == TIPO_COMPOSTO_AGUA_ESGOTO:
+            return self._executar_fluxo_agua_esgoto(
+                dados,
+                progress_callback=progress_callback,
+                resume_checkpoint=resume_checkpoint,
+                cancel_event=cancel_event,
+            )
 
         try:
             self.logger.add(-1, "Conectando ao SAP...", publico=True)

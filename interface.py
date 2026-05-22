@@ -122,10 +122,18 @@ class API:
         mensagem: str | None = None,
         percentual: int | float | None = None,
     ):
+        mensagem_texto = "" if mensagem is None else str(mensagem)
+
+        if (
+            mensagem_texto.startswith("PDF_NAME_READY::")
+            or mensagem_texto.startswith("PAYMENT_FILE_READY::")
+        ):
+            self._trazer_interface_para_frente()
+
         self._last_progress = {
             "etapa": str(etapa or ""),
             "status": str(status or ""),
-            "mensagem": "" if mensagem is None else str(mensagem),
+            "mensagem": mensagem_texto,
             "percentual": percentual,
         }
 
@@ -133,6 +141,23 @@ class API:
             "atualizarProgresso",
             self._last_progress,
         )
+
+    def _trazer_interface_para_frente(self):
+        window = self._get_window()
+
+        if window is None:
+            return
+
+        for method_name in ("restore", "show", "bring_to_front"):
+            method = getattr(window, method_name, None)
+
+            if not callable(method):
+                continue
+
+            try:
+                method()
+            except Exception:
+                continue
 
     # Encaminha logs publicos do backend para o balao de logs em tempo real.
     def _instalar_logger_tempo_real(self):

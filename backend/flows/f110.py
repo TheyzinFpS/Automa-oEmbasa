@@ -417,7 +417,15 @@ def executar_pagamento_e_impressao(session, identificacao):
     return job_name
 
 
-def f110(session, cliente, doc_fat, logger, progress_callback=None, dados=None):
+def f110(
+    session,
+    cliente,
+    doc_fat,
+    logger,
+    progress_callback=None,
+    dados=None,
+    selecionar_boleto=True,
+):
     # Fluxo completo da F110, incluindo finalização de boleto/remessa.
     data_exec = datetime.now().strftime("%d%m%Y")
     data_lanc = ultimo_dia_mes()
@@ -470,6 +478,7 @@ def f110(session, cliente, doc_fat, logger, progress_callback=None, dados=None):
             numero_boleto=doc_fat,
             data_exec=data_exec,
             identificacao=identificacao,
+            selecionar_boleto=selecionar_boleto,
         )
 
         logger.add(6, f"F110 finalizado com sucesso. Job: {job_name}", publico=True)
