@@ -525,6 +525,7 @@ class SAPController:
         self,
         dados,
         progress_callback=None,
+        notice_callback=None,
         resume_checkpoint=None,
         cancel_event=None,
     ):
@@ -635,6 +636,7 @@ class SAPController:
                     item["doc_fat"],
                     self.logger,
                     progress_callback=progress_callback,
+                    notice_callback=notice_callback,
                     dados=item["dados"],
                     selecionar_boleto=False,
                 )
@@ -676,6 +678,8 @@ class SAPController:
                 ],
                 logger=self.logger,
                 progress_callback=progress_callback,
+                notice_callback=notice_callback,
+                aguardar_apos_copia_segundos=7,
             )
 
             contexto["pedido"] = " | ".join(
@@ -728,6 +732,7 @@ class SAPController:
         self,
         dados,
         progress_callback=None,
+        notice_callback=None,
         resume_checkpoint=None,
         cancel_event=None,
     ):
@@ -752,6 +757,7 @@ class SAPController:
             return self._executar_fluxo_agua_esgoto(
                 dados,
                 progress_callback=progress_callback,
+                notice_callback=notice_callback,
                 resume_checkpoint=resume_checkpoint,
                 cancel_event=cancel_event,
             )
@@ -1075,6 +1081,7 @@ class SAPController:
                 contexto["doc_fat"],
                 self.logger,
                 progress_callback=progress_callback,
+                notice_callback=notice_callback,
                 dados=dados_f110,
             )
 

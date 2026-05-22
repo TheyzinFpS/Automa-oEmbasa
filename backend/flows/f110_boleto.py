@@ -18,6 +18,7 @@ _HORA_RE = re.compile(r"\b\d{2}:\d{2}\b")
 _SPOOL_RE = re.compile(r"^\d{5,}$")
 _PDF_NOTICE_PREFIX = "PDF_NAME_READY::"
 _PAYMENT_NOTICE_PREFIX = "PAYMENT_FILE_READY::"
+_PDF_COPY_WAIT_SECONDS = 7
 
 
 def _abrir_transacao(session, codigo, wait_id="wnd[0]/usr", timeout=10):
@@ -154,6 +155,36 @@ def _copiar_nome_pdf(nome_pdf_sugerido):
         return True
     except Exception:
         return False
+
+
+def _aguardar_copia_interface(
+    tipo,
+    nome,
+    notice_callback=None,
+    progress_callback=None,
+    mensagem=None,
+    percentual=99,
+):
+    _copiar_nome_pdf(nome)
+
+    if callable(notice_callback):
+        notice_callback(
+            tipo,
+            {
+                "nome": nome,
+                "mensagem": mensagem or nome,
+            },
+        )
+        return True
+
+    prefixo = _PAYMENT_NOTICE_PREFIX if tipo == "payment" else _PDF_NOTICE_PREFIX
+    _notificar(
+        progress_callback,
+        f"{prefixo}{nome}",
+        percentual,
+        status="concluido" if tipo == "pdf" else "processando",
+    )
+    return True
 
 
 def fechar_popups_se_existirem(session, max_tentativas=5):
@@ -1041,6 +1072,7 @@ def baixar_arquivo_meio_pagamento(
     session,
     logger=None,
     progress_callback=None,
+    notice_callback=None,
     data_exec=None,
     identificacao=None,
     doc_fat=None,
@@ -1066,11 +1098,18 @@ def baixar_arquivo_meio_pagamento(
         wait_until_ready(session)
 
         nome_arquivo = montar_nome_arquivo_meio_pagamento(doc_fat)
-        _copiar_nome_pdf(nome_arquivo)
         _notificar(
             progress_callback,
-            f"{_PAYMENT_NOTICE_PREFIX}{nome_arquivo}",
+            "Nome padrão do meio de pagamento pronto para copiar.",
             99,
+        )
+        _aguardar_copia_interface(
+            "payment",
+            nome_arquivo,
+            notice_callback=notice_callback,
+            progress_callback=progress_callback,
+            mensagem="Copie o nome antes de salvar o arquivo de meio de pagamento.",
+            percentual=99,
         )
 
         wait_for_element(session, "wnd[1]", timeout=10).sendVKey(4)
@@ -1113,6 +1152,7 @@ def finalizar_boleto_f110(
     session,
     logger=None,
     progress_callback=None,
+    notice_callback=None,
     dados=None,
     cliente=None,
     numero_boleto=None,
@@ -1127,6 +1167,7 @@ def finalizar_boleto_f110(
             session,
             logger=logger,
             progress_callback=progress_callback,
+            notice_callback=notice_callback,
             data_exec=data_exec,
             identificacao=identificacao,
             doc_fat=numero_boleto,
@@ -1182,12 +1223,19 @@ def finalizar_boleto_f110(
 
     # O PDFCreator precisa ser acionado manualmente; comandos SAP que abrem
     # programa externo não são confiáveis neste ambiente.
-
     _notificar(
         progress_callback,
-        f"{_PDF_NOTICE_PREFIX}{nome_pdf_sugerido}",
+        "Linha de boleto selecionada. Aguardando cópia do nome do PDF...",
         100,
         status="concluido",
+    )
+    _aguardar_copia_interface(
+        "pdf",
+        nome_pdf_sugerido,
+        notice_callback=notice_callback,
+        progress_callback=progress_callback,
+        mensagem="Copie o nome do PDF e use o comando manual de impressão no SAP.",
+        percentual=100,
     )
     resultado["pdf_boleto"] = "LINHA_SELECIONADA"
     resultado["spool_boleto"] = "LINHA_SELECIONADA"
@@ -1200,6 +1248,8 @@ def selecionar_boletos_sp02(
     boletos,
     logger=None,
     progress_callback=None,
+    notice_callback=None,
+    aguardar_apos_copia_segundos=_PDF_COPY_WAIT_SECONDS,
 ):
     boletos = list(boletos or [])
 
@@ -1216,8 +1266,9 @@ def selecionar_boletos_sp02(
         )
     )
 
-    linhas = _ordenar_linhas_sp02_decrescente(
-        [linha for linha in _coletar_linhas_sp02(session) if _linha_e_boleto(linha)]
+    linhas = sorted(
+        [linha for linha in _coletar_linhas_sp02(session) if _linha_e_boleto(linha)],
+        key=lambda linha: int(linha.get("linha") or 0),
     )
 
     if len(linhas) < len(boletos):
@@ -1226,22 +1277,40 @@ def selecionar_boletos_sp02(
             f"Esperado {len(boletos)}, encontrado {len(linhas)}."
         )
 
-    nomes_pdf = []
     spools = []
+    linha_anterior = -1
 
     for indice, boleto in enumerate(boletos):
-        linha = linhas[indice]
+        candidatos = [
+            linha
+            for linha in linhas
+            if int(linha.get("linha") or 0) > linha_anterior
+        ]
+
+        if not candidatos:
+            raise RuntimeError(
+                "Não foi possível localizar a próxima linha de boleto na SP02."
+            )
+
+        linha = candidatos[0]
+        linha_anterior = int(linha.get("linha") or 0)
+        tipo_label = _TIPOS_LABEL.get(str(boleto.get("tipo") or ""), boleto.get("tipo"))
 
         if logger:
             logger.add(
                 6,
-                "Selecionando spool de boleto composta: "
+                f"Selecionando spool de boleto de {tipo_label}: "
                 f"{linha.get('spool') or 'sem número'} - "
                 f"{linha.get('titulo') or 'sem título'} "
                 f"(linha Y={linha.get('linha')}).",
                 publico=True,
             )
 
+        _notificar(
+            progress_callback,
+            f"Selecionando boleto de {tipo_label} na SP02...",
+            98,
+        )
         dados_boleto = _abrir_validar_voltar_e_marcar_boleto(
             session,
             linha,
@@ -1254,22 +1323,37 @@ def selecionar_boletos_sp02(
                 **dados_boleto,
             }
         )
-        nomes_pdf.append(
-            montar_nome_pdf_sugerido(
-                boleto.get("doc_fat"),
-                dados=boleto.get("dados"),
-                cliente=boleto.get("cliente"),
-            )
+        nome_pdf = montar_nome_pdf_sugerido(
+            boleto.get("doc_fat"),
+            dados=boleto.get("dados"),
+            cliente=boleto.get("cliente"),
         )
 
-    nomes_texto = "\n".join(nomes_pdf)
-    _copiar_nome_pdf(nomes_texto)
+        _notificar(
+            progress_callback,
+            f"Boleto de {tipo_label} selecionado. Aguardando cópia do nome...",
+            99,
+        )
+        _aguardar_copia_interface(
+            "pdf",
+            nome_pdf,
+            notice_callback=notice_callback,
+            progress_callback=progress_callback,
+            mensagem=f"Copie o nome do PDF do projeto {tipo_label}.",
+            percentual=100 if indice == len(boletos) - 1 else 99,
+        )
 
-    _notificar(
-        progress_callback,
-        f"{_PDF_NOTICE_PREFIX}{nomes_texto}",
-        100,
-        status="concluido",
+        _notificar(
+            progress_callback,
+            f"Aguardando {aguardar_apos_copia_segundos} segundos após cópia do boleto de {tipo_label}...",
+            99,
+        )
+        time.sleep(max(0, float(aguardar_apos_copia_segundos or 0)))
+
+    voltar_tela_inicial_com_f3(
+        session,
+        logger=logger,
+        progress_callback=progress_callback,
     )
 
     resultado.update(
@@ -1277,9 +1361,14 @@ def selecionar_boletos_sp02(
             "pdf_boleto": "LINHAS_SELECIONADAS",
             "spool_boleto": "LINHAS_SELECIONADAS",
             "impressao_manual": True,
-            "nomes_pdf_sugeridos": nomes_pdf,
             "spools_boletos": spools,
         }
+    )
+    _notificar(
+        progress_callback,
+        "Boletos Água + Esgoto selecionados e nomes copiados.",
+        100,
+        status="concluido",
     )
     return resultado
 

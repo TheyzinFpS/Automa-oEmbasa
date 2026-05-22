@@ -1,5 +1,42 @@
 # Registro técnico de alterações
 
+## Sexta-feira, 22/05/2026 00:34:45 - Versão 1.4.1
+
+**Problema identificado**
+
+No fluxo `Água + Esgoto`, a SP02 precisava orientar o usuário em duas etapas separadas: primeiro a spool mais recente de Esgoto e depois a próxima spool de Água. Além disso, o backend já possuía o mecanismo de aviso operacional, mas o controller e a F110 ainda não repassavam esse callback até a etapa de meio de pagamento/SP02, fazendo o fluxo não aguardar corretamente o clique `Copiar nome e fechar`.
+
+**O que foi alterado**
+
+- Propagado `notice_callback` do `interface.py` para `SAPController.executar_fluxo`, para o fluxo composto `Água + Esgoto`, para `f110()` e para `finalizar_boleto_f110()`.
+- A seleção final da SP02 agora usa o clique do modal como confirmação real antes de prosseguir para o próximo boleto.
+- Mantida a ordem operacional do fluxo composto: primeiro a primeira linha visual de `BOLETO (CONTAS A RECEBER)` como `Projeto Esgoto`; depois, a busca continua a partir dessa linha até a próxima ocorrência, tratada como `Projeto Água`.
+- Após cada clique em `Copiar nome e fechar`, o backend aguarda 7 segundos antes de prosseguir para a próxima etapa.
+- O nome do arquivo de meio de pagamento também passa pelo mesmo aviso operacional, permitindo que a interface volte ao primeiro plano e aguarde o usuário copiar o padrão.
+- Protegidos os modais operacionais contra fechamento acidental pelo `Esc` enquanto houver aviso pendente.
+- Atualizada a versão do projeto de `1.4.0` para `1.4.1`.
+
+**Arquivos alterados**
+
+- `backend/controller.py`
+- `backend/flows/f110.py`
+- `backend/flows/f110_boleto.py`
+- `backend/settings.py`
+- `interface/index.html`
+- `interface/app.js`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+Ao selecionar `Água + Esgoto`, o sistema deve gerar as duas F110, abrir a SP02 no final, selecionar primeiro o boleto de Esgoto, trazer a interface para frente com o nome terminando em `Projeto Esgoto`, aguardar o clique do usuário, esperar 7 segundos, localizar o próximo boleto, repetir o aviso com nome terminando em `Projeto Água`, aguardar mais 7 segundos e retornar da SP02.
+
+**Validação realizada**
+
+- `python -m py_compile backend\controller.py backend\flows\f110.py backend\flows\f110_boleto.py backend\flows\xd03.py backend\history.py interface.py backend\settings.py`
+- `node --check interface\app.js`
+
 ## Sexta-feira, 22/05/2026 00:13:29 - Versão 1.4.0
 
 **Problema identificado**

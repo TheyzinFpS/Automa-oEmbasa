@@ -1,11 +1,11 @@
 {
   "app": {
     "name": "EMBASA",
-    "version": "1.4.0",
+    "version": "1.4.1",
     "company_code": "EMBA"
   },
   "startup": {
-    "require_sap_session": true
+    "require_sap_session": false
   },
   "timing": {
     "action_delay_seconds": 0,

@@ -41,7 +41,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.0";
+const APP_VERSION = "1.4.1";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -106,8 +106,10 @@ const state = {
   cancelRequested: false,
   currentPdfNameNotice: "",
   lastPdfNameNotice: "",
+  currentPdfNoticeId: "",
   currentPaymentFileNotice: "",
   lastPaymentFileNotice: "",
+  currentPaymentNoticeId: "",
   historicoItens: [],
   historicoSelecionado: null
 };
@@ -1803,13 +1805,36 @@ function openPdfNameModal(nomePdf) {
   openModal("pdfNameModal");
 }
 
+function openPdfNameModalComConfirmacao(nomePdf, noticeId = "") {
+  state.lastPdfNameNotice = "";
+  state.currentPdfNoticeId = String(noticeId || "");
+  openPdfNameModal(nomePdf);
+}
+
 function closePdfNameModal() {
   closeModal("pdfNameModal");
 }
 
+async function confirmarAvisoOperacional(noticeId) {
+  const id = String(noticeId || "").trim();
+
+  if (!id || !window.pywebview?.api?.confirmar_aviso_operacional) {
+    return;
+  }
+
+  try {
+    await window.pywebview.api.confirmar_aviso_operacional(id);
+  } catch (error) {
+    log(`Não foi possível confirmar o aviso operacional: ${error}`, "error");
+  }
+}
+
 async function copyPdfNameAndClose() {
   await copiarTextoParaAreaTransferencia(state.currentPdfNameNotice);
+  const noticeId = state.currentPdfNoticeId;
+  state.currentPdfNoticeId = "";
   closePdfNameModal();
+  await confirmarAvisoOperacional(noticeId);
 }
 
 function openPaymentFileModal(nomeArquivo) {
@@ -1841,14 +1866,42 @@ function openPaymentFileModal(nomeArquivo) {
   openModal("paymentFileModal");
 }
 
+function openPaymentFileModalComConfirmacao(nomeArquivo, noticeId = "") {
+  state.lastPaymentFileNotice = "";
+  state.currentPaymentNoticeId = String(noticeId || "");
+  openPaymentFileModal(nomeArquivo);
+}
+
 function closePaymentFileModal() {
   closeModal("paymentFileModal");
 }
 
 async function copyPaymentFileNameAndClose() {
   await copiarTextoParaAreaTransferencia(state.currentPaymentFileNotice);
+  const noticeId = state.currentPaymentNoticeId;
+  state.currentPaymentNoticeId = "";
   closePaymentFileModal();
+  await confirmarAvisoOperacional(noticeId);
 }
+
+function mostrarAvisoOperacional(tipo, payload = {}) {
+  const noticeId = String(payload.id || "");
+  const nome = String(payload.nome || payload.nome_arquivo || payload.nome_pdf || "").trim();
+
+  if (!nome) {
+    confirmarAvisoOperacional(noticeId);
+    return;
+  }
+
+  if (tipo === "payment") {
+    openPaymentFileModalComConfirmacao(nome, noticeId);
+    return;
+  }
+
+  openPdfNameModalComConfirmacao(nome, noticeId);
+}
+
+window.mostrarAvisoOperacional = mostrarAvisoOperacional;
 
 function historyResumoItem(item = {}) {
   const dataHora = [item.data, item.hora].filter(Boolean).join(" ");
@@ -2653,8 +2706,10 @@ function limparPainel() {
   hideResumeBox();
   state.currentPdfNameNotice = "";
   state.lastPdfNameNotice = "";
+  state.currentPdfNoticeId = "";
   state.currentPaymentFileNotice = "";
   state.lastPaymentFileNotice = "";
+  state.currentPaymentNoticeId = "";
   closePdfNameModal();
   closePaymentFileModal();
   limparMensagensValidacao();
@@ -3150,11 +3205,19 @@ document.addEventListener("keydown", (event) => {
   }
 
   if (modalEstaAberto("pdfNameModal")) {
+    if (state.currentPdfNoticeId) {
+      return;
+    }
+
     closePdfNameModal();
     return;
   }
 
   if (modalEstaAberto("paymentFileModal")) {
+    if (state.currentPaymentNoticeId) {
+      return;
+    }
+
     closePaymentFileModal();
     return;
   }

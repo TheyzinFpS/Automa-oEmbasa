@@ -423,6 +423,7 @@ def f110(
     doc_fat,
     logger,
     progress_callback=None,
+    notice_callback=None,
     dados=None,
     selecionar_boleto=True,
 ):
@@ -473,6 +474,7 @@ def f110(
             session,
             logger=logger,
             progress_callback=progress_callback,
+            notice_callback=notice_callback,
             dados=dados,
             cliente=cliente,
             numero_boleto=doc_fat,
