@@ -1,5 +1,41 @@
 # Registro técnico de alterações
 
+## Domingo, 24/05/2026 19:36:23 - Versão 1.4.5
+
+**Problema identificado**
+
+O log curto ainda podia descrever a etapa inteira como se todas as ações tivessem sido tentadas. Em `XD03`, por exemplo, uma falha ao buscar o cliente não deve indicar captura de nome ou validação de setor, porque essas ações dependem da busca ter passado.
+
+**O que foi alterado**
+
+- A linha `Sistema tentou executar` agora é escolhida pela causa retornada no erro, não apenas pela etapa geral.
+- `XD03` passou a diferenciar busca do cliente, captura do nome, abertura da ajuda de pesquisa e validação do setor de atividade.
+- `VA01` passou a diferenciar criação do pedido, preenchimento de valor, endereço e salvamento.
+- `F110` passou a diferenciar identificação BOL, seleção livre com `doc.fat`, geração do meio de pagamento e SP02/boleto.
+- Falhas de sessão SAP no fluxo Água + Esgoto passam a ser diagnosticadas como `CONEXAO`, mantendo a marcação visual em `XD03` quando necessário porque a interface não possui etapa visual de conexão.
+- Atualizada a versão do projeto de `1.4.4` para `1.4.5`.
+
+**Arquivos alterados**
+
+- `backend/controller.py`
+- `backend/settings.py`
+- `interface/app.js`
+- `interface/index.html`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `LEIA-ME_EMPRESA.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+Ao ocorrer falha, o log deve mostrar somente a tarefa efetivamente tentada antes da parada, como `buscar o cliente pelo CPF/CNPJ`, `validar o setor de atividade do cliente` ou `conectar em uma sessão SAP logada`.
+
+**Validação realizada**
+
+- `python -m py_compile backend\controller.py backend\flows\f110.py backend\flows\f110_boleto.py interface.py backend\settings.py`
+- `node --check interface\app.js`
+- Teste isolado de falhas em `XD03` e `CONEXAO`, confirmando ação atômica e mascaramento do documento.
+
 ## Domingo, 24/05/2026 19:28:48 - Versão 1.4.4
 
 **Problema identificado**

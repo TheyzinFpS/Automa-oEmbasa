@@ -47,7 +47,7 @@ TIPO_LABEL = {
 ETAPA_DIAGNOSTICO = {
     "XD03": {
         "nome": "Buscar cliente",
-        "acao": "buscar o cliente no XD03, capturar o nome e validar o setor de atividade",
+        "acao": "buscar o cliente no XD03",
         "problema": "cliente não localizado, setor de atividade ausente ou SAP fora da tela esperada",
         "solucao": "confira o documento informado, o cadastro do cliente e os setores AG/EG no SAP",
     },
@@ -77,7 +77,7 @@ ETAPA_DIAGNOSTICO = {
     },
     "F110": {
         "nome": "Gerar pagamento",
-        "acao": "executar F110, gerar meio de pagamento e preparar boleto/SP02",
+        "acao": "executar a F110",
         "problema": "cliente/doc.fat incorreto, BOL indisponível, variante ou spool não acessível",
         "solucao": "confira cliente, doc.fat, BOL disponível e mensagens da F110/SP02",
     },
@@ -361,6 +361,73 @@ class SAPController:
 
         return problema_padrao, solucao_padrao
 
+    def _acao_tentada_erro(self, etapa, detalhe, meta):
+        texto = str(detalhe or "").lower()
+
+        if any(
+            termo in texto
+            for termo in (
+                "sessão logada",
+                "sessao logada",
+                "localizar uma sessão",
+                "localizar uma sessao",
+                "localizar uma sess",
+            )
+        ):
+            return "conectar em uma sessão SAP logada"
+
+        etapa = str(etapa or "").strip().upper()
+
+        if etapa == "XD03":
+            if any(termo in texto for termo in ("nome do cliente", "nome identificado", "razao", "razão")):
+                return "capturar o nome do cliente no XD03"
+
+            if any(termo in texto for termo in ("setor", "atividade", "ag e eg", "ag/eg")):
+                return "validar o setor de atividade do cliente"
+
+            if any(termo in texto for termo in ("f4", "ajuda de pesquisa", "matchcode")):
+                return "abrir a ajuda de pesquisa do XD03"
+
+            return "buscar o cliente pelo CPF/CNPJ"
+
+        if etapa == "VA01":
+            if any(termo in texto for termo in ("valor", "montante", "preço", "preco")):
+                return "preencher o valor do pedido na VA01"
+
+            if any(termo in texto for termo in ("endereço", "endereco", "rua", "cep", "bairro")):
+                return "preencher o endereço do empreendimento na VA01"
+
+            if any(termo in texto for termo in ("salvar", "ordem", "pedido")):
+                return "salvar o pedido na VA01"
+
+            return "criar o pedido na VA01"
+
+        if etapa == "VF01":
+            return "criar o documento de faturamento na VF01"
+
+        if etapa == "FB03":
+            return "aplicar o ajuste contábil no faturamento"
+
+        if etapa == "VF02_RESALVAR":
+            return "re-salvar o faturamento na VF02"
+
+        if etapa == "F110":
+            if any(termo in texto for termo in ("bol", "identificação", "identificacao")):
+                return "gerar ou selecionar a identificação BOL da F110"
+
+            if any(termo in texto for termo in ("seleção livre", "selecao livre", "doc_fat", "doc.fat")):
+                return "preencher a seleção livre da F110 com o doc.fat"
+
+            if any(termo in texto for termo in ("meio de pagamento", "arquivo de pagamento")):
+                return "gerar o meio de pagamento"
+
+            if any(termo in texto for termo in ("sp02", "spool", "boleto")):
+                return "localizar ou selecionar o boleto na SP02"
+
+            return "executar a F110"
+
+        return meta.get("acao") or "executar a etapa atual do fluxo SAP"
+
     def _resumir_detalhe_erro(self, texto, limite=180):
         linhas = [
             linha.strip()
@@ -388,7 +455,6 @@ class SAPController:
         etapa_chave = str(etapa or "").strip().upper() or "INDEFINIDA"
         meta = ETAPA_DIAGNOSTICO.get(etapa_chave, {})
         nome_etapa = meta.get("nome") or etapa_chave
-        acao = meta.get("acao") or "executar a etapa atual do fluxo SAP"
         mensagem_usuario = str(
             mensagem or "sem mensagem de usuário retornada"
         ).strip().rstrip(".")
@@ -396,6 +462,7 @@ class SAPController:
             erro_tecnico or mensagem or "sem detalhe técnico retornado"
         ).strip().rstrip(".")
         detalhe = self._resumir_detalhe_erro(detalhe_completo)
+        acao = self._acao_tentada_erro(etapa_chave, detalhe_completo, meta)
         problema, solucao = self._classificar_erro_operacional(
             etapa_chave,
             detalhe_completo,
@@ -1010,10 +1077,15 @@ class SAPController:
 
         except Exception as exc:
             self.logger.add(-1, f"Erro no fluxo Água + Esgoto: {exc}", nivel="ERRO")
-            etapa_falha = etapa_atual if etapa_atual in STAGE_ORDER else "XD03"
+            etapa_falha = (
+                etapa_atual
+                if etapa_atual in STAGE_ORDER or etapa_atual == "CONEXAO"
+                else "XD03"
+            )
+            etapa_progresso = etapa_falha if etapa_falha in STAGE_ORDER else "XD03"
             self._notificar_progresso(
                 progress_callback,
-                etapa_falha,
+                etapa_progresso,
                 "erro",
                 f"Falha no fluxo Água + Esgoto em {etapa_falha}.",
             )
@@ -1023,7 +1095,7 @@ class SAPController:
                 erro_tecnico=str(exc),
                 dados=dados,
                 contexto=contexto,
-                resume_from=etapa_falha,
+                resume_from=etapa_falha if etapa_falha in STAGE_ORDER else None,
                 session=session,
             )
 
