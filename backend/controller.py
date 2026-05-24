@@ -3,7 +3,6 @@ import re
 from datetime import datetime
 
 from backend.flows.f110 import f110
-from backend.flows.f110_boleto import selecionar_boletos_sp02
 from backend.flows.va01 import criar_pedido
 from backend.flows.vf01 import criar_doc_faturamento
 from backend.flows.vf02 import pos_faturamento
@@ -370,6 +369,48 @@ class SAPController:
 
         return None
 
+    def _progress_callback_tipo(self, progress_callback, tipo_label):
+        if not callable(progress_callback):
+            return None
+
+        label = str(tipo_label or "").strip()
+        mensagens = {
+            "VA01": f"Criando Pedido {label}",
+            "VF01": f"Criando doc.fat {label}",
+            "FB03": f"Ajustando contábil {label}",
+            "VF02_RESALVAR": f"Salvando faturamento {label}",
+            "F110": f"Gerando pagamento {label}",
+        }
+
+        def callback(etapa, status, mensagem=None, percentual=None):
+            etapa_chave = str(etapa or "").strip().upper()
+            status_chave = str(status or "").strip().lower()
+            mensagem_base = mensagens.get(etapa_chave)
+            mensagem_final = mensagem
+
+            if mensagem_base and status_chave in {
+                "processando",
+                "processing",
+                "running",
+                "ativo",
+                "active",
+            }:
+                mensagem_final = mensagem_base
+            elif mensagem_base and status_chave in {
+                "concluido",
+                "concluida",
+                "concluído",
+                "concluída",
+                "done",
+                "success",
+                "sucesso",
+            }:
+                mensagem_final = f"{mensagem_base} concluído"
+
+            progress_callback(etapa, status, mensagem_final, percentual)
+
+        return callback
+
     def _dados_com_tipo(self, dados, tipo):
         dados_tipo = dict(dados)
         dados_tipo["tipo"] = tipo
@@ -386,15 +427,23 @@ class SAPController:
         tipo = str(dados_tipo.get("tipo") or "").strip().lower()
         tipo_label = TIPO_LABEL.get(tipo, tipo)
         contexto = dict(contexto_base)
+        progress_tipo = self._progress_callback_tipo(progress_callback, tipo_label)
 
         self.logger.add(-1, f"Iniciando criação do pedido de {tipo_label}.", publico=True)
+        self._notificar_progresso(
+            progress_tipo,
+            "VA01",
+            "processando",
+            None,
+            5,
+        )
 
         cancelado = self._verificar_cancelamento(
             cancel_event,
             "VA01",
             dados_tipo,
             contexto,
-            progress_callback=progress_callback,
+            progress_callback=progress_tipo,
         )
 
         if cancelado:
@@ -405,7 +454,7 @@ class SAPController:
             dados_tipo,
             contexto["cliente"],
             self.logger,
-            progress_callback=progress_callback,
+            progress_callback=progress_tipo,
         )
 
         if not resultado_va01["ok"]:
@@ -433,7 +482,7 @@ class SAPController:
             "VF01",
             dados_tipo,
             contexto,
-            progress_callback=progress_callback,
+            progress_callback=progress_tipo,
         )
 
         if cancelado:
@@ -442,7 +491,7 @@ class SAPController:
         resultado_vf01 = criar_doc_faturamento(
             session,
             self.logger,
-            progress_callback=progress_callback,
+            progress_callback=progress_tipo,
         )
 
         if not resultado_vf01["ok"]:
@@ -470,7 +519,7 @@ class SAPController:
             "FB03",
             dados_tipo,
             contexto,
-            progress_callback=progress_callback,
+            progress_callback=progress_tipo,
         )
 
         if cancelado:
@@ -480,7 +529,7 @@ class SAPController:
             session,
             faturamento,
             self.logger,
-            progress_callback=progress_callback,
+            progress_callback=progress_tipo,
             start_from="FB03",
         )
 
@@ -546,6 +595,7 @@ class SAPController:
             "boleto": None,
             "identificacao_pagamento": None,
         }
+        etapa_atual = "CONEXAO"
 
         try:
             self.logger.add(-1, "Conectando ao SAP...", publico=True)
@@ -554,6 +604,7 @@ class SAPController:
             session = conectar_sap()
             self._garantir_janela_unica_sap(session, origem="conexão")
 
+            etapa_atual = "XD03"
             cancelado = self._verificar_cancelamento(
                 cancel_event,
                 "XD03",
@@ -595,12 +646,19 @@ class SAPController:
 
             for tipo in TIPOS_AGUA_ESGOTO:
                 dados_tipo = self._dados_com_tipo(dados, tipo)
+                tipo_label = TIPO_LABEL.get(tipo, tipo)
+                progress_tipo = self._progress_callback_tipo(
+                    progress_callback,
+                    tipo_label,
+                )
+
+                etapa_atual = "VA01"
                 falha, item = self._executar_criacao_ate_vf02(
                     session,
                     dados_tipo,
                     contexto,
                     cancel_event=cancel_event,
-                    progress_callback=progress_callback,
+                    progress_callback=progress_tipo,
                 )
 
                 if falha:
@@ -610,15 +668,13 @@ class SAPController:
                 contexto[f"pedido_{tipo}"] = item.get("pedido")
                 contexto[f"doc_fat_{tipo}"] = item.get("doc_fat")
 
-            resultados_f110 = []
-
-            for item in itens:
+                etapa_atual = "F110"
                 cancelado = self._verificar_cancelamento(
                     cancel_event,
                     "F110",
                     item["dados"],
                     contexto,
-                    progress_callback=progress_callback,
+                    progress_callback=progress_tipo,
                 )
 
                 if cancelado:
@@ -635,10 +691,12 @@ class SAPController:
                     contexto["cliente"],
                     item["doc_fat"],
                     self.logger,
-                    progress_callback=progress_callback,
+                    progress_callback=progress_tipo,
                     notice_callback=notice_callback,
                     dados=item["dados"],
-                    selecionar_boleto=False,
+                    selecionar_boleto=True,
+                    retornar_apos_boleto=True,
+                    aguardar_apos_copia_segundos=7,
                 )
 
                 if not resultado_f110["ok"]:
@@ -661,26 +719,10 @@ class SAPController:
                         "nome_arquivo_meio_pagamento": dados_f110.get(
                             "nome_arquivo_meio_pagamento"
                         ),
+                        "nome_pdf_sugerido": dados_f110.get("nome_pdf_sugerido"),
+                        "spool_boleto": dados_f110.get("spool_boleto"),
                     }
                 )
-                resultados_f110.append(dados_f110)
-
-            finalizacao_sp02 = selecionar_boletos_sp02(
-                session,
-                [
-                    {
-                        "tipo": item["tipo"],
-                        "doc_fat": item["doc_fat"],
-                        "dados": item["dados"],
-                        "cliente": contexto["cliente"],
-                    }
-                    for item in reversed(itens)
-                ],
-                logger=self.logger,
-                progress_callback=progress_callback,
-                notice_callback=notice_callback,
-                aguardar_apos_copia_segundos=7,
-            )
 
             contexto["pedido"] = " | ".join(
                 f"{item['tipo_label']}: {item.get('pedido') or '--'}"
@@ -700,8 +742,21 @@ class SAPController:
                 item["tipo"]: item.get("identificacao_pagamento")
                 for item in itens
             }
+            contexto["nomes_pdf_sugeridos"] = {
+                item["tipo"]: item.get("nome_pdf_sugerido")
+                for item in itens
+                if item.get("nome_pdf_sugerido")
+            }
+            contexto["spools_boletos"] = [
+                {
+                    "tipo": item["tipo"],
+                    "doc_fat": item.get("doc_fat"),
+                    "spool_boleto": item.get("spool_boleto"),
+                }
+                for item in itens
+                if item.get("spool_boleto")
+            ]
             contexto["agua_esgoto"] = itens
-            contexto.update(finalizacao_sp02)
 
             return resultado_padrao(
                 ok=True,
@@ -712,19 +767,20 @@ class SAPController:
 
         except Exception as exc:
             self.logger.add(-1, f"Erro no fluxo Água + Esgoto: {exc}", nivel="ERRO")
+            etapa_falha = etapa_atual if etapa_atual in STAGE_ORDER else "XD03"
             self._notificar_progresso(
                 progress_callback,
-                "F110",
+                etapa_falha,
                 "erro",
-                "Falha no fluxo Água + Esgoto.",
+                f"Falha no fluxo Água + Esgoto em {etapa_falha}.",
             )
             return self._falha(
-                etapa="F110",
+                etapa=etapa_falha,
                 mensagem="Erro ao executar o fluxo Água + Esgoto.",
                 erro_tecnico=str(exc),
                 dados=dados,
                 contexto=contexto,
-                resume_from="F110",
+                resume_from=etapa_falha,
             )
 
     # Executa o fluxo SAP real: conexao, XD03, VA01, VF01, FB03/VF02 e F110.

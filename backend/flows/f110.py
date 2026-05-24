@@ -426,6 +426,8 @@ def f110(
     notice_callback=None,
     dados=None,
     selecionar_boleto=True,
+    retornar_apos_boleto=False,
+    aguardar_apos_copia_segundos=0,
 ):
     # Fluxo completo da F110, incluindo finalização de boleto/remessa.
     data_exec = datetime.now().strftime("%d%m%Y")
@@ -481,6 +483,8 @@ def f110(
             data_exec=data_exec,
             identificacao=identificacao,
             selecionar_boleto=selecionar_boleto,
+            retornar_apos_boleto=retornar_apos_boleto,
+            aguardar_apos_copia_segundos=aguardar_apos_copia_segundos,
         )
 
         logger.add(6, f"F110 finalizado com sucesso. Job: {job_name}", publico=True)

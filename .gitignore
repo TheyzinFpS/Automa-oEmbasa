@@ -36,3 +36,4 @@ node_modules/
 # Dados sensiveis locais
 .env
 *.env
+.nube

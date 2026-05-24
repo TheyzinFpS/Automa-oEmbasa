@@ -71,42 +71,6 @@
             <strong id="baseStatusText">&#10003; ATIVO</strong>
             <small id="baseStatusSub">Ambiente apto para opera&ccedil;&atilde;o e testes.</small>
           </div>
-
-          <div class="status-card-selector">
-            <span class="status-control-label">Sistema informado</span>
-
-            <button
-              id="baseStatusButton"
-              class="base-status-toggle"
-              type="button"
-              aria-haspopup="true"
-              aria-expanded="false"
-              aria-controls="baseStatusMenu"
-              onclick="toggleBaseStatusMenu(event)"
-            >
-              <span id="baseStatusButtonText">Sistema ativo</span>
-              <span class="chevron">&#9662;</span>
-            </button>
-
-            <div id="baseStatusMenu" class="base-status-menu hidden">
-              <button
-                id="baseStatusOptionActive"
-                type="button"
-                onclick="selectBaseStatus('active')"
-              >
-                &#10003; Sistema ativo
-              </button>
-
-              <button
-                id="baseStatusOptionMaintenance"
-                class="maintenance"
-                type="button"
-                onclick="selectBaseStatus('maintenance')"
-              >
-                &#9888; Sistema em manuten&ccedil;&atilde;o
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     </header>

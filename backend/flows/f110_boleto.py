@@ -1159,6 +1159,8 @@ def finalizar_boleto_f110(
     data_exec=None,
     identificacao=None,
     selecionar_boleto=True,
+    retornar_apos_boleto=False,
+    aguardar_apos_copia_segundos=0,
 ):
     resultado = {}
 
@@ -1237,6 +1239,23 @@ def finalizar_boleto_f110(
         mensagem="Copie o nome do PDF e use o comando manual de impressão no SAP.",
         percentual=100,
     )
+
+    if aguardar_apos_copia_segundos:
+        _notificar(
+            progress_callback,
+            f"Aguardando {aguardar_apos_copia_segundos} segundos após cópia do nome do PDF...",
+            100,
+            status="processando",
+        )
+        time.sleep(max(0, float(aguardar_apos_copia_segundos or 0)))
+
+    if retornar_apos_boleto:
+        voltar_tela_inicial_com_f3(
+            session,
+            logger=logger,
+            progress_callback=progress_callback,
+        )
+
     resultado["pdf_boleto"] = "LINHA_SELECIONADA"
     resultado["spool_boleto"] = "LINHA_SELECIONADA"
     resultado["impressao_manual"] = True

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 import traceback
+import uuid
 from pathlib import Path
 
 import webview
@@ -50,6 +51,8 @@ class API:
         self._flow_running = False
         self._cancel_event = threading.Event()
         self._last_progress = {}
+        self._notice_lock = threading.Lock()
+        self._notice_events = {}
 
     def set_window(self, window):
         self._window = window
@@ -159,6 +162,34 @@ class API:
             except Exception:
                 continue
 
+    def _aguardar_aviso_operacional(self, tipo, payload=None, timeout=900):
+        payload = dict(payload or {})
+        notice_id = uuid.uuid4().hex
+        evento = threading.Event()
+
+        with self._notice_lock:
+            self._notice_events[notice_id] = evento
+
+        payload["id"] = notice_id
+        payload["tipo"] = str(tipo or "")
+
+        self._trazer_interface_para_frente()
+        self._emitir_funcao_js(
+            "mostrarAvisoOperacional",
+            str(tipo or ""),
+            _serializar_para_front(payload),
+        )
+
+        confirmado = evento.wait(timeout)
+
+        with self._notice_lock:
+            self._notice_events.pop(notice_id, None)
+
+        if not confirmado:
+            raise TimeoutError("Aviso operacional não foi confirmado pelo usuário.")
+
+        return True
+
     # Encaminha logs publicos do backend para o balao de logs em tempo real.
     def _instalar_logger_tempo_real(self):
         logger = self._logger
@@ -182,9 +213,20 @@ class API:
         return self._controller.executar_fluxo(
             dados_tratados,
             progress_callback=self._emitir_progresso,
+            notice_callback=self._aguardar_aviso_operacional,
             resume_checkpoint=resume_checkpoint,
             cancel_event=self._cancel_event,
         )
+
+    def confirmar_aviso_operacional(self, notice_id):
+        with self._notice_lock:
+            evento = self._notice_events.get(str(notice_id or ""))
+
+        if evento is None:
+            return {"ok": False, "msg": "Aviso operacional não encontrado."}
+
+        evento.set()
+        return {"ok": True}
 
     # Entrada principal chamada pelo botao Gerar Boleto.
     def gerar_boleto(self, dados):

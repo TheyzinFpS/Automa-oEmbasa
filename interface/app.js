@@ -1139,35 +1139,19 @@ function setBaseStatus(status) {
   const card = el("baseStatusCard");
   const text = el("baseStatusText");
   const sub = el("baseStatusSub");
-  const buttonText = el("baseStatusButtonText");
-  const activeOption = el("baseStatusOptionActive");
-  const maintenanceOption = el("baseStatusOptionMaintenance");
 
-  card.classList.remove("status-active", "status-maintenance");
-  card.classList.add(config.cardClass);
-  text.textContent = config.text;
-  sub.textContent = config.subtext;
-  buttonText.textContent = status === "active" ? "Sistema ativo" : "Sistema em manutenção";
+  if (card) {
+    card.classList.remove("status-active", "status-maintenance");
+    card.classList.add(config.cardClass);
+  }
 
-  activeOption.classList.toggle("selected", status === "active");
-  maintenanceOption.classList.toggle("selected", status === "maintenance");
-}
+  if (text) {
+    text.textContent = config.text;
+  }
 
-function openBaseStatusMenu() {
-  setMenuOpen("baseStatusMenu", "baseStatusButton", true);
-}
-
-function closeBaseStatusMenu() {
-  closeMenu("baseStatusMenu", "baseStatusButton");
-}
-
-function toggleBaseStatusMenu(event) {
-  toggleMenu("baseStatusMenu", "baseStatusButton", event);
-}
-
-function selectBaseStatus(status) {
-  setBaseStatus(status);
-  closeBaseStatusMenu();
+  if (sub) {
+    sub.textContent = config.subtext;
+  }
 }
 
 function setStatus(texto, classe) {
@@ -1624,7 +1608,7 @@ function processarEtapaTempoReal(payloadOrEtapa, status, mensagem = "", percentu
 
   if (statusNormalizado === "active") {
     ativarEtapa(index, percentualEtapa, mensagemEtapa);
-    setStatus(`Processando ${ETAPAS[index].codigo}`, "running");
+    setStatus(mensagemEtapa || `Processando ${ETAPAS[index].codigo}`, "running");
     return;
   }
 
@@ -2421,12 +2405,8 @@ async function carregarDiagnosticoSobre() {
 
     const diagnostico = await window.pywebview.api.obter_diagnostico();
     const app = diagnostico?.app || {};
-    const runtime = diagnostico?.runtime || {};
     const cache = diagnostico?.cache || {};
     const history = diagnostico?.history || {};
-    const loadedFrom = Array.isArray(runtime.loaded_from)
-      ? runtime.loaded_from.join(" | ")
-      : "";
 
     renderAboutRows([
       ["Produto", app.name || "Embasa Pedidos SAP"],
@@ -2436,11 +2416,6 @@ async function carregarDiagnosticoSobre() {
       ["Empresa SAP", app.company_code || "EMBA"],
       ["Cache de clientes", `${cache.total || 0} registro(s)`],
       ["Histórico", `${history.total || 0} registro(s)`],
-      ["Pasta do executável", runtime.project_root || "--", true],
-      ["Runtime local", runtime.runtime_root || "--", true],
-      ["Pasta do histórico", history.root || "--", true],
-      ["Configuração carregada", loadedFrom || "Configuração padrão", true],
-      ["Log técnico", diagnostico?.log_file || "--", true],
     ]);
   } catch (error) {
     renderAboutRows([
@@ -3137,8 +3112,6 @@ document.addEventListener("click", (event) => {
   const valueButton = el("valueModeButton");
   const tipoMenu = el("tipoMenu");
   const tipoButton = el("tipoButton");
-  const baseStatusMenu = el("baseStatusMenu");
-  const baseStatusButton = el("baseStatusButton");
   const popover = el("logPopover");
   const balloon = el("logBalloon");
   const card = el("contactCard");
@@ -3155,15 +3128,6 @@ document.addEventListener("click", (event) => {
 
   if (popover && balloon && !popover.contains(event.target) && !balloon.contains(event.target)) {
     closeLogsPopover();
-  }
-
-  if (
-    baseStatusMenu &&
-    baseStatusButton &&
-    !baseStatusMenu.contains(event.target) &&
-    !baseStatusButton.contains(event.target)
-  ) {
-    closeBaseStatusMenu();
   }
 
   if (

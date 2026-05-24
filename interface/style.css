@@ -392,134 +392,24 @@ video {
 }
 
 .hero-status-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 272px);
-  gap: 22px;
-  align-items: start;
-  justify-content: stretch;
-  align-content: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-width: 0;
+  text-align: center;
 }
 
 .hero-kpis > .hero-status-card {
-  display: grid;
-  justify-content: space-between;
+  display: flex;
+  justify-content: center;
 }
 
 .hero-status-copy {
   display: flex;
   flex-direction: column;
-  justify-self: start;
-  align-self: center;
-  max-width: 320px;
-  padding-top: 14px;
-}
-
-.status-card-selector {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 10px;
-  justify-self: end;
-  align-self: start;
-  width: 100%;
-  max-width: 272px;
-  margin-top: -4px;
-}
-
-.hero-status-card .status-control-label {
-  margin: 0;
-  font-size: 0.72rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.base-status-toggle {
-  width: auto;
-  min-width: 220px;
-  min-height: 46px;
-  padding: 0 16px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--surface-strong);
-  color: var(--ink);
-  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
-}
-
-.hero-status-card .base-status-toggle span {
-  margin: 0;
-  color: inherit;
-  font-size: 0.96rem;
-  letter-spacing: normal;
-  text-transform: none;
-}
-
-.base-status-toggle:hover {
-  transform: translateY(-1px);
-  border-color: rgba(11, 79, 159, 0.48);
-}
-
-.base-status-toggle.open .chevron {
-  transform: rotate(180deg);
-}
-
-.base-status-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 12;
-  display: grid;
-  gap: 8px;
-  min-width: 250px;
-  max-width: min(320px, calc(100vw - 32px));
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  background: var(--surface-strong);
-  box-shadow: var(--shadow);
-}
-
-.base-status-menu.hidden {
-  display: none;
-}
-
-.base-status-menu button {
-  min-height: 46px;
-  border-radius: 14px;
-  background: var(--surface-soft);
-  color: var(--ink);
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, color 160ms ease;
-}
-
-.base-status-menu button:hover {
-  transform: translateY(-1px);
-  border-color: rgba(11, 79, 159, 0.34);
-}
-
-.base-status-menu button.selected {
-  border-color: rgba(15, 139, 87, 0.34);
-  background: rgba(15, 139, 87, 0.14);
-  color: var(--success);
-}
-
-.base-status-menu button.maintenance.selected {
-  border-color: rgba(216, 161, 0, 0.34);
-  background: rgba(216, 161, 0, 0.14);
-  color: #977000;
-}
-
-[data-theme="dark"] .base-status-menu button.maintenance.selected {
-  color: var(--warning);
+  max-width: 320px;
+  padding-top: 0;
 }
 
 .workspace {
@@ -2307,19 +2197,7 @@ input.is-loading {
   }
 
   .hero-status-card {
-    grid-template-columns: 1fr;
-    align-items: start;
-  }
-
-  .status-card-selector {
-    align-items: stretch;
-    max-width: none;
-  }
-
-  .base-status-toggle,
-  .base-status-menu {
-    width: 100%;
-    min-width: 0;
+    align-items: center;
   }
 
   .monitor-actions {
