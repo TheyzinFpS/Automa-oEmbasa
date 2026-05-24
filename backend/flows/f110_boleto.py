@@ -886,6 +886,66 @@ def _abrir_validar_voltar_e_marcar_boleto(session, linha_boleto, logger=None):
     return dados_boleto
 
 
+def _marcar_boleto_sp02_sem_validar(
+    session,
+    linha_boleto,
+    selecionado=True,
+    logger=None,
+):
+    """
+    Marca ou desmarca diretamente a linha visual do boleto na SP02.
+    Usado no fluxo Água + Esgoto, onde a ordem decrescente da SP02 define
+    Esgoto primeiro e Água em seguida, sem abrir o detalhe da spool.
+    """
+
+    y_linha = int(linha_boleto.get("linha"))
+    chk_id = f"wnd[0]/usr/chk[1,{y_linha}]"
+    lbl_id = f"wnd[0]/usr/lbl[51,{y_linha}]"
+    selecionado = bool(selecionado)
+
+    wait_for_element(session, "wnd[0]", timeout=10).maximize()
+    wait_until_ready(session)
+
+    checkbox = wait_for_element(session, chk_id, timeout=10)
+    checkbox.selected = selecionado
+
+    try:
+        checkbox.setFocus()
+    except Exception:
+        try:
+            checkbox.SetFocus()
+        except Exception:
+            pass
+
+    try:
+        label = session.findById(lbl_id)
+        label.setFocus()
+        label.caretPosition = 5
+    except Exception:
+        pass
+
+    wait_until_ready(session)
+    time.sleep(0.3)
+
+    if logger:
+        acao = "marcada" if selecionado else "desmarcada"
+        logger.add(
+            6,
+            f"Linha de boleto {acao} diretamente na SP02 em Y={y_linha}.",
+            publico=True,
+        )
+
+    return {
+        "linha": y_linha,
+        "spool": linha_boleto.get("spool"),
+        "titulo": linha_boleto.get("titulo"),
+        "data": linha_boleto.get("data"),
+        "hora": linha_boleto.get("hora"),
+        "status": linha_boleto.get("status"),
+        "paginas": linha_boleto.get("paginas"),
+    }
+
+
 def _imprimir_spool_selecionada(session):
     """
     Dispara a impressão/exportação da spool pela opção de menu informada pelo VBS:
@@ -1330,22 +1390,24 @@ def selecionar_boletos_sp02(
             f"Selecionando boleto de {tipo_label} na SP02...",
             98,
         )
-        dados_boleto = _abrir_validar_voltar_e_marcar_boleto(
+        dados_boleto = _marcar_boleto_sp02_sem_validar(
             session,
             linha,
+            selecionado=True,
             logger=logger,
-        )
-        spools.append(
-            {
-                "tipo": boleto.get("tipo"),
-                "doc_fat": boleto.get("doc_fat"),
-                **dados_boleto,
-            }
         )
         nome_pdf = montar_nome_pdf_sugerido(
             boleto.get("doc_fat"),
             dados=boleto.get("dados"),
             cliente=boleto.get("cliente"),
+        )
+        spools.append(
+            {
+                "tipo": boleto.get("tipo"),
+                "doc_fat": boleto.get("doc_fat"),
+                "nome_pdf_sugerido": nome_pdf,
+                **dados_boleto,
+            }
         )
 
         _notificar(
@@ -1369,11 +1431,28 @@ def selecionar_boletos_sp02(
         )
         time.sleep(max(0, float(aguardar_apos_copia_segundos or 0)))
 
+        if indice < len(boletos) - 1:
+            _notificar(
+                progress_callback,
+                f"Desmarcando boleto de {tipo_label} para seguir ao próximo...",
+                99,
+            )
+            _marcar_boleto_sp02_sem_validar(
+                session,
+                linha,
+                selecionado=False,
+                logger=logger,
+            )
+
+    fechar_popups_se_existirem(session)
+
     voltar_tela_inicial_com_f3(
         session,
         logger=logger,
         progress_callback=progress_callback,
     )
+
+    fechar_popups_se_existirem(session)
 
     resultado.update(
         {
@@ -1381,6 +1460,11 @@ def selecionar_boletos_sp02(
             "spool_boleto": "LINHAS_SELECIONADAS",
             "impressao_manual": True,
             "spools_boletos": spools,
+            "nomes_pdf_sugeridos": {
+                str(spool.get("tipo") or ""): spool.get("nome_pdf_sugerido")
+                for spool in spools
+                if spool.get("nome_pdf_sugerido")
+            },
         }
     )
     _notificar(

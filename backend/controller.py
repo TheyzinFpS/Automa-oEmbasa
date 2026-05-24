@@ -3,6 +3,7 @@ import re
 from datetime import datetime
 
 from backend.flows.f110 import f110
+from backend.flows.f110_boleto import selecionar_boletos_sp02
 from backend.flows.va01 import criar_pedido
 from backend.flows.vf01 import criar_doc_faturamento
 from backend.flows.vf02 import pos_faturamento
@@ -643,6 +644,7 @@ class SAPController:
             self._garantir_janela_unica_sap(session, origem="XD03")
 
             itens = []
+            itens_por_tipo = {}
 
             for tipo in TIPOS_AGUA_ESGOTO:
                 dados_tipo = self._dados_com_tipo(dados, tipo)
@@ -665,9 +667,15 @@ class SAPController:
                     return falha
 
                 itens.append(item)
+                itens_por_tipo[tipo] = item
                 contexto[f"pedido_{tipo}"] = item.get("pedido")
                 contexto[f"doc_fat_{tipo}"] = item.get("doc_fat")
 
+            for item in itens:
+                progress_tipo = self._progress_callback_tipo(
+                    progress_callback,
+                    item["tipo_label"],
+                )
                 etapa_atual = "F110"
                 cancelado = self._verificar_cancelamento(
                     cancel_event,
@@ -694,9 +702,7 @@ class SAPController:
                     progress_callback=progress_tipo,
                     notice_callback=notice_callback,
                     dados=item["dados"],
-                    selecionar_boleto=True,
-                    retornar_apos_boleto=True,
-                    aguardar_apos_copia_segundos=7,
+                    selecionar_boleto=False,
                 )
 
                 if not resultado_f110["ok"]:
@@ -719,8 +725,55 @@ class SAPController:
                         "nome_arquivo_meio_pagamento": dados_f110.get(
                             "nome_arquivo_meio_pagamento"
                         ),
-                        "nome_pdf_sugerido": dados_f110.get("nome_pdf_sugerido"),
-                        "spool_boleto": dados_f110.get("spool_boleto"),
+                    }
+                )
+                self._garantir_janela_unica_sap(
+                    session,
+                    origem=f"F110 {item['tipo_label']}",
+                )
+
+            boletos_para_sp02 = []
+
+            for tipo in reversed(TIPOS_AGUA_ESGOTO):
+                item = itens_por_tipo.get(tipo)
+
+                if not item:
+                    continue
+
+                boletos_para_sp02.append(
+                    {
+                        "tipo": item["tipo"],
+                        "doc_fat": item.get("doc_fat"),
+                        "dados": item.get("dados"),
+                        "cliente": contexto["cliente"],
+                    }
+                )
+
+            self.logger.add(
+                6,
+                "F110 de Água e Esgoto concluídos. Selecionando boletos finais na SP02.",
+                publico=True,
+            )
+            resultado_sp02 = selecionar_boletos_sp02(
+                session,
+                boletos_para_sp02,
+                logger=self.logger,
+                progress_callback=progress_callback,
+                notice_callback=notice_callback,
+                aguardar_apos_copia_segundos=7,
+            )
+            self._garantir_janela_unica_sap(session, origem="SP02 Água + Esgoto")
+
+            for spool in resultado_sp02.get("spools_boletos") or []:
+                item = itens_por_tipo.get(str(spool.get("tipo") or ""))
+
+                if not item:
+                    continue
+
+                item.update(
+                    {
+                        "nome_pdf_sugerido": spool.get("nome_pdf_sugerido"),
+                        "spool_boleto": spool.get("spool"),
                     }
                 )
 
@@ -747,15 +800,7 @@ class SAPController:
                 for item in itens
                 if item.get("nome_pdf_sugerido")
             }
-            contexto["spools_boletos"] = [
-                {
-                    "tipo": item["tipo"],
-                    "doc_fat": item.get("doc_fat"),
-                    "spool_boleto": item.get("spool_boleto"),
-                }
-                for item in itens
-                if item.get("spool_boleto")
-            ]
+            contexto["spools_boletos"] = resultado_sp02.get("spools_boletos") or []
             contexto["agua_esgoto"] = itens
 
             return resultado_padrao(
