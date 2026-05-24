@@ -47,38 +47,45 @@ TIPO_LABEL = {
 ETAPA_DIAGNOSTICO = {
     "XD03": {
         "nome": "Buscar cliente",
-        "acao": "localizar o cliente pelo CPF/CNPJ e validar os setores no SAP",
-        "conferir": "SAP logado, documento cadastrado no cliente e setor esperado liberado",
+        "acao": "buscar o cliente no XD03, capturar o nome e validar o setor de atividade",
+        "problema": "cliente não localizado, setor de atividade ausente ou SAP fora da tela esperada",
+        "solucao": "confira o documento informado, o cadastro do cliente e os setores AG/EG no SAP",
     },
     "VA01": {
         "nome": "Criar pedido",
         "acao": "criar o pedido com cliente, tipo, valor e endereço do empreendimento",
-        "conferir": "cliente preenchido, tipo de solicitação, valor e dados do empreendimento",
+        "problema": "cliente, valor, tipo ou endereço não aceito pela VA01",
+        "solucao": "confira os dados do empreendimento, o valor e mensagens exibidas na VA01",
     },
     "VF01": {
         "nome": "Criar doc.fat.",
         "acao": "criar o documento de faturamento a partir do pedido gerado",
-        "conferir": "pedido SAP existente e tela VF01 sem popup impeditivo",
+        "problema": "pedido não disponível para faturamento ou popup bloqueando a VF01",
+        "solucao": "confira se o pedido foi criado e se existe aviso pendente na VF01",
     },
     "FB03": {
         "nome": "Ajustar contábil",
         "acao": "abrir o faturamento no FB03 e aplicar o ajuste contábil",
-        "conferir": "doc.fat/faturamento criado e disponível para alteração contábil",
+        "problema": "doc.fat não encontrado, tela incorreta ou bloqueio no ajuste contábil",
+        "solucao": "confira o doc.fat gerado e a mensagem exibida na FB03",
     },
     "VF02_RESALVAR": {
         "nome": "Salvar faturamento",
         "acao": "retornar à VF02 e re-salvar o faturamento ajustado",
-        "conferir": "faturamento aberto, sem bloqueio de edição ou popup pendente",
+        "problema": "faturamento bloqueado, tela diferente ou popup impedindo o salvamento",
+        "solucao": "confira se o faturamento está aberto para edição e feche avisos pendentes",
     },
     "F110": {
         "nome": "Gerar pagamento",
         "acao": "executar F110, gerar meio de pagamento e preparar boleto/SP02",
-        "conferir": "cliente e doc.fat corretos, BOL disponível, variante e spool acessíveis",
+        "problema": "cliente/doc.fat incorreto, BOL indisponível, variante ou spool não acessível",
+        "solucao": "confira cliente, doc.fat, BOL disponível e mensagens da F110/SP02",
     },
     "CONEXAO": {
         "nome": "Conectar ao SAP",
         "acao": "conectar na sessão SAP GUI já logada",
-        "conferir": "SAP aberto, usuário logado e SAP GUI Scripting habilitado",
+        "problema": "SAP fechado, usuário sem login ou SAP GUI Scripting indisponível",
+        "solucao": "abra o SAP, faça login e tente novamente",
     },
 }
 
@@ -288,79 +295,85 @@ class SAPController:
             ),
         }
 
-    def _valor_resumo_erro(self, valor):
-        if isinstance(valor, dict):
-            partes = [
-                f"{chave}={conteudo}"
-                for chave, conteudo in valor.items()
-                if conteudo not in (None, "", [], {})
-            ]
-            return ", ".join(partes)
+    def _classificar_erro_operacional(self, etapa, detalhe, meta):
+        texto = str(detalhe or "").lower()
+        problema_padrao = meta.get("problema") or "bloqueio não classificado na etapa atual"
+        solucao_padrao = meta.get("solucao") or "confira a tela atual do SAP e tente novamente"
 
-        if isinstance(valor, list):
-            return ", ".join(str(item) for item in valor if item not in (None, ""))
-
-        return str(valor or "").strip()
-
-    def _resumo_contexto_erro(self, dados, contexto):
-        dados_publicos = self._montar_dados_publicos(dados, contexto)
-        tipo = str(dados_publicos.get("tipo") or dados.get("tipo") or "").strip()
-        tipo_label = TIPO_LABEL.get(tipo, tipo)
-        campos = [
-            ("Documento", dados_publicos.get("documento")),
-            ("Tipo", tipo_label),
-            ("Valor", dados_publicos.get("valor")),
-            ("Cliente SAP", contexto.get("cliente")),
-            ("Nome cliente", contexto.get("nome_cliente")),
-            ("Pedido", contexto.get("pedido")),
-            ("Pedido Água", contexto.get("pedido_agua")),
-            ("Pedido Esgoto", contexto.get("pedido_esgoto")),
-            ("Doc.fat", contexto.get("doc_fat")),
-            ("Doc.fat Água", contexto.get("doc_fat_agua")),
-            ("Doc.fat Esgoto", contexto.get("doc_fat_esgoto")),
-            ("BOL/F110", contexto.get("identificacao_pagamento")),
+        regras = [
+            (
+                (
+                    "sessão logada",
+                    "sessao logada",
+                    "localizar uma sessão",
+                    "localizar uma sessao",
+                    "localizar uma sess",
+                    "sess",
+                ),
+                "SAP não está aberto, usuário não fez login ou a sessão SAP não está disponível para automação",
+                "abra o SAP, faça login e tente novamente",
+            ),
+            (
+                ("scripting", "sap gui scripting"),
+                "SAP GUI Scripting pode estar desabilitado ou bloqueado para o usuário",
+                "habilite/verifique o SAP GUI Scripting e tente novamente",
+            ),
+            (
+                ("cliente não encontrado", "cliente nao encontrado", "nenhum cliente"),
+                "documento não localizado no cadastro de clientes",
+                "confira o CPF/CNPJ informado e valide o cadastro no XD03",
+            ),
+            (
+                ("setor", "atividade", "ag e eg", "ag/eg"),
+                "cliente encontrado, mas setor de atividade esperado não foi confirmado",
+                "confira se o cliente possui os setores AG e/ou EG liberados no SAP",
+            ),
+            (
+                ("timeout", "não foi possível encontrar", "nao foi possivel encontrar", "findbyid", "element"),
+                "SAP ficou em tela diferente, demorou a responder ou algum campo/popup não apareceu",
+                "confira a tela atual do SAP, feche popups pendentes e retome da etapa indicada",
+            ),
+            (
+                ("doc_fat", "faturamento", "documento de faturamento"),
+                "documento de faturamento não foi capturado ou não está disponível para a próxima etapa",
+                "confira a etapa VF01/VF02 e valide o número do doc.fat antes de retomar",
+            ),
+            (
+                ("bol", "identificação", "identificacao"),
+                "identificação BOL pode estar ocupada ou indisponível",
+                "confira as BOLs do dia na F110 e libere/avance para uma identificação disponível",
+            ),
+            (
+                ("sp02", "spool", "boleto"),
+                "spool do boleto não foi encontrada ou a SP02 não está na ordem esperada",
+                "confira se o boleto foi gerado e se a SP02 mostra as linhas BOLETO em ordem decrescente",
+            ),
+            (
+                ("aviso operacional", "confirmado pelo usuário", "confirmado pelo usuario"),
+                "o modal de cópia não foi confirmado dentro do tempo esperado",
+                "clique em Copiar nome e fechar quando o modal aparecer",
+            ),
         ]
-        endereco = dados_publicos.get("endereco") or {}
 
-        if endereco:
-            campos.append(("Empreendimento", endereco.get("empreendimento")))
-            campos.append(("Endereço", self._valor_resumo_erro(endereco)))
+        for termos, problema, solucao in regras:
+            if any(termo in texto for termo in termos):
+                return problema, solucao
 
-        resumo = [
-            f"{rotulo}: {self._valor_resumo_erro(valor)}"
-            for rotulo, valor in campos
-            if valor not in (None, "", [], {})
+        return problema_padrao, solucao_padrao
+
+    def _resumir_detalhe_erro(self, texto, limite=180):
+        linhas = [
+            linha.strip()
+            for linha in str(texto or "").replace("\r", "\n").split("\n")
+            if linha.strip()
         ]
+        resumo = linhas[0] if linhas else "sem detalhe técnico retornado"
+        resumo = re.sub(r"\s+", " ", resumo).strip().rstrip(".")
 
-        return "; ".join(resumo) or "nenhum dado SAP confirmado antes da falha"
+        if len(resumo) > limite:
+            resumo = resumo[: limite - 3].rstrip() + "..."
 
-    def _pendencias_erro(self, etapa, dados, contexto):
-        etapa = str(etapa or "").strip().upper()
-        pendencias = []
-
-        if etapa in {"VA01", "VF01", "FB03", "VF02_RESALVAR", "F110"} and not contexto.get("cliente"):
-            pendencias.append("cliente SAP ainda não confirmado")
-
-        if etapa in {"VF01", "FB03", "VF02_RESALVAR", "F110"} and not contexto.get("pedido"):
-            pendencias.append("número do pedido ainda não capturado")
-
-        if etapa in {"FB03", "VF02_RESALVAR"} and not (
-            contexto.get("faturamento") or contexto.get("doc_fat")
-        ):
-            pendencias.append("doc.fat/faturamento ainda não capturado")
-
-        if etapa == "F110" and not contexto.get("doc_fat"):
-            pendencias.append("doc.fat necessário para a seleção livre da F110")
-
-        if etapa == "XD03":
-            tipo = str(dados.get("tipo") or "").strip().lower()
-
-            if tipo == TIPO_COMPOSTO_AGUA_ESGOTO:
-                pendencias.append("confirmar cliente com setores AG e EG para Água + Esgoto")
-            else:
-                pendencias.append("confirmar cliente e setor correspondente ao tipo selecionado")
-
-        return "; ".join(pendencias) or "sem dado obrigatório ausente no contexto local"
+        return resumo
 
     def _montar_log_falha_detalhado(
         self,
@@ -376,13 +389,18 @@ class SAPController:
         meta = ETAPA_DIAGNOSTICO.get(etapa_chave, {})
         nome_etapa = meta.get("nome") or etapa_chave
         acao = meta.get("acao") or "executar a etapa atual do fluxo SAP"
-        conferir = meta.get("conferir") or "conferir a tela atual do SAP e os dados informados"
         mensagem_usuario = str(
             mensagem or "sem mensagem de usuário retornada"
         ).strip().rstrip(".")
-        detalhe = str(
+        detalhe_completo = str(
             erro_tecnico or mensagem or "sem detalhe técnico retornado"
         ).strip().rstrip(".")
+        detalhe = self._resumir_detalhe_erro(detalhe_completo)
+        problema, solucao = self._classificar_erro_operacional(
+            etapa_chave,
+            detalhe_completo,
+            meta,
+        )
         transacao = ""
 
         if session is not None:
@@ -392,24 +410,21 @@ class SAPController:
                 transacao = ""
 
         linhas = [
-            f"Falha detalhada em {etapa_chave} - {nome_etapa}.",
-            f"O que o sistema fazia: {acao}.",
-            f"Mensagem para o usuário: {mensagem_usuario}.",
-            f"Bloqueio técnico retornado: {detalhe}.",
-            f"Dados já conhecidos: {self._resumo_contexto_erro(dados, contexto)}.",
-            f"O que faltou ou deve ser conferido: {self._pendencias_erro(etapa_chave, dados, contexto)}.",
-            f"Conferir no SAP: {conferir}.",
+            f"Falha em {etapa_chave} - {nome_etapa}.",
+            f"- Sistema tentou executar: {acao}.",
+            f"- Qual foi o erro: {detalhe or mensagem_usuario}.",
+            f"- Possível problema: {problema}.",
+            f"- Possível solução: {solucao}.",
         ]
 
         if transacao:
-            linhas.append(f"Transação SAP detectada no momento da falha: {transacao}.")
+            linhas.append(f"- Tela SAP detectada: {transacao}.")
 
         if resume_from:
             linhas.append(
-                f"Retomada sugerida: corrigir o bloqueio no SAP e continuar a partir de {resume_from}."
+                f"- Retomada: corrigir no SAP e continuar a partir de {resume_from}."
             )
 
-        linhas.append(f"Log técnico completo: {getattr(self.logger, 'log_file_path', '--')}.")
         return "\n".join(linhas)
 
     # Centraliza resposta de erro e inclui checkpoint quando a etapa pode ser retomada.

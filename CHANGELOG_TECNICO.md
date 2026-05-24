@@ -1,5 +1,42 @@
 # Registro técnico de alterações
 
+## Domingo, 24/05/2026 19:28:48 - Versão 1.4.4
+
+**Problema identificado**
+
+O diagnóstico da versão 1.4.3 ficou completo, mas grande demais para o balão de logs operacional. O usuário precisava de uma leitura mais direta, em tópicos, com ação tentada, erro, problema provável e solução.
+
+**O que foi alterado**
+
+- Reduzido o diagnóstico público de falha para tópicos objetivos.
+- Cada etapa agora informa `Sistema tentou executar`, `Qual foi o erro`, `Possível problema`, `Possível solução` e `Retomada`.
+- Ajustada a descrição da etapa `XD03` para explicar que ela busca o cliente, captura o nome e valida o setor de atividade.
+- Adicionada classificação de causas comuns, como SAP sem sessão logada, SAP GUI Scripting, cliente não encontrado, setor ausente, tela/popup inesperado, doc.fat ausente, BOL ocupada, SP02/spool e modal de cópia não confirmado.
+- Mantida a proteção de mascaramento de CPF/CNPJ nos logs públicos.
+- Atualizada a versão do projeto de `1.4.3` para `1.4.4`.
+
+**Arquivos alterados**
+
+- `backend/controller.py`
+- `backend/settings.py`
+- `interface/app.js`
+- `interface/index.html`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `LEIA-ME_EMPRESA.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+Ao ocorrer falha, o usuário deve abrir os logs e ver uma mensagem curta, em tópicos, suficiente para entender o que o sistema tentou fazer, por que parou e qual ação tomar.
+
+**Validação realizada**
+
+- `python -m py_compile backend\controller.py interface.py backend\settings.py`
+- `node --check interface\app.js`
+- Teste isolado de falha em `XD03` simulando sessão SAP ausente.
+- Rebuild com `powershell -ExecutionPolicy Bypass -File .\build_empresarial.ps1`.
+
 ## Domingo, 24/05/2026 19:14:50 - Versão 1.4.3
 
 **Problema identificado**
