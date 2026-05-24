@@ -1,5 +1,52 @@
 # Registro técnico de alterações
 
+## Domingo, 24/05/2026 18:56:17 - Versão 1.4.2
+
+**Problema identificado**
+
+O fluxo `Água + Esgoto` precisava respeitar a ordem operacional real do SAP: primeiro criar os dois pedidos até `VF02`, guardando separadamente `doc_fat_agua` e `doc_fat_esgoto`, e somente depois executar as duas F110. A versão anterior iniciava a F110 logo após a criação da Água, o que não correspondia ao processo correto.
+
+Também era necessário manter o registro de versão após os ajustes de interface e fluxo feitos em 24/05/2026.
+
+**O que foi alterado**
+
+- Reordenado o fluxo composto para criar Água até `VF02`, guardar o `doc_fat` da Água, voltar para `VA01`, criar Esgoto até `VF02` e guardar o `doc_fat` do Esgoto.
+- A F110 passa a ser executada apenas depois da criação dos dois `doc_fat`, usando primeiro o documento da Água e depois o documento do Esgoto.
+- O fluxo composto não abre SP02 ao final de cada F110; a SP02 é aberta somente após completar os dois meios de pagamento.
+- A seleção final na SP02 passa a tratar a primeira linha `BOLETO` como Esgoto e a próxima linha `BOLETO` como Água, seguindo a ordem decrescente da tela.
+- Após o modal de cópia do boleto de Esgoto, o sistema aguarda 7 segundos, desmarca a linha e segue para o boleto de Água.
+- Removido o seletor `Sistema informado` do card de status da base e mantida apenas a mensagem centralizada de status.
+- Removidos da guia `Sobre` os caminhos técnicos de executável, runtime, histórico, configuração e log.
+- Adicionada proteção para não versionar o arquivo local `.nube`.
+- Atualizada a versão do projeto de `1.4.1` para `1.4.2`.
+
+**Arquivos alterados**
+
+- `.gitignore`
+- `LEIA-ME_EMPRESA.txt`
+- `backend/controller.py`
+- `backend/flows/f110.py`
+- `backend/flows/f110_boleto.py`
+- `backend/settings.py`
+- `interface.py`
+- `interface/index.html`
+- `interface/app.js`
+- `interface/style.css`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+Ao selecionar `Água + Esgoto`, o sistema deve gerar os dois pedidos e os dois documentos de faturamento antes de entrar na F110. Depois deve executar a F110 da Água, executar a F110 do Esgoto e abrir a SP02 apenas no final, copiando primeiro o nome do boleto de Esgoto e depois o de Água.
+
+**Validação realizada**
+
+- `python -m py_compile backend\controller.py backend\flows\f110.py backend\flows\f110_boleto.py interface.py`
+- `node --check interface\app.js`
+- Validação visual local da interface para o card de status e a guia `Sobre`.
+- Rebuild com `powershell -ExecutionPolicy Bypass -File .\build_empresarial.ps1`.
+
 ## Sexta-feira, 22/05/2026 00:34:45 - Versão 1.4.1
 
 **Problema identificado**
