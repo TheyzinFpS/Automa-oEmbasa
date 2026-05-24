@@ -1426,6 +1426,8 @@ input.is-loading {
   padding: 12px 14px;
   border-radius: 16px 16px 16px 6px;
   background: rgba(99, 210, 255, 0.08);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .log-line + .log-line {

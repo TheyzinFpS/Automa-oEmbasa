@@ -44,6 +44,44 @@ TIPO_LABEL = {
     "agua_esgoto": "Água + Esgoto",
 }
 
+ETAPA_DIAGNOSTICO = {
+    "XD03": {
+        "nome": "Buscar cliente",
+        "acao": "localizar o cliente pelo CPF/CNPJ e validar os setores no SAP",
+        "conferir": "SAP logado, documento cadastrado no cliente e setor esperado liberado",
+    },
+    "VA01": {
+        "nome": "Criar pedido",
+        "acao": "criar o pedido com cliente, tipo, valor e endereço do empreendimento",
+        "conferir": "cliente preenchido, tipo de solicitação, valor e dados do empreendimento",
+    },
+    "VF01": {
+        "nome": "Criar doc.fat.",
+        "acao": "criar o documento de faturamento a partir do pedido gerado",
+        "conferir": "pedido SAP existente e tela VF01 sem popup impeditivo",
+    },
+    "FB03": {
+        "nome": "Ajustar contábil",
+        "acao": "abrir o faturamento no FB03 e aplicar o ajuste contábil",
+        "conferir": "doc.fat/faturamento criado e disponível para alteração contábil",
+    },
+    "VF02_RESALVAR": {
+        "nome": "Salvar faturamento",
+        "acao": "retornar à VF02 e re-salvar o faturamento ajustado",
+        "conferir": "faturamento aberto, sem bloqueio de edição ou popup pendente",
+    },
+    "F110": {
+        "nome": "Gerar pagamento",
+        "acao": "executar F110, gerar meio de pagamento e preparar boleto/SP02",
+        "conferir": "cliente e doc.fat corretos, BOL disponível, variante e spool acessíveis",
+    },
+    "CONEXAO": {
+        "nome": "Conectar ao SAP",
+        "acao": "conectar na sessão SAP GUI já logada",
+        "conferir": "SAP aberto, usuário logado e SAP GUI Scripting habilitado",
+    },
+}
+
 
 def _extrair_numero_sap(texto):
     numeros = re.findall(r"\b\d{6,12}\b", str(texto or ""))
@@ -250,6 +288,130 @@ class SAPController:
             ),
         }
 
+    def _valor_resumo_erro(self, valor):
+        if isinstance(valor, dict):
+            partes = [
+                f"{chave}={conteudo}"
+                for chave, conteudo in valor.items()
+                if conteudo not in (None, "", [], {})
+            ]
+            return ", ".join(partes)
+
+        if isinstance(valor, list):
+            return ", ".join(str(item) for item in valor if item not in (None, ""))
+
+        return str(valor or "").strip()
+
+    def _resumo_contexto_erro(self, dados, contexto):
+        dados_publicos = self._montar_dados_publicos(dados, contexto)
+        tipo = str(dados_publicos.get("tipo") or dados.get("tipo") or "").strip()
+        tipo_label = TIPO_LABEL.get(tipo, tipo)
+        campos = [
+            ("Documento", dados_publicos.get("documento")),
+            ("Tipo", tipo_label),
+            ("Valor", dados_publicos.get("valor")),
+            ("Cliente SAP", contexto.get("cliente")),
+            ("Nome cliente", contexto.get("nome_cliente")),
+            ("Pedido", contexto.get("pedido")),
+            ("Pedido Água", contexto.get("pedido_agua")),
+            ("Pedido Esgoto", contexto.get("pedido_esgoto")),
+            ("Doc.fat", contexto.get("doc_fat")),
+            ("Doc.fat Água", contexto.get("doc_fat_agua")),
+            ("Doc.fat Esgoto", contexto.get("doc_fat_esgoto")),
+            ("BOL/F110", contexto.get("identificacao_pagamento")),
+        ]
+        endereco = dados_publicos.get("endereco") or {}
+
+        if endereco:
+            campos.append(("Empreendimento", endereco.get("empreendimento")))
+            campos.append(("Endereço", self._valor_resumo_erro(endereco)))
+
+        resumo = [
+            f"{rotulo}: {self._valor_resumo_erro(valor)}"
+            for rotulo, valor in campos
+            if valor not in (None, "", [], {})
+        ]
+
+        return "; ".join(resumo) or "nenhum dado SAP confirmado antes da falha"
+
+    def _pendencias_erro(self, etapa, dados, contexto):
+        etapa = str(etapa or "").strip().upper()
+        pendencias = []
+
+        if etapa in {"VA01", "VF01", "FB03", "VF02_RESALVAR", "F110"} and not contexto.get("cliente"):
+            pendencias.append("cliente SAP ainda não confirmado")
+
+        if etapa in {"VF01", "FB03", "VF02_RESALVAR", "F110"} and not contexto.get("pedido"):
+            pendencias.append("número do pedido ainda não capturado")
+
+        if etapa in {"FB03", "VF02_RESALVAR"} and not (
+            contexto.get("faturamento") or contexto.get("doc_fat")
+        ):
+            pendencias.append("doc.fat/faturamento ainda não capturado")
+
+        if etapa == "F110" and not contexto.get("doc_fat"):
+            pendencias.append("doc.fat necessário para a seleção livre da F110")
+
+        if etapa == "XD03":
+            tipo = str(dados.get("tipo") or "").strip().lower()
+
+            if tipo == TIPO_COMPOSTO_AGUA_ESGOTO:
+                pendencias.append("confirmar cliente com setores AG e EG para Água + Esgoto")
+            else:
+                pendencias.append("confirmar cliente e setor correspondente ao tipo selecionado")
+
+        return "; ".join(pendencias) or "sem dado obrigatório ausente no contexto local"
+
+    def _montar_log_falha_detalhado(
+        self,
+        etapa,
+        mensagem,
+        erro_tecnico,
+        dados,
+        contexto,
+        resume_from=None,
+        session=None,
+    ):
+        etapa_chave = str(etapa or "").strip().upper() or "INDEFINIDA"
+        meta = ETAPA_DIAGNOSTICO.get(etapa_chave, {})
+        nome_etapa = meta.get("nome") or etapa_chave
+        acao = meta.get("acao") or "executar a etapa atual do fluxo SAP"
+        conferir = meta.get("conferir") or "conferir a tela atual do SAP e os dados informados"
+        mensagem_usuario = str(
+            mensagem or "sem mensagem de usuário retornada"
+        ).strip().rstrip(".")
+        detalhe = str(
+            erro_tecnico or mensagem or "sem detalhe técnico retornado"
+        ).strip().rstrip(".")
+        transacao = ""
+
+        if session is not None:
+            try:
+                transacao = obter_transacao(session)
+            except Exception:
+                transacao = ""
+
+        linhas = [
+            f"Falha detalhada em {etapa_chave} - {nome_etapa}.",
+            f"O que o sistema fazia: {acao}.",
+            f"Mensagem para o usuário: {mensagem_usuario}.",
+            f"Bloqueio técnico retornado: {detalhe}.",
+            f"Dados já conhecidos: {self._resumo_contexto_erro(dados, contexto)}.",
+            f"O que faltou ou deve ser conferido: {self._pendencias_erro(etapa_chave, dados, contexto)}.",
+            f"Conferir no SAP: {conferir}.",
+        ]
+
+        if transacao:
+            linhas.append(f"Transação SAP detectada no momento da falha: {transacao}.")
+
+        if resume_from:
+            linhas.append(
+                f"Retomada sugerida: corrigir o bloqueio no SAP e continuar a partir de {resume_from}."
+            )
+
+        linhas.append(f"Log técnico completo: {getattr(self.logger, 'log_file_path', '--')}.")
+        return "\n".join(linhas)
+
     # Centraliza resposta de erro e inclui checkpoint quando a etapa pode ser retomada.
     def _falha(
         self,
@@ -259,7 +421,22 @@ class SAPController:
         dados,
         contexto,
         resume_from=None,
+        session=None,
     ):
+        self.logger.add(
+            -1,
+            self._montar_log_falha_detalhado(
+                etapa,
+                mensagem,
+                erro_tecnico,
+                dados,
+                contexto,
+                resume_from=resume_from,
+                session=session,
+            ),
+            nivel="ERRO",
+            publico=True,
+        )
         payload = resultado_padrao(
             ok=False,
             etapa=etapa,
@@ -466,6 +643,7 @@ class SAPController:
                 dados=dados_tipo,
                 contexto=contexto,
                 resume_from="VA01",
+                session=session,
             ), None
 
         dados_va01 = resultado_va01.get("dados") or {}
@@ -503,6 +681,7 @@ class SAPController:
                 dados=dados_tipo,
                 contexto=contexto,
                 resume_from="VF01",
+                session=session,
             ), None
 
         faturamento = resultado_vf01["dados"]["faturamento"]
@@ -547,6 +726,7 @@ class SAPController:
                 dados=dados_tipo,
                 contexto=contexto,
                 resume_from=resultado_vf02.get("etapa") or "FB03",
+                session=session,
             ), None
 
         faturamento = resultado_vf02["dados"]["faturamento"]
@@ -597,6 +777,7 @@ class SAPController:
             "identificacao_pagamento": None,
         }
         etapa_atual = "CONEXAO"
+        session = None
 
         try:
             self.logger.add(-1, "Conectando ao SAP...", publico=True)
@@ -632,6 +813,7 @@ class SAPController:
                     dados=dados,
                     contexto=contexto,
                     resume_from="XD03",
+                    session=session,
                 )
 
             contexto["cliente"] = resultado_xd03["dados"]["cliente"]
@@ -715,6 +897,7 @@ class SAPController:
                         dados=item["dados"],
                         contexto=contexto,
                         resume_from="F110",
+                        session=session,
                     )
 
                 dados_f110 = resultado_f110.get("dados") or {}
@@ -826,6 +1009,7 @@ class SAPController:
                 dados=dados,
                 contexto=contexto,
                 resume_from=etapa_falha,
+                session=session,
             )
 
     # Executa o fluxo SAP real: conexao, XD03, VA01, VF01, FB03/VF02 e F110.
@@ -862,6 +1046,8 @@ class SAPController:
                 resume_checkpoint=resume_checkpoint,
                 cancel_event=cancel_event,
             )
+
+        session = None
 
         try:
             self.logger.add(-1, "Conectando ao SAP...", publico=True)
@@ -914,6 +1100,7 @@ class SAPController:
                 dados=dados,
                 contexto=contexto,
                 resume_from=iniciar_em if iniciar_em != "XD03" else None,
+                session=session,
             )
 
         if self._deve_executar("XD03", iniciar_em):
@@ -944,6 +1131,7 @@ class SAPController:
                     dados=dados,
                     contexto=contexto,
                     resume_from="XD03",
+                    session=session,
                 )
 
             contexto["cliente"] = resultado_xd03["dados"]["cliente"]
@@ -973,6 +1161,7 @@ class SAPController:
                 dados=dados,
                 contexto=contexto,
                 resume_from="XD03",
+                session=session,
             )
 
         if self._deve_executar("VA01", iniciar_em):
@@ -1004,6 +1193,7 @@ class SAPController:
                     dados=dados,
                     contexto=contexto,
                     resume_from="VA01",
+                    session=session,
                 )
 
             dados_va01 = resultado_va01.get("dados") or {}
@@ -1053,6 +1243,7 @@ class SAPController:
                     dados=dados,
                     contexto=contexto,
                     resume_from="VF01",
+                    session=session,
                 )
 
             contexto["faturamento"] = resultado_vf01["dados"]["faturamento"]
@@ -1081,6 +1272,7 @@ class SAPController:
                 dados=dados,
                 contexto=contexto,
                 resume_from="VF01",
+                session=session,
             )
 
         if self._deve_executar("FB03", iniciar_em):
@@ -1123,6 +1315,7 @@ class SAPController:
                     dados=dados,
                     contexto=contexto,
                     resume_from=resultado_vf02.get("etapa") or "FB03",
+                    session=session,
                 )
 
             contexto["faturamento"] = resultado_vf02["dados"]["faturamento"]
@@ -1159,6 +1352,7 @@ class SAPController:
                     dados=dados,
                     contexto=contexto,
                     resume_from="F110",
+                    session=session,
                 )
 
             if not contexto.get("doc_fat"):
@@ -1169,6 +1363,7 @@ class SAPController:
                     dados=dados,
                     contexto=contexto,
                     resume_from="F110",
+                    session=session,
                 )
 
             dados_f110 = {
@@ -1203,6 +1398,7 @@ class SAPController:
                     dados=dados,
                     contexto=contexto,
                     resume_from="F110",
+                    session=session,
                 )
 
             contexto["boleto"] = (resultado_f110.get("dados") or {}).get("boleto")

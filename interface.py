@@ -201,7 +201,15 @@ class API:
 
             if publico:
                 classe = "error" if str(nivel).upper() == "ERRO" else ""
-                api._emitir_log(msg, classe)
+                mensagem_publica = msg
+
+                try:
+                    if logger.public_logs:
+                        mensagem_publica = logger.public_logs[-1]["msg"]
+                except Exception:
+                    mensagem_publica = msg
+
+                api._emitir_log(mensagem_publica, classe)
 
         logger.add = add_interceptado
         return add_original
@@ -309,7 +317,10 @@ class API:
                         (
                             f"Cancelamento na etapa {resultado['etapa']}: {resultado['mensagem']}"
                             if cancelado
-                            else f"Falha na etapa {resultado['etapa']}: {resultado['mensagem']}"
+                            else (
+                                f"Resumo da falha: etapa {resultado['etapa']} - "
+                                f"{resultado['mensagem']}. Veja o diagnóstico detalhado acima."
+                            )
                         ),
                         nivel="ERRO",
                         publico=True,
@@ -367,9 +378,15 @@ class API:
                 self._emitir_status("Concluído", "success")
 
             except Exception as e:
+                erro_publico = (
+                    "Falha detalhada fora de uma etapa SAP.\n"
+                    "O que o sistema fazia: preparar, executar ou finalizar a chamada entre interface e backend.\n"
+                    f"Bloqueio técnico retornado: {str(e) or 'sem detalhe retornado'}.\n"
+                    f"Log técnico completo: {self._logger.log_file_path}."
+                )
                 self._logger.add(
                     -1,
-                    f"Erro inesperado: {str(e)}",
+                    erro_publico,
                     nivel="ERRO",
                     publico=True,
                 )

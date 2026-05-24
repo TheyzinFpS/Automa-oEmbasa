@@ -1,5 +1,45 @@
 # Registro técnico de alterações
 
+## Domingo, 24/05/2026 19:14:50 - Versão 1.4.3
+
+**Problema identificado**
+
+Quando uma etapa falhava, o log operacional da interface mostrava apenas mensagens genéricas como `Falha na etapa XD03` ou `Erro ao executar o fluxo`, sem explicar o ponto exato, o bloqueio técnico, os dados já capturados ou o que precisava ser conferido no SAP.
+
+**O que foi alterado**
+
+- Criado diagnóstico detalhado para falhas por etapa (`CONEXAO`, `XD03`, `VA01`, `VF01`, `FB03`, `VF02` e `F110`).
+- O log público agora informa o que o sistema estava tentando fazer, a mensagem para o usuário, o bloqueio técnico retornado, os dados já conhecidos, o que faltou ou deve ser conferido e a retomada sugerida.
+- Quando a sessão SAP está disponível, o diagnóstico tenta incluir a transação SAP detectada no momento da falha.
+- O resumo final de erro na interface passou a apontar para o diagnóstico detalhado registrado acima.
+- Corrigido o envio em tempo real do logger para a interface para usar a mensagem já mascarada pelo logger, evitando exibição de CPF/CNPJ bruto no balão de logs.
+- Ajustado o CSS do log operacional para preservar quebras de linha e quebrar textos longos sem estourar o modal.
+- Atualizada a versão do projeto de `1.4.2` para `1.4.3`.
+
+**Arquivos alterados**
+
+- `backend/controller.py`
+- `backend/settings.py`
+- `interface.py`
+- `interface/app.js`
+- `interface/index.html`
+- `interface/style.css`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `LEIA-ME_EMPRESA.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+Ao ocorrer erro em qualquer etapa do fluxo SAP, o usuário deve conseguir abrir `Logs` e entender onde falhou, o que estava sendo feito, qual bloqueio técnico foi retornado, quais dados já tinham sido capturados e qual ponto de retomada usar.
+
+**Validação realizada**
+
+- `python -m py_compile backend\controller.py interface.py backend\settings.py`
+- `node --check interface\app.js`
+- Teste isolado do diagnóstico de falha em `XD03`, confirmando mensagem pública detalhada e CPF/CNPJ mascarado.
+- Validação local do modal de logs pelo navegador interno.
+
 ## Domingo, 24/05/2026 18:56:17 - Versão 1.4.2
 
 **Problema identificado**
