@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import traceback
 import uuid
 from pathlib import Path
@@ -131,7 +132,7 @@ class API:
             mensagem_texto.startswith("PDF_NAME_READY::")
             or mensagem_texto.startswith("PAYMENT_FILE_READY::")
         ):
-            self._trazer_interface_para_frente()
+            self._trazer_interface_para_frente(maximizar=True)
 
         self._last_progress = {
             "etapa": str(etapa or ""),
@@ -145,13 +146,13 @@ class API:
             self._last_progress,
         )
 
-    def _trazer_interface_para_frente(self):
+    def _trazer_interface_para_frente(self, maximizar=False):
         window = self._get_window()
 
         if window is None:
             return
 
-        for method_name in ("restore", "show", "bring_to_front"):
+        for method_name in ("restore", "show"):
             method = getattr(window, method_name, None)
 
             if not callable(method):
@@ -161,6 +162,48 @@ class API:
                 method()
             except Exception:
                 continue
+
+        if maximizar:
+            method = getattr(window, "maximize", None)
+
+            if callable(method):
+                try:
+                    method()
+                except Exception:
+                    pass
+
+        try:
+            window.on_top = True
+            time.sleep(0.12)
+            window.on_top = False
+        except Exception:
+            pass
+
+        for method_name in ("show",):
+            method = getattr(window, method_name, None)
+
+            if not callable(method):
+                continue
+
+            try:
+                method()
+            except Exception:
+                continue
+
+        if maximizar:
+            method = getattr(window, "maximize", None)
+
+            if callable(method):
+                try:
+                    method()
+                except Exception:
+                    pass
+
+        self._evaluate_js_safe("try { window.focus(); } catch (e) {}")
+
+    def preparar_janela_aviso_operacional(self):
+        self._trazer_interface_para_frente(maximizar=True)
+        return {"ok": True}
 
     def _aguardar_aviso_operacional(self, tipo, payload=None, timeout=900):
         payload = dict(payload or {})
@@ -173,12 +216,13 @@ class API:
         payload["id"] = notice_id
         payload["tipo"] = str(tipo or "")
 
-        self._trazer_interface_para_frente()
+        self._trazer_interface_para_frente(maximizar=True)
         self._emitir_funcao_js(
             "mostrarAvisoOperacional",
             str(tipo or ""),
             _serializar_para_front(payload),
         )
+        self._trazer_interface_para_frente(maximizar=True)
 
         confirmado = evento.wait(timeout)
 

@@ -1,5 +1,41 @@
 # Registro técnico de alterações
 
+## Segunda-feira, 25/05/2026 00:34:47 - Versão 1.4.9
+
+**Problema identificado**
+
+Quando o SAP ou outra aplicação estivesse em primeiro plano, os modais operacionais da interface poderiam não aparecer com destaque suficiente para o usuário copiar o nome do PDF ou do arquivo de meio de pagamento. No fluxo Água + Esgoto também era necessário evitar conflito entre avisos consecutivos de dois pedidos.
+
+**O que foi alterado**
+
+- A janela principal da interface agora é restaurada, maximizada e trazida para frente quando um aviso operacional é emitido.
+- O backend expõe `preparar_janela_aviso_operacional` para reforçar o foco/maximização também quando o modal é aberto pelo JavaScript.
+- Os modais de PDF/SP02 e meio de pagamento chamam a preparação da janela antes de abrir.
+- Criada uma fila simples para avisos operacionais no frontend, evitando que um segundo aviso de Água + Esgoto substitua o modal que ainda está aberto.
+- A fila de avisos é limpa ao reiniciar o painel para não reaproveitar avisos antigos.
+- Atualizada a versão do projeto de `1.4.8` para `1.4.9`.
+
+**Arquivos alterados**
+
+- `interface.py`
+- `interface/app.js`
+- `interface/index.html`
+- `backend/settings.py`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `LEIA-ME_EMPRESA.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+Ao chegar nos modais de SP02/PDFCreator ou meio de pagamento, a interface deve voltar para a frente da tela, maximizada, mesmo que o usuário esteja no SAP ou em outra aplicação. No fluxo Água + Esgoto, os avisos devem ser tratados em sequência.
+
+**Validação realizada**
+
+- `python -m py_compile interface.py backend\controller.py backend\flows\f110.py backend\flows\f110_boleto.py backend\settings.py`
+- `node --check interface\app.js`
+- Validação renderizada em `http://127.0.0.1:8768/index.html`, confirmando versão `1.4.9`, modal de meio de pagamento e botões de cópia sem erros de console.
+
 ## Segunda-feira, 25/05/2026 00:25:53 - Versão 1.4.8
 
 **Problema identificado**

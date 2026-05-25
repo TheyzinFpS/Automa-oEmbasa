@@ -41,7 +41,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.8";
+const APP_VERSION = "1.4.9";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -110,6 +110,7 @@ const state = {
   currentPaymentFileNotice: "",
   lastPaymentFileNotice: "",
   currentPaymentNoticeId: "",
+  operationalNoticeQueue: [],
   historicoItens: [],
   historicoSelecionado: null
 };
@@ -1741,6 +1742,20 @@ function copiarTextoFallback(texto) {
   }
 }
 
+function prepararInterfaceParaAvisoOperacional() {
+  try {
+    window.focus();
+  } catch (error) {
+    // O foco visual pode depender do Windows/SAP, mas o aviso fica pronto na interface.
+  }
+
+  try {
+    window.pywebview?.api?.preparar_janela_aviso_operacional?.();
+  } catch (error) {
+    // O backend tambem tenta trazer a janela para frente antes de emitir o aviso.
+  }
+}
+
 async function copiarTextoParaAreaTransferencia(texto) {
   const conteudo = String(texto || "");
 
@@ -1774,11 +1789,7 @@ function openPdfNameModal(nomePdf) {
   state.currentPdfNameNotice = nomeLimpo;
   state.lastPdfNameNotice = nomeLimpo;
 
-  try {
-    window.focus();
-  } catch (error) {
-    // O foco visual pode depender do Windows/SAP, mas o aviso fica pronto na interface.
-  }
+  prepararInterfaceParaAvisoOperacional();
 
   const value = el("pdfNameValue");
 
@@ -1819,6 +1830,7 @@ async function copyPdfNameAndClose() {
   state.currentPdfNoticeId = "";
   closePdfNameModal();
   await confirmarAvisoOperacional(noticeId);
+  processarProximoAvisoOperacional();
 }
 
 function openPaymentFileModal(nomeArquivo) {
@@ -1835,11 +1847,7 @@ function openPaymentFileModal(nomeArquivo) {
   state.currentPaymentFileNotice = nomeLimpo;
   state.lastPaymentFileNotice = nomeLimpo;
 
-  try {
-    window.focus();
-  } catch (error) {
-    // O foco depende do Windows/SAP, mas o aviso fica pronto na interface.
-  }
+  prepararInterfaceParaAvisoOperacional();
 
   const value = el("paymentFileNameValue");
 
@@ -1866,9 +1874,25 @@ async function copyPaymentFileNameAndClose() {
   state.currentPaymentNoticeId = "";
   closePaymentFileModal();
   await confirmarAvisoOperacional(noticeId);
+  processarProximoAvisoOperacional();
 }
 
-function mostrarAvisoOperacional(tipo, payload = {}) {
+function algumAvisoOperacionalAberto() {
+  return modalEstaAberto("pdfNameModal") || modalEstaAberto("paymentFileModal");
+}
+
+function processarProximoAvisoOperacional() {
+  if (algumAvisoOperacionalAberto() || !state.operationalNoticeQueue.length) {
+    return;
+  }
+
+  const proximo = state.operationalNoticeQueue.shift();
+  window.setTimeout(() => {
+    mostrarAvisoOperacionalAgora(proximo.tipo, proximo.payload);
+  }, 120);
+}
+
+function mostrarAvisoOperacionalAgora(tipo, payload = {}) {
   const noticeId = String(payload.id || "");
   const nome = String(payload.nome || payload.nome_arquivo || payload.nome_pdf || "").trim();
 
@@ -1883,6 +1907,18 @@ function mostrarAvisoOperacional(tipo, payload = {}) {
   }
 
   openPdfNameModalComConfirmacao(nome, noticeId);
+}
+
+function mostrarAvisoOperacional(tipo, payload = {}) {
+  if (algumAvisoOperacionalAberto()) {
+    state.operationalNoticeQueue.push({
+      tipo,
+      payload: { ...payload }
+    });
+    return;
+  }
+
+  mostrarAvisoOperacionalAgora(tipo, payload);
 }
 
 window.mostrarAvisoOperacional = mostrarAvisoOperacional;
@@ -2685,6 +2721,7 @@ function limparPainel() {
   state.currentPaymentFileNotice = "";
   state.lastPaymentFileNotice = "";
   state.currentPaymentNoticeId = "";
+  state.operationalNoticeQueue = [];
   closePdfNameModal();
   closePaymentFileModal();
   limparMensagensValidacao();
