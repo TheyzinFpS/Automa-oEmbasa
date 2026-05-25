@@ -1,5 +1,44 @@
 # Registro técnico de alterações
 
+## Segunda-feira, 25/05/2026 17:22:03 - Versão 1.4.10
+
+**Problema identificado**
+
+O fluxo travava antes da `SP02`, ainda na etapa de meio de pagamento da `F110`. A causa provável era a espera de confirmação do aviso operacional entre backend Python e frontend pywebview: o backend pausava aguardando o modal, enquanto a interface precisava responder por `pywebview.api`, criando risco de deadlock e impedindo a abertura/continuidade da janela de salvamento do arquivo.
+
+**O que foi alterado**
+
+- O aviso de meio de pagamento deixou de abrir modal bloqueante e deixou de aguardar confirmação do frontend.
+- O nome do arquivo de meio de pagamento continua sendo copiado para a área de transferência pelo backend antes da janela de salvamento.
+- A automação segue imediatamente para o `F4/Explorer` e confirmação do arquivo, sem depender do botão `Copiar nome e fechar`.
+- Protegido o backend para ignorar qualquer tentativa futura de aviso operacional bloqueante do tipo `payment`.
+- O frontend passou a tratar eventos legados `PAYMENT_FILE_READY::` apenas copiando o texto, sem abrir o modal de meio de pagamento.
+- Mantido o modal da `SP02/PDFCreator`, porque ele ocorre depois do meio de pagamento e faz parte da etapa de impressão/exportação do boleto.
+- Atualizada a versão do projeto de `1.4.9` para `1.4.10`.
+
+**Arquivos alterados**
+
+- `backend/flows/f110_boleto.py`
+- `interface.py`
+- `interface/app.js`
+- `interface/index.html`
+- `backend/settings.py`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `LEIA-ME_EMPRESA.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+Ao chegar no meio de pagamento, o sistema deve copiar o nome `AAAA.MM.DD - DOC_FAT`, continuar o SAP sem esperar a interface e só depois avançar para a `SP02` quando o salvamento for concluído.
+
+**Validação realizada**
+
+- `python -m py_compile interface.py backend\controller.py backend\flows\f110.py backend\flows\f110_boleto.py backend\settings.py`
+- `node --check interface\app.js`
+- Teste isolado confirmando que `_aguardar_copia_interface` no tipo `payment` não chama `notice_callback`, não emite `PAYMENT_FILE_READY::` e retorna imediatamente.
+- Teste isolado confirmando que `_aguardar_aviso_operacional('payment')` retorna sem criar espera por confirmação.
+
 ## Segunda-feira, 25/05/2026 00:34:47 - Versão 1.4.9
 
 **Problema identificado**

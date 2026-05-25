@@ -206,6 +206,11 @@ class API:
         return {"ok": True}
 
     def _aguardar_aviso_operacional(self, tipo, payload=None, timeout=900):
+        tipo_chave = str(tipo or "").strip().lower()
+
+        if tipo_chave == "payment":
+            return True
+
         payload = dict(payload or {})
         notice_id = uuid.uuid4().hex
         evento = threading.Event()

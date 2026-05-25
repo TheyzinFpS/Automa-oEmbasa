@@ -164,10 +164,15 @@ def _aguardar_copia_interface(
     progress_callback=None,
     mensagem=None,
     percentual=99,
+    emitir_aviso=True,
+    aguardar_confirmacao=True,
 ):
     _copiar_nome_pdf(nome)
 
-    if callable(notice_callback):
+    if not emitir_aviso:
+        return True
+
+    if aguardar_confirmacao and callable(notice_callback):
         notice_callback(
             tipo,
             {
@@ -1166,10 +1171,12 @@ def baixar_arquivo_meio_pagamento(
         _aguardar_copia_interface(
             "payment",
             nome_arquivo,
-            notice_callback=notice_callback,
+            notice_callback=None,
             progress_callback=progress_callback,
             mensagem="Copie o nome antes de salvar o arquivo de meio de pagamento.",
             percentual=99,
+            emitir_aviso=False,
+            aguardar_confirmacao=False,
         )
 
         wait_for_element(session, "wnd[1]", timeout=10).sendVKey(4)
