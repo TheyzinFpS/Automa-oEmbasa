@@ -1,6 +1,6 @@
 EMBASA PEDIDOS SAP - GUIA ÚNICO DE USO E PUBLICAÇÃO
-Versão: 1.4.6
-Atualizado em: 24/05/2026
+Versão: 1.4.7
+Atualizado em: 25/05/2026
 
 1. O QUE O USUÁRIO FINAL DEVE ABRIR
 O atalho do usuário deve apontar para:

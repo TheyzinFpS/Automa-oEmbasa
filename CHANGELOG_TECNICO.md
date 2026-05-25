@@ -1,5 +1,39 @@
 # Registro técnico de alterações
 
+## Segunda-feira, 25/05/2026 00:14:11 - Versão 1.4.7
+
+**Problema identificado**
+
+O botão `Histórico` ficava separado na área inferior do painel de andamento, enquanto `Sobre` e `Modo` estavam agrupados na barra superior. Além disso, o histórico usava uma cor própria, diferente dos botões superiores.
+
+**O que foi alterado**
+
+- Movido o botão `Histórico` para a barra superior, ao lado de `Sobre` e `Modo`.
+- O botão `Histórico` passou a usar o mesmo estilo visual dos botões superiores.
+- Removido o botão `Histórico` da área inferior de ações do painel de andamento.
+- Atualizada a versão do projeto de `1.4.6` para `1.4.7`.
+
+**Arquivos alterados**
+
+- `interface/index.html`
+- `interface/app.js`
+- `backend/settings.py`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `LEIA-ME_EMPRESA.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+Na barra superior, `Sobre`, `Histórico` e `Modo` devem aparecer juntos, com a mesma linguagem de cor, altura e borda.
+
+**Validação realizada**
+
+- `python -m py_compile backend\controller.py backend\flows\f110.py backend\flows\f110_boleto.py interface.py backend\settings.py`
+- `node --check interface\app.js`
+- Validação renderizada em `http://127.0.0.1:8766/index.html`, confirmando `Sobre`, `Histórico` e `Modo` na barra superior, sem botão de histórico na área inferior.
+- Clique no botão `Histórico` validado, abrindo o modal correspondente.
+
 ## Segunda-feira, 25/05/2026 00:05:20 - Versão 1.4.6
 
 **Problema identificado**
