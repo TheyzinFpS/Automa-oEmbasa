@@ -365,6 +365,17 @@ video {
   padding: 24px;
 }
 
+.hero-flow-card {
+  align-items: center;
+  text-align: center;
+}
+
+.hero-flow-card strong {
+  max-width: 100%;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .hero-kpis span,
 .result-box span {
   font-size: 0.8rem;

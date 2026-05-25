@@ -1,5 +1,39 @@
 # Registro técnico de alterações
 
+## Segunda-feira, 25/05/2026 00:05:20 - Versão 1.4.6
+
+**Problema identificado**
+
+O card `Fluxo principal` estava com o conteúdo alinhado à esquerda dentro da box, deixando o bloco visualmente desequilibrado em relação aos demais cards da área superior.
+
+**O que foi alterado**
+
+- Adicionada uma classe própria para o card `Fluxo principal`.
+- Centralizado o título e a sequência do fluxo dentro da box.
+- Ajustada a quebra da sequência do fluxo para evitar estouro visual em larguras menores.
+- Atualizada a versão do projeto de `1.4.5` para `1.4.6`.
+
+**Arquivos alterados**
+
+- `interface/index.html`
+- `interface/style.css`
+- `interface/app.js`
+- `backend/settings.py`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `LEIA-ME_EMPRESA.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+O card `Fluxo principal` deve aparecer com seu conteúdo centralizado horizontalmente dentro da própria box, mantendo o espaçamento e a leitura da sequência do processo.
+
+**Validação realizada**
+
+- `python -m py_compile backend\controller.py backend\flows\f110.py backend\flows\f110_boleto.py interface.py backend\settings.py`
+- `node --check interface\app.js`
+- Validação renderizada em `http://127.0.0.1:8765/index.html`, confirmando `align-items: center`, `text-align: center` e centralização horizontal do título e da sequência do fluxo.
+
 ## Domingo, 24/05/2026 19:36:23 - Versão 1.4.5
 
 **Problema identificado**
