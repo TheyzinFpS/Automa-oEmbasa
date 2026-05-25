@@ -41,7 +41,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.10";
+const APP_VERSION = "1.4.11";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -59,6 +59,7 @@ const STATUS_CANCELADO = new Set(["cancelado", "cancelada", "cancel", "canceled"
 const EMPTY_LOG_MARKUP = '<div class="log-empty">Os logs do fluxo aparecerão aqui.</div>';
 const PDF_NAME_NOTICE_PREFIX = "PDF_NAME_READY::";
 const PAYMENT_FILE_NOTICE_PREFIX = "PAYMENT_FILE_READY::";
+const SIMPLE_NOTICE_PREFIX = "SIMPLE_NOTICE::";
 // Mapeia eventos vindos do Python para a etapa visual correspondente.
 const DISPLAY_STAGE_MAP = (() => {
   const map = new Map();
@@ -111,6 +112,7 @@ const state = {
   lastPaymentFileNotice: "",
   currentPaymentNoticeId: "",
   operationalNoticeQueue: [],
+  simpleOperationalToastTimer: null,
   historicoItens: [],
   historicoSelecionado: null
 };
@@ -1722,8 +1724,20 @@ function tratarAvisoMeioPagamento(mensagem) {
   return limparMensagemAvisoMeioPagamento(mensagem);
 }
 
+function tratarAvisoSimples(mensagem) {
+  const texto = String(mensagem || "").trim();
+
+  if (!texto.startsWith(SIMPLE_NOTICE_PREFIX)) {
+    return mensagem;
+  }
+
+  const aviso = texto.slice(SIMPLE_NOTICE_PREFIX.length).trim();
+  showSimpleOperationalToast(aviso || "Ação concluída.");
+  return aviso || "Ação concluída.";
+}
+
 function tratarAvisosOperacionais(mensagem) {
-  return tratarAvisoMeioPagamento(tratarAvisoNomePdf(mensagem));
+  return tratarAvisoSimples(tratarAvisoMeioPagamento(tratarAvisoNomePdf(mensagem)));
 }
 
 function copiarTextoFallback(texto) {
@@ -1754,6 +1768,31 @@ function prepararInterfaceParaAvisoOperacional() {
   } catch (error) {
     // O backend tambem tenta trazer a janela para frente antes de emitir o aviso.
   }
+}
+
+function showSimpleOperationalToast(message) {
+  const texto = String(message || "").trim();
+
+  if (!texto) {
+    return;
+  }
+
+  let toast = el("simpleOperationalToast");
+
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "simpleOperationalToast";
+    toast.className = "simple-operational-toast";
+    document.body.appendChild(toast);
+    domCache.set("simpleOperationalToast", toast);
+  }
+
+  toast.textContent = texto;
+  toast.classList.add("visible");
+  window.clearTimeout(state.simpleOperationalToastTimer);
+  state.simpleOperationalToastTimer = window.setTimeout(() => {
+    toast.classList.remove("visible");
+  }, 4600);
 }
 
 async function copiarTextoParaAreaTransferencia(texto) {

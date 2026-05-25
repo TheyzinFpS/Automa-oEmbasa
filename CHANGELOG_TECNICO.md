@@ -1,5 +1,44 @@
 # Registro técnico de alterações
 
+## Segunda-feira, 25/05/2026 17:31:18 - Versão 1.4.11
+
+**Problema identificado**
+
+Após abrir o `Salvar como` do Windows no meio de pagamento, a automação ainda esperava o retorno do SAP com timeout curto. Se o usuário demorasse para escolher local/nome e salvar o arquivo, o código falhava antes de concluir o meio de pagamento e, por consequência, não chegava na `SP02`.
+
+**O que foi alterado**
+
+- Criada espera sem limite de tempo para o salvamento do arquivo de meio de pagamento.
+- Depois do `F4`, o sistema aguarda o usuário fechar/salvar a janela do Explorer pelo tempo necessário, inclusive por horas.
+- A automação só pressiona a confirmação do SAP e segue para `SP02` quando o SAP volta a disponibilizar o botão de confirmação.
+- Adicionado aviso simples, sem clique, informando que o nome do meio de pagamento foi copiado para colar no campo `Nome do arquivo`.
+- O aviso simples não traz a interface para frente; a interface só é trazida para frente nos avisos de `SP02/PDFCreator`.
+- Atualizada a versão do projeto de `1.4.10` para `1.4.11`.
+
+**Arquivos alterados**
+
+- `backend/flows/f110_boleto.py`
+- `interface.py`
+- `interface/app.js`
+- `interface/style.css`
+- `interface/index.html`
+- `backend/settings.py`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `LEIA-ME_EMPRESA.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+Ao abrir o Explorer para salvar o arquivo de meio de pagamento, o usuário pode demorar o tempo que precisar. Assim que salvar/fechar a janela, a automação continua normalmente e só então segue para a `SP02`.
+
+**Validação realizada**
+
+- `python -m py_compile interface.py backend\controller.py backend\flows\f110.py backend\flows\f110_boleto.py backend\settings.py`
+- `node --check interface\app.js`
+- Teste isolado de `_aguardar_salvamento_meio_pagamento`, simulando o Explorer aberto antes do retorno do botão SAP.
+- Rebuild empresarial concluído em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`.
+
 ## Segunda-feira, 25/05/2026 17:22:03 - Versão 1.4.10
 
 **Problema identificado**

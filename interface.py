@@ -128,10 +128,7 @@ class API:
     ):
         mensagem_texto = "" if mensagem is None else str(mensagem)
 
-        if (
-            mensagem_texto.startswith("PDF_NAME_READY::")
-            or mensagem_texto.startswith("PAYMENT_FILE_READY::")
-        ):
+        if mensagem_texto.startswith("PDF_NAME_READY::"):
             self._trazer_interface_para_frente(maximizar=True)
 
         self._last_progress = {

@@ -1133,6 +1133,47 @@ def abrir_f110_com_bol(
     }
 
 
+def _aguardar_salvamento_meio_pagamento(
+    session,
+    logger=None,
+    progress_callback=None,
+    intervalo=1,
+    aviso_intervalo=300,
+):
+    inicio = time.monotonic()
+    proximo_aviso = inicio + aviso_intervalo
+
+    if logger:
+        logger.add(
+            6,
+            "Aguardando o usuário concluir o salvamento do meio de pagamento no Explorer.",
+            publico=True,
+        )
+
+    _notificar(
+        progress_callback,
+        "Janela de salvamento aberta. Salve o arquivo para continuar.",
+        99,
+    )
+
+    while True:
+        try:
+            return session.findById("wnd[1]/tbar[0]/btn[0]")
+        except Exception:
+            agora = time.monotonic()
+
+            if agora >= proximo_aviso:
+                minutos = max(1, int((agora - inicio) // 60))
+                _notificar(
+                    progress_callback,
+                    f"Aguardando salvamento do meio de pagamento ha {minutos} min.",
+                    99,
+                )
+                proximo_aviso = agora + aviso_intervalo
+
+            time.sleep(max(0.2, float(intervalo or 1)))
+
+
 def baixar_arquivo_meio_pagamento(
     session,
     logger=None,
@@ -1163,11 +1204,6 @@ def baixar_arquivo_meio_pagamento(
         wait_until_ready(session)
 
         nome_arquivo = montar_nome_arquivo_meio_pagamento(doc_fat)
-        _notificar(
-            progress_callback,
-            "Nome padrão do meio de pagamento pronto para copiar.",
-            99,
-        )
         _aguardar_copia_interface(
             "payment",
             nome_arquivo,
@@ -1178,11 +1214,24 @@ def baixar_arquivo_meio_pagamento(
             emitir_aviso=False,
             aguardar_confirmacao=False,
         )
+        _notificar(
+            progress_callback,
+            "Nome do meio de pagamento copiado. Cole no campo Nome do arquivo.",
+            99,
+        )
+        _notificar(
+            progress_callback,
+            "SIMPLE_NOTICE::Nome do meio de pagamento copiado. Cole no campo Nome do arquivo.",
+            99,
+        )
 
         wait_for_element(session, "wnd[1]", timeout=10).sendVKey(4)
-        wait_until_ready(session)
 
-        wait_for_element(session, "wnd[1]/tbar[0]/btn[0]", timeout=10).press()
+        _aguardar_salvamento_meio_pagamento(
+            session,
+            logger=logger,
+            progress_callback=progress_callback,
+        ).press()
         wait_until_ready(session)
 
         session.findById("wnd[0]").sendVKey(3)

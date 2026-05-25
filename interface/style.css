@@ -1675,6 +1675,32 @@ input.is-loading {
   display: none;
 }
 
+.simple-operational-toast {
+  position: fixed;
+  right: clamp(14px, 2vw, 28px);
+  bottom: clamp(14px, 2vw, 28px);
+  z-index: 45;
+  max-width: min(430px, calc(100vw - 28px));
+  padding: 15px 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface-strong);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  font-size: 0.92rem;
+  font-weight: 800;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(12px);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.simple-operational-toast.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .contact-success-card {
   position: relative;
   z-index: 1;
