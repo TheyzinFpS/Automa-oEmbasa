@@ -41,7 +41,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.7";
+const APP_VERSION = "1.4.8";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -1695,7 +1695,7 @@ function limparMensagemAvisoMeioPagamento(mensagem) {
   const texto = String(mensagem || "").trim();
 
   if (texto.startsWith(PAYMENT_FILE_NOTICE_PREFIX)) {
-    return "Nome do arquivo de meio de pagamento pronto para copiar.";
+    return "Nome do arquivo de meio de pagamento pronto para copiar e salvar.";
   }
 
   return texto;

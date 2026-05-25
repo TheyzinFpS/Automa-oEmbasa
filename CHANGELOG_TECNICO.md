@@ -1,5 +1,40 @@
 # Registro técnico de alterações
 
+## Segunda-feira, 25/05/2026 00:25:53 - Versão 1.4.8
+
+**Problema identificado**
+
+Na etapa de meio de pagamento, o usuário precisa copiar um nome padrão para salvar o arquivo gerado pela F110. A interface já possuía a base do aviso, mas o texto do modal ainda indicava que o nome estava copiado antes da ação do usuário.
+
+**O que foi alterado**
+
+- Ajustado o modal de meio de pagamento para exibir `Nome do arquivo pronto`.
+- A instrução do modal agora orienta copiar o nome e colar na janela de salvamento do arquivo.
+- Mantido o padrão do nome do meio de pagamento como `ano.mês.dia - doc.fat`, por exemplo `2026.05.25 - 1234567890`.
+- Mantido o comportamento sem etapa extra: ao clicar em `Copiar nome e fechar`, o nome é copiado, o modal fecha e a automação segue para a janela de salvamento.
+- Atualizada a versão do projeto de `1.4.7` para `1.4.8`.
+
+**Arquivos alterados**
+
+- `interface/index.html`
+- `interface/app.js`
+- `backend/settings.py`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `LEIA-ME_EMPRESA.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+Quando a F110 chegar ao salvamento do arquivo de meio de pagamento, a interface deve abrir um modal no mesmo estilo do modal da SP02, exibindo o nome `AAAA.MM.DD - DOC_FAT` para copiar e fechar.
+
+**Validação realizada**
+
+- `python -m py_compile backend\controller.py backend\flows\f110.py backend\flows\f110_boleto.py interface.py backend\settings.py`
+- `node --check interface\app.js`
+- Teste isolado de `montar_nome_arquivo_meio_pagamento`, confirmando `2026.05.25 - 1234567890`.
+- Validação renderizada em `http://127.0.0.1:8767/index.html`, confirmando modal de meio de pagamento, título, instrução, botão `Copiar nome e fechar` e versão `1.4.8`.
+
 ## Segunda-feira, 25/05/2026 00:14:11 - Versão 1.4.7
 
 **Problema identificado**
