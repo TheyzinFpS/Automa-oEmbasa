@@ -59,7 +59,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.4.11</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.4.12</span>
           </div>
         </div>
       </div>
@@ -81,7 +81,7 @@
     </header>
 
     <main class="workspace">
-      <section class="panel form-panel">
+      <section id="mainFormPanel" class="panel form-panel">
         <div class="panel-head compact">
           <div>
             <h2>Automatiza&ccedil;&atilde;o de Pedidos SAP</h2>
@@ -370,6 +370,110 @@
 
       </section>
 
+      <section id="clientRegistrationPanel" class="panel client-registration-panel hidden">
+        <div class="panel-head compact">
+          <div>
+            <p class="section-kicker">Cadastro SAP</p>
+            <h2>Criar cliente</h2>
+          </div>
+          <div id="clientRegistrationDocBadge" class="doc-badge neutral">CPF/CNPJ</div>
+        </div>
+
+        <div class="client-registration-summary">
+          <div>
+            <span>Documento</span>
+            <strong id="clientRegistrationDoc">--</strong>
+          </div>
+          <div>
+            <span>Tipo solicitado</span>
+            <strong id="clientRegistrationTipo">--</strong>
+          </div>
+        </div>
+
+        <div class="address-grid client-registration-grid">
+          <label class="field field-span-2">
+            <span>Nome / Raz&atilde;o social</span>
+            <input id="clienteCadastroNome1" type="text" maxlength="70" />
+          </label>
+
+          <label class="field field-span-2">
+            <span>Complemento do nome</span>
+            <input id="clienteCadastroNome2" type="text" maxlength="70" />
+          </label>
+
+          <label class="field field-span-2">
+            <span>Rua</span>
+            <input id="clienteCadastroRua" type="text" maxlength="160" />
+          </label>
+
+          <label class="field">
+            <span>N&uacute;mero</span>
+            <input id="clienteCadastroNumero" type="text" maxlength="20" />
+          </label>
+
+          <label class="field">
+            <span>CEP</span>
+            <input
+              id="clienteCadastroCep"
+              type="text"
+              inputmode="numeric"
+              maxlength="9"
+              oninput="formatarCepCadastro(this)"
+            />
+          </label>
+
+          <label class="field">
+            <span>Bairro</span>
+            <input id="clienteCadastroBairro" type="text" maxlength="120" />
+          </label>
+
+          <label class="field">
+            <span>Cidade</span>
+            <input id="clienteCadastroCidade" type="text" maxlength="120" oninput="filtrarCidade(this)" />
+          </label>
+
+          <label class="field">
+            <span>Estado</span>
+            <input id="clienteCadastroEstado" type="text" maxlength="2" value="BA" />
+          </label>
+
+          <label class="field">
+            <span>Inscri&ccedil;&atilde;o estadual</span>
+            <input id="clienteCadastroInscricao" type="text" maxlength="18" value="ISENTO" />
+          </label>
+
+          <label class="field">
+            <span>Telefone</span>
+            <input id="clienteCadastroTelefone" type="text" maxlength="30" />
+          </label>
+
+          <label class="field">
+            <span>E-mail</span>
+            <input id="clienteCadastroEmail" type="email" maxlength="160" />
+          </label>
+        </div>
+
+        <div id="clientRegistrationFeedback" class="contact-feedback hidden"></div>
+
+        <div class="flow-actions client-registration-actions">
+          <button
+            id="clientRegistrationSubmit"
+            class="primary-action"
+            type="button"
+            onclick="submitCadastroCliente()"
+          >
+            Criar cliente e continuar
+          </button>
+          <button
+            class="ghost-action"
+            type="button"
+            onclick="cancelarCadastroCliente()"
+          >
+            Voltar
+          </button>
+        </div>
+      </section>
+
       <section class="panel monitor-panel">
         <div class="panel-head">
           <div>
@@ -456,6 +560,36 @@
       </section>
     </main>
 
+  </div>
+
+  <div id="sapActionModal" class="contact-success-modal hidden">
+    <div class="contact-backdrop"></div>
+
+    <div class="contact-success-card batch-confirm-card sap-action-card">
+      <p id="sapActionKicker" class="section-kicker">Cadastro SAP</p>
+      <h2 id="sapActionTitle">A&ccedil;&atilde;o necess&aacute;ria</h2>
+      <p id="sapActionMessage">
+        Existe uma pend&ecirc;ncia de cadastro antes de continuar.
+      </p>
+      <div id="sapActionDetails" class="sap-action-details"></div>
+      <div class="batch-confirm-actions">
+        <button
+          id="sapActionConfirm"
+          type="button"
+          class="primary-action"
+          onclick="confirmarAcaoSapPendente()"
+        >
+          Continuar
+        </button>
+        <button
+          type="button"
+          class="ghost-action"
+          onclick="cancelarAcaoSapPendente()"
+        >
+          Agora n&atilde;o
+        </button>
+      </div>
+    </div>
   </div>
 
   <div id="contactModal" class="contact-modal hidden">

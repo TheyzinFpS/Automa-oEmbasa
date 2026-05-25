@@ -11,6 +11,7 @@ import webview
 
 from backend.controller import SAPController
 from backend.documentos import analisar_doc, limpar_doc
+from backend.flows.cliente_cadastro import adicionar_setores_cliente, criar_cliente
 from backend.history import (
     diagnostico_historico,
     listar_historico_pedidos,
@@ -18,6 +19,7 @@ from backend.history import (
     registrar_historico_pedido,
 )
 from backend.logger import Logger
+from backend.sap_connection import conectar_sap
 from backend.support_mail import process_support_request
 from backend.settings import SETTINGS
 from backend.validators import validar_dados
@@ -384,6 +386,7 @@ class API:
                                 "logs": self._logger.get_logs(public_only=True),
                                 "doc_info": dados_tratados["doc_info"],
                                 "resultado": resultado.get("dados") or {},
+                                "acao_pendente": resultado.get("acao_pendente"),
                                 "checkpoint": resultado.get("checkpoint"),
                                 "tempo_real": True,
                             }
@@ -465,6 +468,100 @@ class API:
         concluido.wait()
 
         return _serializar_para_front(resultado_final)
+
+    def _executar_acao_cliente_sap(self, dados, executor, status_texto):
+        resultado_final = {}
+        concluido = threading.Event()
+
+        with self._flow_lock:
+            if self._flow_running:
+                return {
+                    "ok": False,
+                    "msg": "Ja existe uma acao SAP em andamento.",
+                    "tempo_real": True,
+                }
+
+            self._flow_running = True
+            self._cancel_event.clear()
+
+        def worker():
+            add_original = self._instalar_logger_tempo_real()
+
+            try:
+                self._emitir_status(status_texto, "running")
+                self._logger.add(-1, status_texto, publico=True)
+                session = conectar_sap()
+                resultado = executor(
+                    session,
+                    dados,
+                    self._logger,
+                    progress_callback=self._emitir_progresso,
+                )
+                resultado = _serializar_para_front(resultado)
+
+                payload = {
+                    "ok": bool(resultado.get("ok")),
+                    "msg": resultado.get("mensagem") or "",
+                    "resultado": resultado.get("dados") or {},
+                    "logs": self._logger.get_logs(public_only=True),
+                    "tempo_real": True,
+                }
+
+                resultado_final.update(_serializar_para_front(payload))
+
+                if payload["ok"]:
+                    self._emitir_preencher_resultado(payload["resultado"])
+                    self._emitir_status("Concluido", "success")
+                else:
+                    self._emitir_status("Falha no processamento", "error")
+            except Exception as exc:
+                self._logger.add(
+                    -1,
+                    f"Falha na acao de cadastro SAP: {exc}",
+                    nivel="ERRO",
+                    publico=True,
+                )
+                self._logger.add(
+                    -1,
+                    traceback.format_exc(),
+                    nivel="DEBUG",
+                    publico=False,
+                )
+                resultado_final.update(
+                    {
+                        "ok": False,
+                        "msg": "Erro inesperado na acao de cadastro SAP.",
+                        "logs": _serializar_para_front(
+                            self._logger.get_logs(public_only=True)
+                        ),
+                        "tempo_real": True,
+                    }
+                )
+                self._emitir_status("Falha no processamento", "error")
+            finally:
+                self._restaurar_logger(add_original)
+                with self._flow_lock:
+                    self._flow_running = False
+                concluido.set()
+
+        threading.Thread(target=worker, daemon=True).start()
+        concluido.wait()
+
+        return _serializar_para_front(resultado_final)
+
+    def cadastrar_cliente_sap(self, dados):
+        return self._executar_acao_cliente_sap(
+            dados,
+            criar_cliente,
+            "Cadastrando cliente no SAP",
+        )
+
+    def adicionar_setores_cliente_sap(self, dados):
+        return self._executar_acao_cliente_sap(
+            dados,
+            adicionar_setores_cliente,
+            "Cadastrando setores no SAP",
+        )
 
     # Solicita parada no proximo ponto seguro do fluxo SAP em execucao.
     def cancelar_fluxo(self):

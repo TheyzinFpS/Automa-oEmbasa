@@ -1,5 +1,49 @@
 # Registro técnico de alterações
 
+## Segunda-feira, 25/05/2026 18:13:15 - Versão 1.4.12
+
+**Problema identificado**
+
+Quando a `XD03` nao localizava o CPF/CNPJ ou encontrava o cliente sem o setor necessario, o fluxo parava apenas como falha operacional. O usuario precisava resolver manualmente no SAP e depois tentar novamente, mesmo existindo scripts VBS para criacao de cliente e extensao dos setores `AG`, `EG` e `AE`.
+
+**O que foi alterado**
+
+- Convertidos os VBS `criacaocliente.vbs` e `adicionandosetor.vbs` para um novo modulo Python isolado em `backend/flows/cliente_cadastro.py`.
+- A `XD03` agora devolve pendencias estruturadas para a interface:
+  - `cliente_nao_cadastrado`, quando o documento nao existe no SAP.
+  - `setor_ausente`, quando o cliente existe, mas nao possui o setor necessario para o tipo selecionado.
+- A interface passou a exibir um modal de decisao para criar cliente ou criar setores antes de continuar.
+- Para cliente novo, foi adicionada uma aba de cadastro com os campos necessarios de nome, endereco, telefone, e-mail e inscricao estadual.
+- Para setor ausente, a criacao usa dados padrao do SAP, sem exigir uma aba propria.
+- Apos criar cliente ou setores, a interface retoma automaticamente o fluxo padrao a partir da validacao normal da `XD03`.
+- Atualizada a versao do projeto de `1.4.11` para `1.4.12`.
+
+**Arquivos alterados**
+
+- `backend/flows/cliente_cadastro.py`
+- `backend/flows/xd03.py`
+- `backend/controller.py`
+- `interface.py`
+- `interface/app.js`
+- `interface/index.html`
+- `interface/style.css`
+- `backend/settings.py`
+- `embasa_settings.json`
+- `VERSAO.txt`
+- `LEIA-ME_EMPRESA.txt`
+- `CHANGELOG_TECNICO.md`
+
+**Resultado esperado**
+
+Se o CPF/CNPJ nao existir, o usuario recebe a opcao de cadastrar o cliente pela interface. Depois do cadastro, o sistema volta ao fluxo normal. Se apenas faltar setor, o usuario confirma a criacao dos setores padrao e o fluxo tambem volta automaticamente para a validacao e criacao do boleto.
+
+**Validação realizada**
+
+- `python -m py_compile interface.py backend\controller.py backend\flows\xd03.py backend\flows\cliente_cadastro.py backend\flows\f110.py backend\flows\f110_boleto.py backend\settings.py`
+- `node --check interface\app.js`
+- Teste isolado de normalizacao do cadastro, validando CNPJ, grupo de conta `PJ01` e setores `AG/EG` para `agua_esgoto`.
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`.
+
 ## Segunda-feira, 25/05/2026 17:31:18 - Versão 1.4.11
 
 **Problema identificado**

@@ -441,6 +441,64 @@ video {
   align-self: start;
 }
 
+.form-panel.hidden,
+.client-registration-panel.hidden {
+  display: none;
+}
+
+.client-registration-panel {
+  align-self: start;
+}
+
+.client-registration-summary,
+.sap-action-details {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid rgba(11, 79, 159, 0.12);
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(11, 79, 159, 0.08), rgba(0, 143, 208, 0.06));
+}
+
+.client-registration-summary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.client-registration-summary span,
+.sap-action-details span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.client-registration-summary strong,
+.sap-action-details strong {
+  display: block;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.client-registration-grid {
+  margin-top: 2px;
+}
+
+.client-registration-actions {
+  margin-top: 18px;
+}
+
+.sap-action-card {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.sap-action-details {
+  text-align: left;
+}
+
 .panel-head {
   display: flex;
   justify-content: space-between;
@@ -2130,6 +2188,10 @@ input.is-loading {
   }
 
   .address-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .client-registration-summary {
     grid-template-columns: 1fr;
   }
 

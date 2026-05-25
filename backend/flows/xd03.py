@@ -520,11 +520,22 @@ def _buscar(session, campo, doc, logger, tipo, progress_callback=None):
         press_and_wait(session, "wnd[2]/tbar[0]/btn[12]")
         press_and_wait(session, "wnd[1]/tbar[0]/btn[12]")
 
-        return resultado_padrao(
+        resultado = resultado_padrao(
             ok=False,
             etapa="XD03",
-            mensagem="Cliente não encontrado",
+            mensagem="Cliente nao encontrado",
+            dados={
+                "documento": doc,
+                "tipo_documento": tipo,
+            },
         )
+        resultado["acao_pendente"] = {
+            "tipo": "cliente_nao_cadastrado",
+            "documento": doc,
+            "tipo_documento": tipo,
+            "mensagem": "Cliente nao cadastrado no SAP.",
+        }
+        return resultado
 
     notificar_progresso(
         progress_callback,
@@ -713,7 +724,20 @@ def buscar_cliente(session, dados, logger, progress_callback=None):
                     notify=False,
                 )
 
-                return resultado_padrao(
+                pendencia = {
+                    "tipo": "setor_ausente",
+                    "cliente": resultado["dados"].get("cliente"),
+                    "documento": doc,
+                    "tipo_documento": resultado["dados"].get("tipo_documento") or tipo_doc,
+                    "tipo_solicitacao": tipo_solicitacao,
+                    "tipo_label": tipo_label,
+                    "setores_necessarios": list(_setores_necessarios(tipo_solicitacao)),
+                    "setores_encontrados": setores,
+                    "tipos_suportados": tipos_suportados,
+                    "mensagem": mensagem,
+                }
+
+                retorno = resultado_padrao(
                     ok=False,
                     etapa="XD03",
                     mensagem=mensagem,
@@ -723,6 +747,8 @@ def buscar_cliente(session, dados, logger, progress_callback=None):
                         f"setores encontrados: {setores}"
                     ),
                 )
+                retorno["acao_pendente"] = pendencia
+                return retorno
 
             tipo_label = _TIPO_LABEL.get(tipo_solicitacao, tipo_solicitacao)
 

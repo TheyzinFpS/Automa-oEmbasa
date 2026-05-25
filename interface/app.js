@@ -41,7 +41,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.11";
+const APP_VERSION = "1.4.12";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -113,6 +113,8 @@ const state = {
   currentPaymentNoticeId: "",
   operationalNoticeQueue: [],
   simpleOperationalToastTimer: null,
+  pendingSapAction: null,
+  pendingSapPayload: null,
   historicoItens: [],
   historicoSelecionado: null
 };
@@ -309,6 +311,10 @@ function formatarCep(elm) {
   elm.value = formatarCepValue(elm.value);
   limparMensagemCampo("enderecoCep");
   agendarConsultaCep();
+}
+
+function formatarCepCadastro(elm) {
+  elm.value = formatarCepValue(elm.value);
 }
 
 function formatarCentavosParaMoeda(centavos) {
@@ -2321,6 +2327,329 @@ function showResumeBox(checkpoint, fallbackMessage = "") {
   el("resumeBox").classList.remove("hidden");
 }
 
+function clonePlain(value) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (error) {
+    return value;
+  }
+}
+
+function formatarDocumentoResumo(documento) {
+  const info = analisarDocumento(documento || "");
+  return info.formatado || String(documento || "").trim() || "--";
+}
+
+function getSetoresPendentesLabel(acao = {}) {
+  const setores = Array.isArray(acao.setores_necessarios)
+    ? acao.setores_necessarios
+    : [];
+
+  return setores.filter(Boolean).join(" + ") || "--";
+}
+
+function setPendingSapAction(acao, payload) {
+  state.pendingSapAction = clonePlain(acao);
+  state.pendingSapPayload = clonePlain(payload);
+}
+
+function openSapActionModal(acao, payload) {
+  if (!acao) {
+    return false;
+  }
+
+  setPendingSapAction(acao, payload);
+
+  const tipoAcao = String(acao.tipo || "").trim();
+  const doc = acao.documento || payload?.doc || "";
+  const details = el("sapActionDetails");
+  const confirmButton = el("sapActionConfirm");
+  const title = el("sapActionTitle");
+  const message = el("sapActionMessage");
+  const kicker = el("sapActionKicker");
+
+  confirmButton.disabled = false;
+
+  if (tipoAcao === "cliente_nao_cadastrado") {
+    kicker.textContent = "Cliente não cadastrado";
+    title.textContent = "Criar cliente no SAP?";
+    message.textContent = "O CPF/CNPJ informado não foi localizado. Para continuar, cadastre o cliente e depois o fluxo será retomado automaticamente.";
+    confirmButton.textContent = "Criar cliente";
+    details.innerHTML = `
+      <div>
+        <span>Documento</span>
+        <strong>${escapeHtml(formatarDocumentoResumo(doc))}</strong>
+      </div>
+      <div>
+        <span>Tipo solicitado</span>
+        <strong>${escapeHtml(TIPOS_SOLICITACAO[payload?.tipo] || payload?.tipo || "--")}</strong>
+      </div>
+    `;
+  } else if (tipoAcao === "setor_ausente") {
+    kicker.textContent = "Setor ausente";
+    title.textContent = "Criar setor do cliente?";
+    message.textContent = "O cliente existe, mas não possui o setor exigido para o tipo selecionado. Os dados de setor são padrão, então o sistema pode criar e seguir o fluxo.";
+    confirmButton.textContent = "Criar setores e continuar";
+    details.innerHTML = `
+      <div>
+        <span>Cliente</span>
+        <strong>${escapeHtml(acao.cliente || "--")}</strong>
+      </div>
+      <div>
+        <span>Setor necessário</span>
+        <strong>${escapeHtml(getSetoresPendentesLabel(acao))}</strong>
+      </div>
+      <div>
+        <span>Documento</span>
+        <strong>${escapeHtml(formatarDocumentoResumo(doc))}</strong>
+      </div>
+    `;
+  } else {
+    return false;
+  }
+
+  openModal("sapActionModal");
+  return true;
+}
+
+function closeSapActionModal() {
+  closeModal("sapActionModal");
+}
+
+function cancelarAcaoSapPendente() {
+  closeSapActionModal();
+  setStatus("Aguardando", "idle");
+}
+
+function preencherCadastroClienteComPayload(payload = {}) {
+  const endereco = payload.endereco || {};
+  const docInfo = analisarDocumento(payload.doc || "");
+
+  el("clientRegistrationDoc").textContent = docInfo.formatado || payload.doc || "--";
+  el("clientRegistrationTipo").textContent = TIPOS_SOLICITACAO[payload.tipo] || payload.tipo || "--";
+  el("clientRegistrationDocBadge").textContent = docInfo.rotulo || "CPF/CNPJ";
+  el("clientRegistrationDocBadge").className = `doc-badge ${docInfo.valido ? "valid" : "neutral"}`;
+
+  el("clienteCadastroNome1").value = "";
+  el("clienteCadastroNome2").value = "";
+  el("clienteCadastroRua").value = endereco.rua || "";
+  el("clienteCadastroNumero").value = endereco.numero || "";
+  el("clienteCadastroCep").value = endereco.sem_cep ? "" : formatarCepValue(endereco.cep || "");
+  el("clienteCadastroBairro").value = endereco.bairro || "";
+  el("clienteCadastroCidade").value = endereco.cidade || "";
+  el("clienteCadastroEstado").value = endereco.estado || "BA";
+  el("clienteCadastroInscricao").value = "ISENTO";
+  el("clienteCadastroTelefone").value = "";
+  el("clienteCadastroEmail").value = "";
+  hideCadastroClienteFeedback();
+}
+
+function abrirAbaCadastroCliente() {
+  const payload = clonePlain(state.pendingSapPayload);
+
+  if (!payload) {
+    log("Não foi possível abrir cadastro: dados originais do fluxo ausentes.", "error");
+    openLogsPopover();
+    return;
+  }
+
+  preencherCadastroClienteComPayload(payload);
+  el("mainFormPanel").classList.add("hidden");
+  el("clientRegistrationPanel").classList.remove("hidden");
+  setStatus("Aguardando cadastro", "idle");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  window.setTimeout(() => el("clienteCadastroNome1").focus(), 180);
+}
+
+function fecharAbaCadastroCliente() {
+  el("clientRegistrationPanel").classList.add("hidden");
+  el("mainFormPanel").classList.remove("hidden");
+  hideCadastroClienteFeedback();
+}
+
+function cancelarCadastroCliente() {
+  fecharAbaCadastroCliente();
+  setStatus("Aguardando", "idle");
+}
+
+function showCadastroClienteFeedback(message, ok = false) {
+  const feedback = el("clientRegistrationFeedback");
+  feedback.textContent = message;
+  feedback.className = `contact-feedback ${ok ? "success" : "error"}`;
+}
+
+function hideCadastroClienteFeedback() {
+  const feedback = el("clientRegistrationFeedback");
+  if (!feedback) {
+    return;
+  }
+
+  feedback.textContent = "";
+  feedback.className = "contact-feedback hidden";
+}
+
+function coletarCadastroCliente() {
+  const payload = clonePlain(state.pendingSapPayload);
+
+  if (!payload) {
+    showCadastroClienteFeedback("Dados do fluxo original não foram encontrados.");
+    return null;
+  }
+
+  const cadastro = {
+    ...payload,
+    nome1: el("clienteCadastroNome1").value.trim(),
+    nome2: el("clienteCadastroNome2").value.trim(),
+    rua: el("clienteCadastroRua").value.trim(),
+    numero: el("clienteCadastroNumero").value.trim(),
+    cep: formatarCepValue(el("clienteCadastroCep").value.trim()),
+    bairro: el("clienteCadastroBairro").value.trim(),
+    cidade: sanitizarCidade(el("clienteCadastroCidade").value.trim()),
+    estado: el("clienteCadastroEstado").value.trim().toUpperCase() || "BA",
+    inscricao_estadual: el("clienteCadastroInscricao").value.trim() || "ISENTO",
+    telefone: el("clienteCadastroTelefone").value.trim(),
+    email: el("clienteCadastroEmail").value.trim()
+  };
+
+  const cepDigitos = obterDigitosCep(cadastro.cep);
+  const obrigatorios = [
+    ["Nome / Razão social", cadastro.nome1],
+    ["Rua", cadastro.rua],
+    ["Número", cadastro.numero],
+    ["CEP", cepDigitos.length === 8 ? cadastro.cep : ""],
+    ["Bairro", cadastro.bairro],
+    ["Cidade", cadastro.cidade],
+    ["Estado", cadastro.estado]
+  ];
+  const faltando = obrigatorios
+    .filter(([, value]) => !String(value || "").trim())
+    .map(([label]) => label);
+
+  if (faltando.length) {
+    showCadastroClienteFeedback(`Preencha: ${faltando.join(", ")}.`);
+    return null;
+  }
+
+  if (cadastro.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cadastro.email)) {
+    showCadastroClienteFeedback("Informe um e-mail válido ou deixe o campo em branco.");
+    return null;
+  }
+
+  return cadastro;
+}
+
+async function submitCadastroCliente() {
+  const cadastro = coletarCadastroCliente();
+
+  if (!cadastro) {
+    return;
+  }
+
+  const button = el("clientRegistrationSubmit");
+  const payloadOriginal = clonePlain(state.pendingSapPayload);
+
+  try {
+    button.disabled = true;
+    button.textContent = "Criando cliente...";
+    hideCadastroClienteFeedback();
+    setStatus("Cadastrando cliente", "running");
+
+    const resposta = await window.pywebview.api.cadastrar_cliente_sap(cadastro);
+
+    if (!resposta?.ok) {
+      showCadastroClienteFeedback(resposta?.msg || "Não foi possível criar o cliente.");
+      log(resposta?.msg || "Falha ao criar cliente.", "error");
+      openLogsPopover();
+      return;
+    }
+
+    showSimpleOperationalToast("Cliente criado. Retomando fluxo padrão.");
+    log(`Cliente criado: ${resposta?.resultado?.cliente || "--"}. Retomando fluxo padrão.`);
+    fecharAbaCadastroCliente();
+    state.pendingSapAction = null;
+
+    if (payloadOriginal) {
+      await executarFluxo(payloadOriginal, { resume: false });
+    }
+  } catch (error) {
+    showCadastroClienteFeedback(`Falha ao criar cliente: ${error}`);
+    log(`Falha ao criar cliente: ${error}`, "error");
+    openLogsPopover();
+  } finally {
+    button.disabled = false;
+    button.textContent = "Criar cliente e continuar";
+  }
+}
+
+async function executarCriacaoSetoresPendentes() {
+  const acao = clonePlain(state.pendingSapAction);
+  const payload = clonePlain(state.pendingSapPayload);
+  const button = el("sapActionConfirm");
+
+  if (!acao || !payload) {
+    log("Não foi possível criar setores: pendência ou payload ausente.", "error");
+    openLogsPopover();
+    return;
+  }
+
+  try {
+    button.disabled = true;
+    button.textContent = "Criando setores...";
+    setStatus("Cadastrando setores", "running");
+
+    const resposta = await window.pywebview.api.adicionar_setores_cliente_sap({
+      doc: acao.documento || payload.doc,
+      tipo: payload.tipo,
+      tipo_documento: acao.tipo_documento,
+      cliente: acao.cliente,
+      setores: acao.setores_necessarios || []
+    });
+
+    if (!resposta?.ok) {
+      el("sapActionMessage").textContent = resposta?.msg || "Não foi possível criar os setores.";
+      log(resposta?.msg || "Falha ao criar setores.", "error");
+      openLogsPopover();
+      return;
+    }
+
+    closeSapActionModal();
+    showSimpleOperationalToast("Setores criados. Retomando fluxo padrão.");
+    log(`Setores criados para o cliente ${acao.cliente || "--"}. Retomando fluxo padrão.`);
+    state.pendingSapAction = null;
+    await executarFluxo(payload, { resume: false });
+  } catch (error) {
+    el("sapActionMessage").textContent = `Falha ao criar setores: ${error}`;
+    log(`Falha ao criar setores: ${error}`, "error");
+    openLogsPopover();
+  } finally {
+    button.disabled = false;
+    button.textContent = "Criar setores e continuar";
+  }
+}
+
+async function confirmarAcaoSapPendente() {
+  const acao = state.pendingSapAction;
+
+  if (!acao) {
+    closeSapActionModal();
+    return;
+  }
+
+  if (acao.tipo === "cliente_nao_cadastrado") {
+    closeSapActionModal();
+    abrirAbaCadastroCliente();
+    return;
+  }
+
+  if (acao.tipo === "setor_ausente") {
+    await executarCriacaoSetoresPendentes();
+  }
+}
+
 function openLogsPopover() {
   el("logPopover").classList.remove("hidden");
   el("logBalloon").setAttribute("aria-expanded", "true");
@@ -2372,6 +2701,7 @@ const MODAL_IDS = [
   "historyModal",
   "aboutModal",
   "batchConfirmModal",
+  "sapActionModal",
   "cancelFlowModal"
 ];
 
@@ -2762,8 +3092,12 @@ function limparPainel() {
   state.lastPaymentFileNotice = "";
   state.currentPaymentNoticeId = "";
   state.operationalNoticeQueue = [];
+  state.pendingSapAction = null;
+  state.pendingSapPayload = null;
   closePdfNameModal();
   closePaymentFileModal();
+  closeSapActionModal();
+  fecharAbaCadastroCliente();
   limparMensagensValidacao();
   setStatus("Aguardando", "idle");
   closeLogsPopover();
@@ -3118,6 +3452,13 @@ async function executarFluxo(payload, options = {}) {
         log(res.msg, "error");
       }
 
+      if (res.acao_pendente && openSapActionModal(res.acao_pendente, payload)) {
+        hideResumeBox();
+        setStatus("Aguardando cadastro", "idle");
+        openLogsPopover();
+        return res;
+      }
+
       showResumeBox(
         res.checkpoint,
         "Confira o SAP, corrija o problema nesta etapa e continue do mesmo ponto."
@@ -3194,6 +3535,7 @@ document.addEventListener("click", (event) => {
   const card = el("contactCard");
   const modal = el("contactModal");
   const cancelModal = el("cancelFlowModal");
+  const sapActionModal = el("sapActionModal");
 
   if (menu && valueButton && !menu.contains(event.target) && !valueButton.contains(event.target)) {
     fecharMenuValor();
@@ -3222,6 +3564,14 @@ document.addEventListener("click", (event) => {
     event.target.classList.contains("contact-backdrop")
   ) {
     closeCancelFlowModal();
+  }
+
+  if (
+    sapActionModal &&
+    !sapActionModal.classList.contains("hidden") &&
+    event.target.classList.contains("contact-backdrop")
+  ) {
+    cancelarAcaoSapPendente();
   }
 });
 
@@ -3270,6 +3620,11 @@ document.addEventListener("keydown", (event) => {
 
   if (modalEstaAberto("cancelFlowModal")) {
     closeCancelFlowModal();
+    return;
+  }
+
+  if (modalEstaAberto("sapActionModal")) {
+    cancelarAcaoSapPendente();
   }
 });
 

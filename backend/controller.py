@@ -888,7 +888,7 @@ class SAPController:
             )
 
             if not resultado_xd03["ok"]:
-                return self._falha(
+                falha = self._falha(
                     etapa="XD03",
                     mensagem=resultado_xd03["mensagem"],
                     erro_tecnico=resultado_xd03.get("erro_tecnico"),
@@ -897,6 +897,9 @@ class SAPController:
                     resume_from="XD03",
                     session=session,
                 )
+                if resultado_xd03.get("acao_pendente"):
+                    falha["acao_pendente"] = resultado_xd03["acao_pendente"]
+                return falha
 
             contexto["cliente"] = resultado_xd03["dados"]["cliente"]
             contexto["nome_cliente"] = resultado_xd03["dados"].get("nome_cliente")
@@ -1211,7 +1214,7 @@ class SAPController:
 
             if not resultado_xd03["ok"]:
                 self.logger.add(-1, "Falha na etapa XD03.", nivel="ERRO")
-                return self._falha(
+                falha = self._falha(
                     etapa="XD03",
                     mensagem=resultado_xd03["mensagem"],
                     erro_tecnico=resultado_xd03.get("erro_tecnico"),
@@ -1220,6 +1223,9 @@ class SAPController:
                     resume_from="XD03",
                     session=session,
                 )
+                if resultado_xd03.get("acao_pendente"):
+                    falha["acao_pendente"] = resultado_xd03["acao_pendente"]
+                return falha
 
             contexto["cliente"] = resultado_xd03["dados"]["cliente"]
             contexto["nome_cliente"] = resultado_xd03["dados"].get("nome_cliente")
