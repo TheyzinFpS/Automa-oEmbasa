@@ -25,6 +25,12 @@ const TIPOS_SOLICITACAO = {
   agua_esgoto: "Água + Esgoto"
 };
 
+const SETOR_MODELOS = {
+  AE: { titulo: "Viabilidade", vendas: "1055", grupo: "DM" },
+  AG: { titulo: "Água", vendas: "1055", grupo: "DM" },
+  EG: { titulo: "Esgoto", vendas: "1070", grupo: "ME" }
+};
+
 // Status operacional exibido no card de status da base.
 const BASE_STATUS = {
   active: {
@@ -41,7 +47,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.14";
+const APP_VERSION = "1.4.15";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -115,6 +121,9 @@ const state = {
   simpleOperationalToastTimer: null,
   pendingSapAction: null,
   pendingSapPayload: null,
+  currentWorkspace: "boletos",
+  sidebarOpen: false,
+  clientRegistrationMode: "pending",
   historicoItens: [],
   historicoSelecionado: null
 };
@@ -1164,6 +1173,77 @@ function toggleTheme() {
   salvarTema(proximo);
 }
 
+function setSidebarExpanded(expanded) {
+  state.sidebarOpen = Boolean(expanded);
+
+  const sidebar = el("appSidebar");
+  const toggle = el("sidebarToggle");
+
+  if (sidebar) {
+    sidebar.classList.toggle("is-open", state.sidebarOpen);
+  }
+
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", String(state.sidebarOpen));
+    toggle.setAttribute("aria-label", state.sidebarOpen ? "Fechar menu" : "Abrir menu");
+  }
+}
+
+function toggleSidebar() {
+  setSidebarExpanded(!state.sidebarOpen);
+}
+
+function setSidebarActive(view) {
+  const mapa = {
+    boletos: "navBoleto",
+    cliente: "navCliente",
+    setor: "navSetor"
+  };
+
+  Object.values(mapa).forEach((id) => {
+    const node = el(id);
+
+    if (node) {
+      node.classList.remove("active");
+    }
+  });
+
+  const active = el(mapa[view] || mapa.boletos);
+
+  if (active) {
+    active.classList.add("active");
+  }
+}
+
+function mostrarPainelWorkspace(view) {
+  const panels = {
+    boletos: el("mainFormPanel"),
+    cliente: el("clientRegistrationPanel"),
+    setor: el("sectorRegistrationPanel")
+  };
+
+  Object.entries(panels).forEach(([key, node]) => {
+    if (!node) {
+      return;
+    }
+
+    node.classList.toggle("hidden", key !== view);
+  });
+
+  state.currentWorkspace = view;
+  setSidebarActive(view);
+}
+
+function showBoletoWorkspace(options = {}) {
+  mostrarPainelWorkspace("boletos");
+  hideCadastroClienteFeedback();
+  hideCadastroSetorFeedback();
+
+  if (options.status !== false && !state.flowRunning) {
+    setStatus("Aguardando", "idle");
+  }
+}
+
 // Atualiza visualmente o status operacional da base.
 function setBaseStatus(status) {
   if (!BASE_STATUS[status]) {
@@ -1222,6 +1302,19 @@ function atualizarDocumentoUI(valorAtual) {
 function formatarDoc(elm) {
   limparMensagemCampo("doc");
   atualizarDocumentoUI(elm.value);
+}
+
+function formatarDocCadastro(elm) {
+  elm.value = formatarDocumento(elm.value);
+  atualizarResumoCadastroManual();
+}
+
+function formatarDocSetor(elm) {
+  elm.value = formatarDocumento(elm.value);
+}
+
+function formatarClienteSapSetor(elm) {
+  elm.value = String(elm.value || "").replace(/\D/g, "").slice(0, 12);
 }
 
 // Atualiza tipo de solicitação e reseta valor customizado quando necessário.
@@ -2457,14 +2550,21 @@ function preencherCadastroClienteComPayload(payload = {}) {
   const endereco = payload.endereco || {};
   const docInfo = analisarDocumento(payload.doc || "");
 
+  state.clientRegistrationMode = "pending";
+  el("clientRegistrationKicker").textContent = "Cadastro SAP";
+  el("clientRegistrationTitle").textContent = "Criar cliente";
   el("clientRegistrationDoc").textContent = docInfo.formatado || payload.doc || "--";
   el("clientRegistrationTipo").textContent = TIPOS_SOLICITACAO[payload.tipo] || payload.tipo || "--";
-  el("clientRegistrationDocBadge").textContent = docInfo.rotulo || "CPF/CNPJ";
-  el("clientRegistrationDocBadge").className = `doc-badge ${docInfo.valido ? "valid" : "neutral"}`;
+  el("clientRegistrationDocBadge").textContent = docInfo.badge || "CPF/CNPJ";
+  el("clientRegistrationDocBadge").className = `doc-badge ${docInfo.classe || "neutral"}`;
+  el("clientRegistrationManualFields").classList.add("hidden");
+  el("clientRegistrationSubmit").textContent = "Criar cliente e continuar";
 
   el("clienteCadastroNome1").value = "";
   el("clienteCadastroNome2").value = "";
   el("clienteCadastroTitulo").value = "auto";
+  el("clienteCadastroDoc").value = "";
+  el("clienteCadastroTipo").value = "";
   el("clienteCadastroRua").value = endereco.rua || "";
   el("clienteCadastroNumero").value = endereco.numero || "";
   el("clienteCadastroCep").value = endereco.sem_cep ? "" : formatarCepValue(endereco.cep || "");
@@ -2477,6 +2577,37 @@ function preencherCadastroClienteComPayload(payload = {}) {
   hideCadastroClienteFeedback();
 }
 
+function limparCamposCadastroCliente() {
+  el("clienteCadastroNome1").value = "";
+  el("clienteCadastroNome2").value = "";
+  el("clienteCadastroTitulo").value = "auto";
+  el("clienteCadastroRua").value = "";
+  el("clienteCadastroNumero").value = "";
+  el("clienteCadastroCep").value = "";
+  el("clienteCadastroBairro").value = "";
+  el("clienteCadastroCidade").value = "";
+  el("clienteCadastroEstado").value = "BA";
+  el("clienteCadastroInscricao").value = "ISENTO";
+  el("clienteCadastroTelefone").value = "";
+  el("clienteCadastroEmail").value = "";
+}
+
+function atualizarResumoCadastroManual() {
+  const docInfo = analisarDocumento(el("clienteCadastroDoc")?.value || "");
+  const tipo = el("clienteCadastroTipo")?.value || "";
+
+  el("clientRegistrationDoc").textContent = docInfo.formatado || "--";
+  el("clientRegistrationTipo").textContent = TIPOS_SOLICITACAO[tipo] || "--";
+  el("clientRegistrationDocBadge").textContent = docInfo.badge || "CPF/CNPJ";
+  el("clientRegistrationDocBadge").className = `doc-badge ${docInfo.classe || "neutral"}`;
+}
+
+function abrirCadastroClientePanel(mode) {
+  state.clientRegistrationMode = mode;
+  mostrarPainelWorkspace("cliente");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
 function abrirAbaCadastroCliente() {
   const payload = clonePlain(state.pendingSapPayload);
 
@@ -2487,17 +2618,39 @@ function abrirAbaCadastroCliente() {
   }
 
   preencherCadastroClienteComPayload(payload);
-  el("mainFormPanel").classList.add("hidden");
-  el("clientRegistrationPanel").classList.remove("hidden");
+  abrirCadastroClientePanel("pending");
   setStatus("Aguardando cadastro", "idle");
-  window.scrollTo({ top: 0, behavior: "smooth" });
   window.setTimeout(() => el("clienteCadastroNome1").focus(), 180);
 }
 
-function fecharAbaCadastroCliente() {
-  el("clientRegistrationPanel").classList.add("hidden");
-  el("mainFormPanel").classList.remove("hidden");
+function abrirCriacaoClienteManual() {
+  state.pendingSapAction = null;
+  state.pendingSapPayload = null;
+  state.clientRegistrationMode = "manual";
+  el("clientRegistrationKicker").textContent = "Cadastro manual";
+  el("clientRegistrationTitle").textContent = "Criar cliente";
+  el("clientRegistrationManualFields").classList.remove("hidden");
+  el("clientRegistrationSubmit").textContent = "Criar cliente";
+  el("clienteCadastroDoc").value = "";
+  el("clienteCadastroTipo").value = "";
+  limparCamposCadastroCliente();
+  atualizarResumoCadastroManual();
   hideCadastroClienteFeedback();
+  abrirCadastroClientePanel("manual");
+  setStatus("Cadastro de cliente", "idle");
+  window.setTimeout(() => el("clienteCadastroDoc").focus(), 180);
+}
+
+function fecharAbaCadastroCliente(options = {}) {
+  if (el("clientRegistrationPanel")) {
+    el("clientRegistrationPanel").classList.add("hidden");
+  }
+
+  hideCadastroClienteFeedback();
+
+  if (options.mostrarBoleto !== false) {
+    showBoletoWorkspace({ status: options.status !== false });
+  }
 }
 
 function cancelarCadastroCliente() {
@@ -2522,11 +2675,32 @@ function hideCadastroClienteFeedback() {
 }
 
 function coletarCadastroCliente() {
-  const payload = clonePlain(state.pendingSapPayload);
+  const modoManual = state.clientRegistrationMode === "manual";
+  const payload = modoManual
+    ? {
+        doc: limparDocumento(el("clienteCadastroDoc").value),
+        tipo: el("clienteCadastroTipo").value,
+        endereco: {}
+      }
+    : clonePlain(state.pendingSapPayload);
 
   if (!payload) {
     showCadastroClienteFeedback("Dados do fluxo original não foram encontrados.");
     return null;
+  }
+
+  if (modoManual) {
+    const docInfo = analisarDocumento(payload.doc);
+
+    if (![11, 14].includes(docInfo.digitos.length)) {
+      showCadastroClienteFeedback("Informe CPF ou CNPJ completo antes de criar o cliente.");
+      return null;
+    }
+
+    if (!payload.tipo) {
+      showCadastroClienteFeedback("Selecione o tipo de solicitação para definir o setor inicial.");
+      return null;
+    }
   }
 
   const cadastro = {
@@ -2592,6 +2766,7 @@ async function submitCadastroCliente() {
 
   const button = el("clientRegistrationSubmit");
   const payloadOriginal = clonePlain(state.pendingSapPayload);
+  const modoManual = state.clientRegistrationMode === "manual";
 
   try {
     button.disabled = true;
@@ -2608,8 +2783,18 @@ async function submitCadastroCliente() {
       return;
     }
 
+    const clienteCriado = resposta?.resultado?.cliente || "--";
+
+    if (modoManual) {
+      showCadastroClienteFeedback(`Cliente ${clienteCriado} criado com sucesso.`, true);
+      showSimpleOperationalToast("Cliente criado no SAP.");
+      log(`Cliente criado manualmente: ${clienteCriado}.`);
+      setStatus("Cliente criado", "success");
+      return;
+    }
+
     showSimpleOperationalToast("Cliente criado. Retomando fluxo padrão.");
-    log(`Cliente criado: ${resposta?.resultado?.cliente || "--"}. Retomando fluxo padrão.`);
+    log(`Cliente criado: ${clienteCriado}. Retomando fluxo padrão.`);
     fecharAbaCadastroCliente();
     state.pendingSapAction = null;
 
@@ -2622,7 +2807,7 @@ async function submitCadastroCliente() {
     openLogsPopover();
   } finally {
     button.disabled = false;
-    button.textContent = "Criar cliente e continuar";
+    button.textContent = modoManual ? "Criar cliente" : "Criar cliente e continuar";
   }
 }
 
@@ -2669,6 +2854,129 @@ async function executarCriacaoSetoresPendentes() {
   } finally {
     button.disabled = false;
     button.textContent = "Criar setores e continuar";
+  }
+}
+
+function abrirCriacaoSetorManual() {
+  state.pendingSapAction = null;
+  state.pendingSapPayload = null;
+  el("setorCadastroCliente").value = "";
+  el("setorCadastroDoc").value = "";
+  ["AE", "AG", "EG"].forEach((setor) => {
+    const checkbox = el(`setorCadastro${setor}`);
+
+    if (checkbox) {
+      checkbox.checked = false;
+    }
+  });
+  hideCadastroSetorFeedback();
+  mostrarPainelWorkspace("setor");
+  setStatus("Cadastro de setor", "idle");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  window.setTimeout(() => el("setorCadastroCliente").focus(), 180);
+}
+
+function cancelarCadastroSetor() {
+  hideCadastroSetorFeedback();
+  showBoletoWorkspace();
+}
+
+function showCadastroSetorFeedback(message, ok = false) {
+  const feedback = el("sectorRegistrationFeedback");
+
+  if (!feedback) {
+    return;
+  }
+
+  feedback.textContent = message;
+  feedback.className = `contact-feedback ${ok ? "success" : "error"}`;
+}
+
+function hideCadastroSetorFeedback() {
+  const feedback = el("sectorRegistrationFeedback");
+
+  if (!feedback) {
+    return;
+  }
+
+  feedback.textContent = "";
+  feedback.className = "contact-feedback hidden";
+}
+
+function getSetoresCadastroSelecionados() {
+  return ["AE", "AG", "EG"].filter((setor) => {
+    const checkbox = el(`setorCadastro${setor}`);
+    return Boolean(checkbox?.checked);
+  });
+}
+
+function coletarCadastroSetor() {
+  const cliente = String(el("setorCadastroCliente").value || "").replace(/\D/g, "").trim();
+  const docInfo = analisarDocumento(el("setorCadastroDoc").value);
+  const setores = getSetoresCadastroSelecionados();
+
+  if (!cliente) {
+    showCadastroSetorFeedback("Informe o número do cliente SAP.");
+    return null;
+  }
+
+  if (![11, 14].includes(docInfo.digitos.length)) {
+    showCadastroSetorFeedback("Informe CPF ou CNPJ completo para identificar o tipo do cliente.");
+    return null;
+  }
+
+  if (!setores.length) {
+    showCadastroSetorFeedback("Selecione ao menos um setor para criar.");
+    return null;
+  }
+
+  return {
+    cliente,
+    doc: docInfo.digitos,
+    tipo_documento: docInfo.digitos.length === 11 ? "cpf" : "cnpj",
+    setores
+  };
+}
+
+async function submitCadastroSetor() {
+  const cadastro = coletarCadastroSetor();
+
+  if (!cadastro) {
+    return;
+  }
+
+  const button = el("sectorRegistrationSubmit");
+  const setoresLabel = cadastro.setores
+    .map((setor) => `${setor} (${SETOR_MODELOS[setor]?.titulo || "Setor"})`)
+    .join(", ");
+
+  try {
+    button.disabled = true;
+    button.textContent = "Criando setor...";
+    hideCadastroSetorFeedback();
+    setStatus("Cadastrando setores", "running");
+
+    const resposta = await window.pywebview.api.adicionar_setores_cliente_sap(cadastro);
+
+    if (!resposta?.ok) {
+      const mensagem = resposta?.msg || "Não foi possível criar os setores.";
+      showCadastroSetorFeedback(mensagem);
+      log(mensagem, "error");
+      openLogsPopover();
+      return;
+    }
+
+    showCadastroSetorFeedback(`Setores criados para o cliente ${cadastro.cliente}: ${setoresLabel}.`, true);
+    showSimpleOperationalToast("Setores criados no SAP.");
+    log(`Setores criados manualmente para o cliente ${cadastro.cliente}: ${setoresLabel}.`);
+    setStatus("Setores criados", "success");
+  } catch (error) {
+    showCadastroSetorFeedback(`Falha ao criar setores: ${error}`);
+    log(`Falha ao criar setores: ${error}`, "error");
+    openLogsPopover();
+  } finally {
+    button.disabled = false;
+    button.textContent = "Criar setor";
   }
 }
 
@@ -3138,7 +3446,9 @@ function limparPainel() {
   closePdfNameModal();
   closePaymentFileModal();
   closeSapActionModal();
-  fecharAbaCadastroCliente();
+  fecharAbaCadastroCliente({ mostrarBoleto: false });
+  hideCadastroSetorFeedback();
+  showBoletoWorkspace({ status: false });
   limparMensagensValidacao();
   setStatus("Aguardando", "idle");
   closeLogsPopover();

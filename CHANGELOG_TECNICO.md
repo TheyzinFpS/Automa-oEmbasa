@@ -1,5 +1,23 @@
 # Registro técnico de alterações
 
+## Terça-feira, 26/05/2026 - Versão 1.4.15
+
+**Ajuste aplicado**
+
+- Adicionada sidebar fixa à esquerda com menu de três barras, logo da EMBASA, atalhos para `Criação de boletos`, `Criar Cliente` e `Criar Setor`.
+- Movidos `Histórico`, `Modo claro/escuro` e `Sobre` para o rodapé da sidebar, mantendo a paleta e os estados visuais da interface.
+- Criada tela manual de `Criar Cliente`, usando as mesmas validações do cadastro SAP: CPF/CNPJ completo, tipo de solicitação, tratamento, endereço obrigatório, UF por sigla, telefone opcional e e-mail opcional.
+- Criada tela manual de `Criar Setor`, com seleção de `AE`, `AG` e `EG` e exibição dos modelos operacionais: `AE/AG = 1055 + DM` e `EG = 1070 + ME`.
+- As ações manuais de cliente e setor agora chamam diretamente as APIs `cadastrar_cliente_sap` e `adicionar_setores_cliente_sap`, exibindo retorno na própria tela e logs operacionais.
+- Atualizada a versão do projeto de `1.4.14` para `1.4.15`.
+
+**Validação realizada**
+
+- `python -m py_compile interface.py backend\controller.py backend\flows\xd03.py backend\flows\cliente_cadastro.py backend\flows\f110.py backend\flows\f110_boleto.py backend\settings.py`
+- `node --check interface\app.js`
+- Checagem estática da interface confirmando que todas as funções chamadas pelo HTML existem no `app.js` e que os IDs do HTML são únicos.
+- Rebuild empresarial concluído em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com arquivos do pacote confirmando a versão `1.4.15`.
+
 ## Terça-feira, 26/05/2026 - Versão 1.4.14
 
 **Ajuste aplicado**

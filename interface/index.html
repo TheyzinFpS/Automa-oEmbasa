@@ -7,24 +7,79 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="app-shell">
-    <div class="top-actions">
-      <button id="aboutToggle" class="theme-toggle utility-toggle" type="button" onclick="openAboutModal()">
-        <span class="theme-icon">?</span>
-        <span>Sobre</span>
-      </button>
+  <aside id="appSidebar" class="app-sidebar" aria-label="Menu principal">
+    <button
+      id="sidebarToggle"
+      class="sidebar-toggle"
+      type="button"
+      aria-label="Abrir menu"
+      aria-expanded="false"
+      onclick="toggleSidebar()"
+    >
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
 
-      <button id="historyToggle" class="theme-toggle utility-toggle" type="button" onclick="openHistoryModal()">
-        <span class="theme-icon">H</span>
-        <span>Hist&oacute;rico</span>
-      </button>
-
-      <button id="themeToggle" class="theme-toggle" type="button" onclick="toggleTheme()">
-        <span id="themeIcon" class="theme-icon">T</span>
-        <span id="themeLabel">Modo escuro</span>
-      </button>
+    <div class="sidebar-brand" aria-label="EMBASA Pedidos SAP">
+      <img src="embasa_symbol_new.png" alt="" />
+      <div class="sidebar-brand-copy">
+        <strong>EMBASA</strong>
+        <small>Pedidos SAP</small>
+      </div>
     </div>
 
+    <nav class="sidebar-nav" aria-label="A&ccedil;&otilde;es SAP">
+      <button
+        id="navBoleto"
+        class="sidebar-nav-item active"
+        type="button"
+        onclick="showBoletoWorkspace()"
+      >
+        <span class="sidebar-icon">BL</span>
+        <span class="sidebar-label">Cria&ccedil;&atilde;o de boletos</span>
+      </button>
+
+      <button
+        id="navCliente"
+        class="sidebar-nav-item"
+        type="button"
+        onclick="abrirCriacaoClienteManual()"
+      >
+        <span class="sidebar-icon">CL</span>
+        <span class="sidebar-label">Criar Cliente</span>
+      </button>
+
+      <button
+        id="navSetor"
+        class="sidebar-nav-item"
+        type="button"
+        onclick="abrirCriacaoSetorManual()"
+      >
+        <span class="sidebar-icon">ST</span>
+        <span class="sidebar-label">Criar Setor</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-footer" aria-label="Utilit&aacute;rios">
+      <button id="historyToggle" class="sidebar-utility" type="button" onclick="openHistoryModal()">
+        <span class="theme-icon">H</span>
+        <span class="sidebar-label">Hist&oacute;rico</span>
+      </button>
+
+      <button id="themeToggle" class="sidebar-utility" type="button" onclick="toggleTheme()">
+        <span id="themeIcon" class="theme-icon">T</span>
+        <span id="themeLabel" class="sidebar-label">Modo escuro</span>
+      </button>
+
+      <button id="aboutToggle" class="sidebar-utility" type="button" onclick="openAboutModal()">
+        <span class="theme-icon">?</span>
+        <span class="sidebar-label">Sobre</span>
+      </button>
+    </div>
+  </aside>
+
+  <div class="app-shell">
     <header class="hero">
       <div class="hero-copy">
         <div class="hero-brand-strip" aria-label="Identidade EMBASA">
@@ -59,7 +114,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.4.14</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.4.15</span>
           </div>
         </div>
       </div>
@@ -373,8 +428,8 @@
       <section id="clientRegistrationPanel" class="panel client-registration-panel hidden">
         <div class="panel-head compact">
           <div>
-            <p class="section-kicker">Cadastro SAP</p>
-            <h2>Criar cliente</h2>
+            <p id="clientRegistrationKicker" class="section-kicker">Cadastro SAP</p>
+            <h2 id="clientRegistrationTitle">Criar cliente</h2>
           </div>
           <div id="clientRegistrationDocBadge" class="doc-badge neutral">CPF/CNPJ</div>
         </div>
@@ -388,6 +443,31 @@
             <span>Tipo solicitado</span>
             <strong id="clientRegistrationTipo">--</strong>
           </div>
+        </div>
+
+        <div id="clientRegistrationManualFields" class="address-grid registration-manual-fields hidden">
+          <label class="field">
+            <span>Documento</span>
+            <input
+              id="clienteCadastroDoc"
+              type="text"
+              inputmode="numeric"
+              maxlength="18"
+              placeholder="Digite CPF ou CNPJ"
+              oninput="formatarDocCadastro(this)"
+            />
+          </label>
+
+          <label class="field">
+            <span>Tipo de solicita&ccedil;&atilde;o</span>
+            <select id="clienteCadastroTipo" onchange="atualizarResumoCadastroManual()">
+              <option value="">Selecione</option>
+              <option value="viabilidade">Viabilidade</option>
+              <option value="agua">&Aacute;gua</option>
+              <option value="esgoto">Esgoto</option>
+              <option value="agua_esgoto">&Aacute;gua + Esgoto</option>
+            </select>
+          </label>
         </div>
 
         <div class="address-grid client-registration-grid">
@@ -492,6 +572,92 @@
             type="button"
             onclick="cancelarCadastroCliente()"
           >
+            Voltar
+          </button>
+        </div>
+      </section>
+
+      <section id="sectorRegistrationPanel" class="panel sector-registration-panel hidden">
+        <div class="panel-head compact">
+          <div>
+            <p class="section-kicker">Cadastro SAP</p>
+            <h2>Criar setor</h2>
+          </div>
+          <div class="doc-badge neutral">XD01</div>
+        </div>
+
+        <div class="sector-intro">
+          <strong>Adicionar setores ao cliente SAP</strong>
+          <span>Selecione os setores necess&aacute;rios. Os modelos de vendas e grupo j&aacute; seguem o padr&atilde;o informado.</span>
+        </div>
+
+        <div class="address-grid sector-registration-grid">
+          <label class="field">
+            <span>N&uacute;mero do cliente</span>
+            <input
+              id="setorCadastroCliente"
+              type="text"
+              inputmode="numeric"
+              maxlength="12"
+              placeholder="Ex.: 1000002653"
+              oninput="formatarClienteSapSetor(this)"
+            />
+          </label>
+
+          <label class="field">
+            <span>Documento</span>
+            <input
+              id="setorCadastroDoc"
+              type="text"
+              inputmode="numeric"
+              maxlength="18"
+              placeholder="Digite CPF ou CNPJ"
+              oninput="formatarDocSetor(this)"
+            />
+          </label>
+        </div>
+
+        <div class="sector-models" aria-label="Modelos de setor">
+          <label class="sector-model">
+            <input id="setorCadastroAE" type="checkbox" value="AE" />
+            <span class="sector-model-icon">AE</span>
+            <span>
+              <strong>Viabilidade</strong>
+              <small>Setor AE &middot; Vendas 1055 &middot; Grupo DM</small>
+            </span>
+          </label>
+
+          <label class="sector-model">
+            <input id="setorCadastroAG" type="checkbox" value="AG" />
+            <span class="sector-model-icon">AG</span>
+            <span>
+              <strong>&Aacute;gua</strong>
+              <small>Setor AG &middot; Vendas 1055 &middot; Grupo DM</small>
+            </span>
+          </label>
+
+          <label class="sector-model">
+            <input id="setorCadastroEG" type="checkbox" value="EG" />
+            <span class="sector-model-icon">EG</span>
+            <span>
+              <strong>Esgoto</strong>
+              <small>Setor EG &middot; Vendas 1070 &middot; Grupo ME</small>
+            </span>
+          </label>
+        </div>
+
+        <div id="sectorRegistrationFeedback" class="contact-feedback hidden"></div>
+
+        <div class="flow-actions client-registration-actions">
+          <button
+            id="sectorRegistrationSubmit"
+            class="primary-action"
+            type="button"
+            onclick="submitCadastroSetor()"
+          >
+            Criar setor
+          </button>
+          <button class="ghost-action" type="button" onclick="cancelarCadastroSetor()">
             Voltar
           </button>
         </div>
