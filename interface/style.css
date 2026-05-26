@@ -690,6 +690,7 @@ video {
 }
 
 .sector-registration-grid {
+  grid-template-columns: 1fr;
   margin-bottom: 2px;
 }
 
@@ -1988,6 +1989,11 @@ input.is-loading {
 .contact-feedback.error {
   background: rgba(201, 87, 74, 0.14);
   color: var(--danger);
+}
+
+.contact-feedback.warning {
+  background: rgba(216, 161, 0, 0.16);
+  color: var(--warning);
 }
 
 .contact-success-modal {

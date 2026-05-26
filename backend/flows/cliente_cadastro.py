@@ -1,4 +1,5 @@
 import re
+import unicodedata
 
 from backend.documentos import limpar_doc, tipo_documento
 from backend.flows.common import ler_status_texto, notificar_progresso, resultado_padrao
@@ -43,10 +44,70 @@ SETOR_CONFIG = {
     },
 }
 
+ORDEM_SETORES = ("AE", "AG", "EG")
+SETOR_JA_EXISTENTE_INDICADORES = (
+    "ja existe",
+    "already exists",
+    "area de vendas ja",
+    "area vendas ja",
+    "ja criado",
+    "ja cadastr",
+)
+
 
 def setores_necessarios_para_tipo(tipo):
     tipo_normalizado = str(tipo or "").strip().lower()
     return TIPO_PARA_SETOR.get(tipo_normalizado, ())
+
+
+def _ordenar_setores(setores):
+    solicitados = {
+        str(setor or "").strip().upper()
+        for setor in (setores or ())
+        if str(setor or "").strip()
+    }
+    ordenados = [setor for setor in ORDEM_SETORES if setor in solicitados]
+    ordenados.extend(sorted(setor for setor in solicitados if setor not in ORDEM_SETORES))
+
+    return tuple(ordenados)
+
+
+def _normalizar_texto_busca(valor):
+    texto = unicodedata.normalize("NFKD", str(valor or ""))
+    texto = "".join(char for char in texto if not unicodedata.combining(char))
+    return texto.lower()
+
+
+def _texto_indica_setor_existente(texto):
+    normalizado = _normalizar_texto_busca(texto)
+    return any(indicador in normalizado for indicador in SETOR_JA_EXISTENTE_INDICADORES)
+
+
+def _textos_contexto_sap(session):
+    textos = [ler_status_texto(session)]
+
+    for element_id in (
+        "wnd[1]/usr/txtMESSTXT1",
+        "wnd[1]/usr/txtMESSTXT2",
+        "wnd[1]/usr/txtSPOP-TEXTLINE1",
+        "wnd[1]/usr/txtSPOP-TEXTLINE2",
+        "wnd[1]/usr/txtSPOP-TEXTLINE3",
+    ):
+        try:
+            textos.append(session.findById(element_id).text)
+        except Exception:
+            continue
+
+    return " ".join(str(texto or "") for texto in textos)
+
+
+def _erro_indica_setor_existente(session, exc=None):
+    contexto = _textos_contexto_sap(session)
+
+    if exc:
+        contexto = f"{contexto} {exc}"
+
+    return _texto_indica_setor_existente(contexto)
 
 
 def _extrair_numero_sap(texto):
@@ -158,7 +219,9 @@ def _normalizar_cadastro_cliente(dados):
     doc = limpar_doc(payload.get("doc"))
     tipo_doc = tipo_documento(doc)
     tipo = str(payload.get("tipo") or "").strip().lower()
-    setores = tuple(payload.get("setores") or setores_necessarios_para_tipo(tipo))
+    setores = _ordenar_setores(
+        payload.get("setores") or setores_necessarios_para_tipo(tipo)
+    )
 
     if not setores:
         raise ValueError("Tipo de solicitacao sem setor SAP mapeado.")
@@ -328,7 +391,9 @@ def _preencher_primeira_tela(
     cliente="",
     incluir_empresa=True,
 ):
-    _set_key(session, "wnd[1]/usr/cmbRF02D-KTOKD", grupo_conta, required=False)
+    if grupo_conta:
+        _set_key(session, "wnd[1]/usr/cmbRF02D-KTOKD", grupo_conta, required=False)
+
     _set_text(session, "wnd[1]/usr/ctxtRF02D-KUNNR", cliente, required=False)
 
     if incluir_empresa:
@@ -580,9 +645,13 @@ def adicionar_setores_cliente(
         payload = dict(dados or {})
         cliente = str(payload.get("cliente") or "").strip()
         doc = limpar_doc(payload.get("doc") or payload.get("documento"))
-        tipo_doc = payload.get("tipo_documento") or (tipo_documento(doc) if doc else "cnpj")
-        grupo_conta = payload.get("grupo_conta") or ("PJ01" if tipo_doc == "cnpj" else "PF01")
-        setores = tuple(payload.get("setores") or setores_necessarios_para_tipo(payload.get("tipo")))
+        tipo_doc = payload.get("tipo_documento") or (tipo_documento(doc) if doc else "")
+        grupo_conta = payload.get("grupo_conta") or (
+            "PJ01" if tipo_doc == "cnpj" else "PF01" if tipo_doc == "cpf" else ""
+        )
+        setores = _ordenar_setores(
+            payload.get("setores") or setores_necessarios_para_tipo(payload.get("tipo"))
+        )
 
         if not cliente:
             raise ValueError("Numero do cliente SAP nao informado.")
@@ -597,6 +666,7 @@ def adicionar_setores_cliente(
         )
 
         setores_criados = []
+        setores_existentes = []
 
         for index, setor in enumerate(setores, start=1):
             if setor not in SETOR_CONFIG:
@@ -610,37 +680,71 @@ def adicionar_setores_cliente(
                 min(95, 20 + index * 20),
             )
 
-            if abrir_nova_transacao or index > 1:
-                _abrir_xd01(session, logger)
+            try:
+                if abrir_nova_transacao or index > 1:
+                    _abrir_xd01(session, logger)
 
-            _preencher_primeira_tela(
-                session,
-                grupo_conta,
-                setor,
-                cliente=cliente,
-                incluir_empresa=False,
-            )
-            _preencher_dados_vendas(session, setor, incluir_imposto=False)
-            _salvar_cliente_ou_setor(session)
-            setores_criados.append(setor)
+                _preencher_primeira_tela(
+                    session,
+                    grupo_conta,
+                    setor,
+                    cliente=cliente,
+                    incluir_empresa=False,
+                )
+                _preencher_dados_vendas(session, setor, incluir_imposto=False)
+                _salvar_cliente_ou_setor(session)
+                setores_criados.append(setor)
+            except Exception as exc:
+                if not _erro_indica_setor_existente(session, exc):
+                    raise
 
+                setores_existentes.append(setor)
+                logger.add(
+                    0,
+                    f"Setor {setor} ja existe para o cliente {cliente}; seguindo para o proximo setor.",
+                    nivel="AVISO",
+                    publico=True,
+                )
+                notificar_progresso(
+                    progress_callback,
+                    "XD03",
+                    "processando",
+                    f"Setor {setor} ja existe para o cliente {cliente}.",
+                    min(95, 20 + index * 20),
+                )
+                _confirmar_popups_simples(session)
+
+        partes_mensagem = []
+
+        if setores_criados:
+            partes_mensagem.append(f"criados: {', '.join(setores_criados)}")
+
+        if setores_existentes:
+            partes_mensagem.append(f"ja existiam: {', '.join(setores_existentes)}")
+
+        mensagem_final = "; ".join(partes_mensagem) or "nenhum setor processado"
         notificar_progresso(
             progress_callback,
             "XD03",
             "concluido",
-            f"Setores criados para o cliente {cliente}: {', '.join(setores_criados)}.",
+            f"Setores processados para o cliente {cliente}: {mensagem_final}.",
             100,
         )
 
         return resultado_padrao(
             ok=True,
             etapa="XD03",
-            mensagem="Setores criados com sucesso.",
+            mensagem=(
+                "Setores processados com aviso."
+                if setores_existentes and not setores_criados
+                else "Setores processados com sucesso."
+            ),
             dados={
                 "cliente": cliente,
                 "documento": doc,
                 "tipo_documento": tipo_doc,
                 "setores_criados": setores_criados,
+                "setores_existentes": setores_existentes,
             },
         )
     except Exception as exc:

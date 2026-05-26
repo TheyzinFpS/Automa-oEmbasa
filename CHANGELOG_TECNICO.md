@@ -1,5 +1,22 @@
 # Registro técnico de alterações
 
+## Terça-feira, 26/05/2026 - Versão 1.4.16
+
+**Ajuste aplicado**
+
+- Removido o campo `Documento` da tela manual `Criar Setor`; agora o usuário informa apenas o número do cliente SAP e os setores desejados.
+- A criação manual de setores passou a normalizar a ordem no backend: `AE`/Viabilidade primeiro, `AG`/Água em seguida e `EG`/Esgoto por último, mesmo que o usuário marque em outra sequência.
+- Quando o SAP indicar que o setor selecionado já existe para o cliente, o fluxo trata como aviso operacional em amarelo, sem exibir falha vermelha para esse caso.
+- Se o usuário selecionar `Água` e `Esgoto`, ou marcar os três setores, a execução segue sempre na ordem operacional definida.
+- Atualizada a versão do projeto de `1.4.15` para `1.4.16`.
+
+**Validação realizada**
+
+- `python -m py_compile interface.py backend\controller.py backend\flows\xd03.py backend\flows\cliente_cadastro.py backend\flows\f110.py backend\flows\f110_boleto.py backend\settings.py`
+- `node --check interface\app.js`
+- Teste isolado da ordenação de setores confirmando `EG, AG, AE` como entrada e `AE, AG, EG` como saída.
+- Rebuild empresarial concluído em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com arquivos do pacote confirmando a versão `1.4.16`.
+
 ## Terça-feira, 26/05/2026 - Versão 1.4.15
 
 **Ajuste aplicado**

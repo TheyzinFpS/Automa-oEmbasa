@@ -47,7 +47,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.15";
+const APP_VERSION = "1.4.16";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -2861,7 +2861,6 @@ function abrirCriacaoSetorManual() {
   state.pendingSapAction = null;
   state.pendingSapPayload = null;
   el("setorCadastroCliente").value = "";
-  el("setorCadastroDoc").value = "";
   ["AE", "AG", "EG"].forEach((setor) => {
     const checkbox = el(`setorCadastro${setor}`);
 
@@ -2881,7 +2880,7 @@ function cancelarCadastroSetor() {
   showBoletoWorkspace();
 }
 
-function showCadastroSetorFeedback(message, ok = false) {
+function showCadastroSetorFeedback(message, ok = false, warning = false) {
   const feedback = el("sectorRegistrationFeedback");
 
   if (!feedback) {
@@ -2889,7 +2888,7 @@ function showCadastroSetorFeedback(message, ok = false) {
   }
 
   feedback.textContent = message;
-  feedback.className = `contact-feedback ${ok ? "success" : "error"}`;
+  feedback.className = `contact-feedback ${warning ? "warning" : ok ? "success" : "error"}`;
 }
 
 function hideCadastroSetorFeedback() {
@@ -2910,18 +2909,27 @@ function getSetoresCadastroSelecionados() {
   });
 }
 
+function formatarSetoresLabel(setores) {
+  return (setores || [])
+    .map((setor) => `${setor} (${SETOR_MODELOS[setor]?.titulo || "Setor"})`)
+    .join(", ");
+}
+
+function textoIndicaSetorExistente(texto) {
+  const normalizado = String(texto || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  return normalizado.includes("ja existe") || normalizado.includes("already exists");
+}
+
 function coletarCadastroSetor() {
   const cliente = String(el("setorCadastroCliente").value || "").replace(/\D/g, "").trim();
-  const docInfo = analisarDocumento(el("setorCadastroDoc").value);
   const setores = getSetoresCadastroSelecionados();
 
   if (!cliente) {
     showCadastroSetorFeedback("Informe o número do cliente SAP.");
-    return null;
-  }
-
-  if (![11, 14].includes(docInfo.digitos.length)) {
-    showCadastroSetorFeedback("Informe CPF ou CNPJ completo para identificar o tipo do cliente.");
     return null;
   }
 
@@ -2932,8 +2940,6 @@ function coletarCadastroSetor() {
 
   return {
     cliente,
-    doc: docInfo.digitos,
-    tipo_documento: docInfo.digitos.length === 11 ? "cpf" : "cnpj",
     setores
   };
 }
@@ -2946,9 +2952,7 @@ async function submitCadastroSetor() {
   }
 
   const button = el("sectorRegistrationSubmit");
-  const setoresLabel = cadastro.setores
-    .map((setor) => `${setor} (${SETOR_MODELOS[setor]?.titulo || "Setor"})`)
-    .join(", ");
+  const setoresLabel = formatarSetoresLabel(cadastro.setores);
 
   try {
     button.disabled = true;
@@ -2958,11 +2962,34 @@ async function submitCadastroSetor() {
 
     const resposta = await window.pywebview.api.adicionar_setores_cliente_sap(cadastro);
 
+    const resultado = resposta?.resultado || {};
+    const setoresCriados = Array.isArray(resultado.setores_criados) ? resultado.setores_criados : [];
+    const setoresExistentes = Array.isArray(resultado.setores_existentes) ? resultado.setores_existentes : [];
+
     if (!resposta?.ok) {
       const mensagem = resposta?.msg || "Não foi possível criar os setores.";
-      showCadastroSetorFeedback(mensagem);
-      log(mensagem, "error");
-      openLogsPopover();
+      const jaExiste = textoIndicaSetorExistente(mensagem);
+      showCadastroSetorFeedback(mensagem, false, jaExiste);
+      log(mensagem, jaExiste ? "warning" : "error");
+
+      if (!jaExiste) {
+        openLogsPopover();
+      }
+
+      return;
+    }
+
+    if (setoresExistentes.length) {
+      const existentesLabel = formatarSetoresLabel(setoresExistentes);
+      const criadosLabel = formatarSetoresLabel(setoresCriados);
+      const mensagem = setoresCriados.length
+        ? `Criados: ${criadosLabel}. Já existiam para o cliente: ${existentesLabel}.`
+        : `O tipo selecionado já existe para o cliente: ${existentesLabel}.`;
+
+      showCadastroSetorFeedback(mensagem, false, true);
+      showSimpleOperationalToast("Setores processados com aviso.");
+      log(`Setores processados com aviso para o cliente ${cadastro.cliente}: ${mensagem}`);
+      setStatus("Setores já existentes", "idle");
       return;
     }
 
