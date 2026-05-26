@@ -531,7 +531,7 @@ def criar_cliente(session, dados, logger, progress_callback=None):
         logger.add(0, "Iniciando criacao de cliente no SAP.", publico=True)
         notificar_progresso(
             progress_callback,
-            "XD03",
+            "XD01",
             "processando",
             "Criando cliente no SAP...",
             20,
@@ -547,7 +547,7 @@ def criar_cliente(session, dados, logger, progress_callback=None):
 
         notificar_progresso(
             progress_callback,
-            "XD03",
+            "XD01",
             "processando",
             "Preenchendo dados gerais do cliente...",
             42,
@@ -557,7 +557,7 @@ def criar_cliente(session, dados, logger, progress_callback=None):
 
         notificar_progresso(
             progress_callback,
-            "XD03",
+            "XD01",
             "processando",
             "Preenchendo dados de empresa e vendas...",
             66,
@@ -597,7 +597,7 @@ def criar_cliente(session, dados, logger, progress_callback=None):
 
         notificar_progresso(
             progress_callback,
-            "XD03",
+            "XD01",
             "concluido",
             f"Cliente {cliente} criado e preparado para o fluxo.",
             100,
@@ -605,7 +605,7 @@ def criar_cliente(session, dados, logger, progress_callback=None):
 
         return resultado_padrao(
             ok=True,
-            etapa="XD03",
+            etapa="XD01",
             mensagem="Cliente criado com sucesso.",
             dados={
                 "cliente": cliente,
@@ -621,14 +621,14 @@ def criar_cliente(session, dados, logger, progress_callback=None):
         logger.add(0, f"Erro ao criar cliente: {exc}", nivel="ERRO", publico=True)
         notificar_progresso(
             progress_callback,
-            "XD03",
+            "XD01",
             "erro",
             f"Falha ao criar cliente: {exc}",
             95,
         )
         return resultado_padrao(
             ok=False,
-            etapa="XD03",
+            etapa="XD01",
             mensagem="Erro ao criar cliente",
             erro_tecnico=str(exc),
         )
@@ -674,7 +674,7 @@ def adicionar_setores_cliente(
 
             notificar_progresso(
                 progress_callback,
-                "XD03",
+                "XD01",
                 "processando",
                 f"Criando setor {setor} para o cliente {cliente}...",
                 min(95, 20 + index * 20),
@@ -707,7 +707,7 @@ def adicionar_setores_cliente(
                 )
                 notificar_progresso(
                     progress_callback,
-                    "XD03",
+                    "XD01",
                     "processando",
                     f"Setor {setor} ja existe para o cliente {cliente}.",
                     min(95, 20 + index * 20),
@@ -725,7 +725,7 @@ def adicionar_setores_cliente(
         mensagem_final = "; ".join(partes_mensagem) or "nenhum setor processado"
         notificar_progresso(
             progress_callback,
-            "XD03",
+            "XD01",
             "concluido",
             f"Setores processados para o cliente {cliente}: {mensagem_final}.",
             100,
@@ -733,7 +733,7 @@ def adicionar_setores_cliente(
 
         return resultado_padrao(
             ok=True,
-            etapa="XD03",
+            etapa="XD01",
             mensagem=(
                 "Setores processados com aviso."
                 if setores_existentes and not setores_criados
@@ -751,14 +751,14 @@ def adicionar_setores_cliente(
         logger.add(0, f"Erro ao adicionar setores: {exc}", nivel="ERRO", publico=True)
         notificar_progresso(
             progress_callback,
-            "XD03",
+            "XD01",
             "erro",
             f"Falha ao adicionar setores: {exc}",
             95,
         )
         return resultado_padrao(
             ok=False,
-            etapa="XD03",
+            etapa="XD01",
             mensagem="Erro ao adicionar setores",
             erro_tecnico=str(exc),
         )

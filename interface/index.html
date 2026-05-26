@@ -49,16 +49,6 @@
         <span class="sidebar-icon">CL</span>
         <span class="sidebar-label">Criar Cliente</span>
       </button>
-
-      <button
-        id="navSetor"
-        class="sidebar-nav-item"
-        type="button"
-        onclick="abrirCriacaoSetorManual()"
-      >
-        <span class="sidebar-icon">ST</span>
-        <span class="sidebar-label">Criar Setor</span>
-      </button>
     </nav>
 
     <div class="sidebar-footer" aria-label="Utilit&aacute;rios">
@@ -114,7 +104,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.4.16</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.4.17</span>
           </div>
         </div>
       </div>
@@ -145,7 +135,7 @@
         </div>
 
         <label class="field">
-          <span>Documento</span>
+          <span>Cliente</span>
           <input
             id="doc"
             type="text"
@@ -436,7 +426,7 @@
 
         <div class="client-registration-summary">
           <div>
-            <span>Documento</span>
+            <span>Cliente</span>
             <strong id="clientRegistrationDoc">--</strong>
           </div>
           <div>
@@ -445,9 +435,9 @@
           </div>
         </div>
 
-        <div id="clientRegistrationManualFields" class="address-grid registration-manual-fields hidden">
+        <div id="clientRegistrationManualFields" class="address-grid registration-manual-fields">
           <label class="field">
-            <span>Documento</span>
+            <span>Cliente</span>
             <input
               id="clienteCadastroDoc"
               type="text"
@@ -468,18 +458,6 @@
               <option value="agua_esgoto">&Aacute;gua + Esgoto</option>
             </select>
           </label>
-        </div>
-
-        <div class="address-grid client-registration-grid">
-          <label class="field field-span-2">
-            <span>Nome / Raz&atilde;o social</span>
-            <input id="clienteCadastroNome1" type="text" maxlength="70" />
-          </label>
-
-          <label class="field field-span-2">
-            <span>Complemento do nome</span>
-            <input id="clienteCadastroNome2" type="text" maxlength="70" />
-          </label>
 
           <label class="field">
             <span>Tratamento</span>
@@ -489,6 +467,13 @@
               <option value="Sr">Sr</option>
               <option value="Sra">Sra</option>
             </select>
+          </label>
+        </div>
+
+        <div class="address-grid client-registration-grid">
+          <label class="field field-span-2">
+            <span>Nome / Raz&atilde;o social</span>
+            <input id="clienteCadastroNome1" type="text" maxlength="70" />
           </label>
 
           <label class="field field-span-2">
@@ -536,7 +521,7 @@
 
           <label class="field">
             <span>Inscri&ccedil;&atilde;o estadual</span>
-            <input id="clienteCadastroInscricao" type="text" maxlength="18" value="ISENTO" />
+            <input id="clienteCadastroInscricao" class="readonly-like" type="text" maxlength="18" value="ISENTO" readonly aria-readonly="true" />
           </label>
 
           <label class="field">
@@ -572,80 +557,6 @@
             type="button"
             onclick="cancelarCadastroCliente()"
           >
-            Voltar
-          </button>
-        </div>
-      </section>
-
-      <section id="sectorRegistrationPanel" class="panel sector-registration-panel hidden">
-        <div class="panel-head compact">
-          <div>
-            <p class="section-kicker">Cadastro SAP</p>
-            <h2>Criar setor</h2>
-          </div>
-          <div class="doc-badge neutral">XD01</div>
-        </div>
-
-        <div class="sector-intro">
-          <strong>Adicionar setores ao cliente SAP</strong>
-          <span>Selecione os setores necess&aacute;rios. A cria&ccedil;&atilde;o segue sempre a ordem Viabilidade, &Aacute;gua e Esgoto.</span>
-        </div>
-
-        <div class="address-grid sector-registration-grid">
-          <label class="field">
-            <span>N&uacute;mero do cliente</span>
-            <input
-              id="setorCadastroCliente"
-              type="text"
-              inputmode="numeric"
-              maxlength="12"
-              placeholder="Ex.: 1000002653"
-              oninput="formatarClienteSapSetor(this)"
-            />
-          </label>
-        </div>
-
-        <div class="sector-models" aria-label="Modelos de setor">
-          <label class="sector-model">
-            <input id="setorCadastroAE" type="checkbox" value="AE" />
-            <span class="sector-model-icon">AE</span>
-            <span>
-              <strong>Viabilidade</strong>
-              <small>Setor AE &middot; Vendas 1055 &middot; Grupo DM</small>
-            </span>
-          </label>
-
-          <label class="sector-model">
-            <input id="setorCadastroAG" type="checkbox" value="AG" />
-            <span class="sector-model-icon">AG</span>
-            <span>
-              <strong>&Aacute;gua</strong>
-              <small>Setor AG &middot; Vendas 1055 &middot; Grupo DM</small>
-            </span>
-          </label>
-
-          <label class="sector-model">
-            <input id="setorCadastroEG" type="checkbox" value="EG" />
-            <span class="sector-model-icon">EG</span>
-            <span>
-              <strong>Esgoto</strong>
-              <small>Setor EG &middot; Vendas 1070 &middot; Grupo ME</small>
-            </span>
-          </label>
-        </div>
-
-        <div id="sectorRegistrationFeedback" class="contact-feedback hidden"></div>
-
-        <div class="flow-actions client-registration-actions">
-          <button
-            id="sectorRegistrationSubmit"
-            class="primary-action"
-            type="button"
-            onclick="submitCadastroSetor()"
-          >
-            Criar setor
-          </button>
-          <button class="ghost-action" type="button" onclick="cancelarCadastroSetor()">
             Voltar
           </button>
         </div>
@@ -764,6 +675,28 @@
           onclick="cancelarAcaoSapPendente()"
         >
           Agora n&atilde;o
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="clientCreatedModal" class="contact-success-modal hidden">
+    <div class="contact-backdrop" onclick="closeClientCreatedModal()"></div>
+
+    <div class="contact-success-card batch-confirm-card sap-action-card">
+      <p class="section-kicker">Cadastro conclu&iacute;do</p>
+      <h2 id="clientCreatedTitle">Cliente criado</h2>
+      <p id="clientCreatedMessage">Cliente Criado: --</p>
+      <div class="batch-confirm-actions">
+        <button
+          type="button"
+          class="primary-action"
+          onclick="prosseguirClienteCriadoParaBoleto()"
+        >
+          Prosseguir para Cria&ccedil;&atilde;o de Boleto
+        </button>
+        <button type="button" class="ghost-action" onclick="closeClientCreatedModal()">
+          Fechar
         </button>
       </div>
     </div>

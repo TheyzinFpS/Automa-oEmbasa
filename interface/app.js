@@ -1,4 +1,5 @@
-﻿const ETAPAS = [
+﻿const MONITOR_STAGES = {
+  boletos: [
   // Ordem visual das etapas exibidas no painel de andamento.
   { id: "XD03", codigo: "XD03", titulo: "Buscar cliente" },
   { id: "VA01", codigo: "VA01", titulo: "Criar pedido" },
@@ -6,7 +7,16 @@
   { id: "FB03", codigo: "FB03", titulo: "Ajustar contábil" },
   { id: "VF02_RESALVAR", codigo: "VF02", titulo: "Salvar faturamento" },
   { id: "F110", codigo: "F110", titulo: "Gerar pagamento" }
-];
+  ],
+  cliente: [
+    { id: "XD01", codigo: "XD01", titulo: "Criar cliente" }
+  ],
+  setor: [
+    { id: "XD01", codigo: "XD01", titulo: "Criar setor" }
+  ]
+};
+
+let ETAPAS = MONITOR_STAGES.boletos;
 
 // Valores padrão definidos pela regra de negócio atual.
 const VALORES = {
@@ -47,7 +57,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.16";
+const APP_VERSION = "1.4.17";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -67,10 +77,10 @@ const PDF_NAME_NOTICE_PREFIX = "PDF_NAME_READY::";
 const PAYMENT_FILE_NOTICE_PREFIX = "PAYMENT_FILE_READY::";
 const SIMPLE_NOTICE_PREFIX = "SIMPLE_NOTICE::";
 // Mapeia eventos vindos do Python para a etapa visual correspondente.
-const DISPLAY_STAGE_MAP = (() => {
+function criarDisplayStageMap(etapas = ETAPAS) {
   const map = new Map();
 
-  ETAPAS.forEach((etapa, index) => {
+  etapas.forEach((etapa, index) => {
     const aliases = etapa.aliases || [etapa.id];
     const segmentCount = aliases.length;
 
@@ -86,7 +96,9 @@ const DISPLAY_STAGE_MAP = (() => {
   });
 
   return map;
-})();
+}
+
+let DISPLAY_STAGE_MAP = criarDisplayStageMap();
 
 // Estado central da interface durante uso e execução do fluxo.
 const state = {
@@ -122,8 +134,13 @@ const state = {
   pendingSapAction: null,
   pendingSapPayload: null,
   currentWorkspace: "boletos",
+  monitorMode: "boletos",
   sidebarOpen: false,
   clientRegistrationMode: "pending",
+  cadastroCepLookupTimer: 0,
+  cadastroCepLookupSeq: 0,
+  cadastroCepLookupController: null,
+  lastCreatedClient: null,
   historicoItens: [],
   historicoSelecionado: null
 };
@@ -324,6 +341,7 @@ function formatarCep(elm) {
 
 function formatarCepCadastro(elm) {
   elm.value = formatarCepValue(elm.value);
+  agendarConsultaCepCadastro();
 }
 
 function formatarUfCadastro(elm) {
@@ -352,6 +370,107 @@ function formatarTelefoneCadastro(elm) {
   }
 
   elm.value = `(${digitos.slice(0, 2)}) ${digitos.slice(2, 7)}-${digitos.slice(7)}`;
+}
+
+function cancelarConsultaCepCadastroPendente() {
+  if (state.cadastroCepLookupTimer) {
+    window.clearTimeout(state.cadastroCepLookupTimer);
+    state.cadastroCepLookupTimer = 0;
+  }
+
+  if (state.cadastroCepLookupController) {
+    state.cadastroCepLookupController.abort();
+    state.cadastroCepLookupController = null;
+  }
+}
+
+function setCadastroCepLoading(isLoading) {
+  const input = el("clienteCadastroCep");
+
+  if (!input) {
+    return;
+  }
+
+  input.classList.toggle("is-loading", Boolean(isLoading));
+  input.setAttribute("aria-busy", String(Boolean(isLoading)));
+}
+
+async function buscarCepCadastroAutomaticamente(cep) {
+  const requestId = ++state.cadastroCepLookupSeq;
+
+  if (state.cadastroCepLookupController) {
+    state.cadastroCepLookupController.abort();
+  }
+
+  state.cadastroCepLookupController = new AbortController();
+  setCadastroCepLoading(true);
+
+  try {
+    const resultado = await consultarCepViaCep(cep, state.cadastroCepLookupController.signal);
+
+    if (requestId !== state.cadastroCepLookupSeq) {
+      return;
+    }
+
+    if (!resultado.ok) {
+      showCadastroClienteFeedback(resultado.message, false, "clienteCadastroCep");
+      return;
+    }
+
+    const data = resultado.data;
+    preencherCampoCadastroCep("clienteCadastroRua", data.logradouro);
+    preencherCampoCadastroCep("clienteCadastroBairro", data.bairro);
+    preencherCampoCadastroCep("clienteCadastroCidade", sanitizarCidade(data.localidade || "").trim());
+    preencherCampoCadastroCep("clienteCadastroEstado", String(data.uf || "").trim().toUpperCase());
+    hideCadastroClienteFeedback();
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      showCadastroClienteFeedback("Erro de conexão ao consultar o CEP. Preencha o endereço manualmente.", false, "clienteCadastroCep");
+    }
+  } finally {
+    if (requestId === state.cadastroCepLookupSeq) {
+      setCadastroCepLoading(false);
+      state.cadastroCepLookupController = null;
+    }
+  }
+}
+
+function preencherCampoCadastroCep(fieldId, value) {
+  const input = el(fieldId);
+  const texto = String(value || "").trim();
+
+  if (!input || !texto || String(input.value || "").trim()) {
+    return;
+  }
+
+  input.value = texto;
+}
+
+function agendarConsultaCepCadastro(options = {}) {
+  const { immediate = false, mostrarIncompleto = false } = options;
+  cancelarConsultaCepCadastroPendente();
+
+  const cep = obterDigitosCep(el("clienteCadastroCep")?.value || "");
+
+  if (!cep) {
+    return;
+  }
+
+  if (cep.length < 8) {
+    if (mostrarIncompleto) {
+      showCadastroClienteFeedback("CEP incompleto. Informe 8 dígitos.", false, "clienteCadastroCep");
+    }
+    return;
+  }
+
+  const executar = () => buscarCepCadastroAutomaticamente(cep);
+
+  if (immediate) {
+    executar();
+    return;
+  }
+
+  state.cadastroCepLookupTimer = window.setTimeout(executar, CEP_DEBOUNCE_MS);
 }
 
 function formatarCentavosParaMoeda(centavos) {
@@ -978,13 +1097,19 @@ function agendarConsultaCep(options = {}) {
 function registrarCepAutocomplete() {
   const input = el("enderecoCep");
 
-  if (!input) {
-    return;
+  if (input) {
+    input.addEventListener("blur", () => {
+      agendarConsultaCep({ immediate: true, mostrarIncompleto: true });
+    });
   }
 
-  input.addEventListener("blur", () => {
-    agendarConsultaCep({ immediate: true, mostrarIncompleto: true });
-  });
+  const cadastroInput = el("clienteCadastroCep");
+
+  if (cadastroInput) {
+    cadastroInput.addEventListener("blur", () => {
+      agendarConsultaCepCadastro({ immediate: true, mostrarIncompleto: true });
+    });
+  }
 }
 
 function mostrarErroCampo(fieldId, message) {
@@ -1196,8 +1321,7 @@ function toggleSidebar() {
 function setSidebarActive(view) {
   const mapa = {
     boletos: "navBoleto",
-    cliente: "navCliente",
-    setor: "navSetor"
+    cliente: "navCliente"
   };
 
   Object.values(mapa).forEach((id) => {
@@ -1215,11 +1339,25 @@ function setSidebarActive(view) {
   }
 }
 
+function setMonitorMode(mode) {
+  const nextMode = MONITOR_STAGES[mode] ? mode : "boletos";
+
+  if (state.monitorMode === nextMode && ETAPA_NODE_CACHE.length === MONITOR_STAGES[nextMode].length) {
+    return;
+  }
+
+  state.monitorMode = nextMode;
+  ETAPAS = MONITOR_STAGES[nextMode];
+  DISPLAY_STAGE_MAP = criarDisplayStageMap(ETAPAS);
+  state.etapasConstruidas = false;
+  construirEtapas();
+  resetarEtapas();
+}
+
 function mostrarPainelWorkspace(view) {
   const panels = {
     boletos: el("mainFormPanel"),
-    cliente: el("clientRegistrationPanel"),
-    setor: el("sectorRegistrationPanel")
+    cliente: el("clientRegistrationPanel")
   };
 
   Object.entries(panels).forEach(([key, node]) => {
@@ -1235,9 +1373,9 @@ function mostrarPainelWorkspace(view) {
 }
 
 function showBoletoWorkspace(options = {}) {
+  setMonitorMode("boletos");
   mostrarPainelWorkspace("boletos");
   hideCadastroClienteFeedback();
-  hideCadastroSetorFeedback();
 
   if (options.status !== false && !state.flowRunning) {
     setStatus("Aguardando", "idle");
@@ -1307,14 +1445,6 @@ function formatarDoc(elm) {
 function formatarDocCadastro(elm) {
   elm.value = formatarDocumento(elm.value);
   atualizarResumoCadastroManual();
-}
-
-function formatarDocSetor(elm) {
-  elm.value = formatarDocumento(elm.value);
-}
-
-function formatarClienteSapSetor(elm) {
-  elm.value = String(elm.value || "").replace(/\D/g, "").slice(0, 12);
 }
 
 // Atualiza tipo de solicitação e reseta valor customizado quando necessário.
@@ -2502,7 +2632,7 @@ function openSapActionModal(acao, payload) {
     confirmButton.textContent = "Criar cliente";
     details.innerHTML = `
       <div>
-        <span>Documento</span>
+        <span>Cliente</span>
         <strong>${escapeHtml(formatarDocumentoResumo(doc))}</strong>
       </div>
       <div>
@@ -2525,7 +2655,7 @@ function openSapActionModal(acao, payload) {
         <strong>${escapeHtml(getSetoresPendentesLabel(acao))}</strong>
       </div>
       <div>
-        <span>Documento</span>
+        <span>Cliente</span>
         <strong>${escapeHtml(formatarDocumentoResumo(doc))}</strong>
       </div>
     `;
@@ -2557,14 +2687,14 @@ function preencherCadastroClienteComPayload(payload = {}) {
   el("clientRegistrationTipo").textContent = TIPOS_SOLICITACAO[payload.tipo] || payload.tipo || "--";
   el("clientRegistrationDocBadge").textContent = docInfo.badge || "CPF/CNPJ";
   el("clientRegistrationDocBadge").className = `doc-badge ${docInfo.classe || "neutral"}`;
-  el("clientRegistrationManualFields").classList.add("hidden");
   el("clientRegistrationSubmit").textContent = "Criar cliente e continuar";
 
   el("clienteCadastroNome1").value = "";
-  el("clienteCadastroNome2").value = "";
-  el("clienteCadastroTitulo").value = "auto";
-  el("clienteCadastroDoc").value = "";
-  el("clienteCadastroTipo").value = "";
+  el("clienteCadastroDoc").value = docInfo.formatado || formatarDocumento(payload.doc || "");
+  el("clienteCadastroDoc").readOnly = true;
+  el("clienteCadastroDoc").classList.add("readonly-like");
+  el("clienteCadastroTipo").value = payload.tipo || "";
+  el("clienteCadastroTipo").disabled = true;
   el("clienteCadastroRua").value = endereco.rua || "";
   el("clienteCadastroNumero").value = endereco.numero || "";
   el("clienteCadastroCep").value = endereco.sem_cep ? "" : formatarCepValue(endereco.cep || "");
@@ -2574,13 +2704,12 @@ function preencherCadastroClienteComPayload(payload = {}) {
   el("clienteCadastroInscricao").value = "ISENTO";
   el("clienteCadastroTelefone").value = "";
   el("clienteCadastroEmail").value = "";
+  atualizarTratamentoCadastroPorDocumento();
   hideCadastroClienteFeedback();
 }
 
 function limparCamposCadastroCliente() {
   el("clienteCadastroNome1").value = "";
-  el("clienteCadastroNome2").value = "";
-  el("clienteCadastroTitulo").value = "auto";
   el("clienteCadastroRua").value = "";
   el("clienteCadastroNumero").value = "";
   el("clienteCadastroCep").value = "";
@@ -2590,6 +2719,7 @@ function limparCamposCadastroCliente() {
   el("clienteCadastroInscricao").value = "ISENTO";
   el("clienteCadastroTelefone").value = "";
   el("clienteCadastroEmail").value = "";
+  el("clienteCadastroTitulo").value = "auto";
 }
 
 function atualizarResumoCadastroManual() {
@@ -2600,10 +2730,35 @@ function atualizarResumoCadastroManual() {
   el("clientRegistrationTipo").textContent = TIPOS_SOLICITACAO[tipo] || "--";
   el("clientRegistrationDocBadge").textContent = docInfo.badge || "CPF/CNPJ";
   el("clientRegistrationDocBadge").className = `doc-badge ${docInfo.classe || "neutral"}`;
+  atualizarTratamentoCadastroPorDocumento();
+}
+
+function atualizarTratamentoCadastroPorDocumento() {
+  const docInfo = analisarDocumento(el("clienteCadastroDoc")?.value || "");
+  const tratamento = el("clienteCadastroTitulo");
+
+  if (!tratamento) {
+    return;
+  }
+
+  if (docInfo.digitos.length === 14) {
+    tratamento.value = "Empresa";
+    tratamento.disabled = true;
+    tratamento.classList.add("readonly-like");
+    return;
+  }
+
+  tratamento.disabled = false;
+  tratamento.classList.remove("readonly-like");
+
+  if (tratamento.value === "Empresa") {
+    tratamento.value = "auto";
+  }
 }
 
 function abrirCadastroClientePanel(mode) {
   state.clientRegistrationMode = mode;
+  setMonitorMode("cliente");
   mostrarPainelWorkspace("cliente");
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -2629,10 +2784,12 @@ function abrirCriacaoClienteManual() {
   state.clientRegistrationMode = "manual";
   el("clientRegistrationKicker").textContent = "Cadastro manual";
   el("clientRegistrationTitle").textContent = "Criar cliente";
-  el("clientRegistrationManualFields").classList.remove("hidden");
   el("clientRegistrationSubmit").textContent = "Criar cliente";
   el("clienteCadastroDoc").value = "";
+  el("clienteCadastroDoc").readOnly = false;
+  el("clienteCadastroDoc").classList.remove("readonly-like");
   el("clienteCadastroTipo").value = "";
+  el("clienteCadastroTipo").disabled = false;
   limparCamposCadastroCliente();
   atualizarResumoCadastroManual();
   hideCadastroClienteFeedback();
@@ -2658,10 +2815,48 @@ function cancelarCadastroCliente() {
   setStatus("Aguardando", "idle");
 }
 
-function showCadastroClienteFeedback(message, ok = false) {
+function clearCadastroClienteFieldErrors() {
+  [
+    "clienteCadastroDoc",
+    "clienteCadastroTipo",
+    "clienteCadastroTitulo",
+    "clienteCadastroNome1",
+    "clienteCadastroRua",
+    "clienteCadastroNumero",
+    "clienteCadastroCep",
+    "clienteCadastroBairro",
+    "clienteCadastroCidade",
+    "clienteCadastroEstado",
+    "clienteCadastroTelefone",
+    "clienteCadastroEmail"
+  ].forEach((fieldId) => {
+    const field = el(fieldId)?.closest(".field");
+
+    if (field) {
+      field.classList.remove("has-error");
+    }
+  });
+}
+
+function showCadastroClienteFeedback(message, ok = false, fieldId = "") {
   const feedback = el("clientRegistrationFeedback");
+  clearCadastroClienteFieldErrors();
   feedback.textContent = message;
   feedback.className = `contact-feedback ${ok ? "success" : "error"}`;
+
+  if (fieldId) {
+    const target = el(fieldId);
+    const field = target?.closest(".field");
+
+    if (field) {
+      field.classList.add("has-error");
+    }
+
+    if (target && typeof target.focus === "function" && !target.disabled && !target.readOnly) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      window.setTimeout(() => target.focus(), 160);
+    }
+  }
 }
 
 function hideCadastroClienteFeedback() {
@@ -2672,6 +2867,7 @@ function hideCadastroClienteFeedback() {
 
   feedback.textContent = "";
   feedback.className = "contact-feedback hidden";
+  clearCadastroClienteFieldErrors();
 }
 
 function coletarCadastroCliente() {
@@ -2689,24 +2885,22 @@ function coletarCadastroCliente() {
     return null;
   }
 
-  if (modoManual) {
-    const docInfo = analisarDocumento(payload.doc);
+  const docInfo = analisarDocumento(payload.doc);
 
-    if (![11, 14].includes(docInfo.digitos.length)) {
-      showCadastroClienteFeedback("Informe CPF ou CNPJ completo antes de criar o cliente.");
-      return null;
-    }
+  if (![11, 14].includes(docInfo.digitos.length)) {
+    showCadastroClienteFeedback("Informe CPF ou CNPJ completo antes de criar o cliente.", false, "clienteCadastroDoc");
+    return null;
+  }
 
-    if (!payload.tipo) {
-      showCadastroClienteFeedback("Selecione o tipo de solicitação para definir o setor inicial.");
-      return null;
-    }
+  if (!payload.tipo) {
+    showCadastroClienteFeedback("Selecione o tipo de solicitação para definir o setor inicial.", false, "clienteCadastroTipo");
+    return null;
   }
 
   const cadastro = {
     ...payload,
     nome1: el("clienteCadastroNome1").value.trim(),
-    nome2: el("clienteCadastroNome2").value.trim(),
+    nome2: "",
     titulo: el("clienteCadastroTitulo").value,
     rua: el("clienteCadastroRua").value.trim(),
     numero: el("clienteCadastroNumero").value.trim(),
@@ -2721,36 +2915,39 @@ function coletarCadastroCliente() {
 
   const cepDigitos = obterDigitosCep(cadastro.cep);
   const telefoneDigitos = String(cadastro.telefone || "").replace(/\D/g, "");
-  const obrigatorios = [
-    ["Nome / Razão social", cadastro.nome1],
-    ["Rua", cadastro.rua],
-    ["Número", cadastro.numero],
-    ["CEP", cepDigitos.length === 8 ? cadastro.cep : ""],
-    ["Bairro", cadastro.bairro],
-    ["Cidade", cadastro.cidade],
-    ["Estado", cadastro.estado]
+  const obrigatoriosSequenciais = [
+    ["clienteCadastroNome1", "Nome / Razão social", cadastro.nome1],
+    ["clienteCadastroRua", "Rua", cadastro.rua],
+    ["clienteCadastroNumero", "Número", cadastro.numero],
+    ["clienteCadastroCep", "CEP", cepDigitos.length === 8 ? cadastro.cep : ""],
+    ["clienteCadastroBairro", "Bairro", cadastro.bairro],
+    ["clienteCadastroCidade", "Cidade", cadastro.cidade],
+    ["clienteCadastroEstado", "Estado", cadastro.estado]
   ];
-  const faltando = obrigatorios
-    .filter(([, value]) => !String(value || "").trim())
-    .map(([label]) => label);
+  const pendente = obrigatoriosSequenciais.find(([, , value]) => !String(value || "").trim());
 
-  if (faltando.length) {
-    showCadastroClienteFeedback(`Preencha: ${faltando.join(", ")}.`);
+  if (pendente) {
+    showCadastroClienteFeedback(`Preencha o campo obrigatório: ${pendente[1]}.`, false, pendente[0]);
     return null;
   }
 
   if (!/^[A-Z]{2}$/.test(cadastro.estado)) {
-    showCadastroClienteFeedback("Informe o estado usando a sigla com 2 letras.");
+    showCadastroClienteFeedback("Informe o estado usando a sigla com 2 letras.", false, "clienteCadastroEstado");
+    return null;
+  }
+
+  if (cepDigitos.length !== 8) {
+    showCadastroClienteFeedback("CEP obrigatório deve conter 8 dígitos.", false, "clienteCadastroCep");
     return null;
   }
 
   if (telefoneDigitos && ![10, 11].includes(telefoneDigitos.length)) {
-    showCadastroClienteFeedback("Telefone deve ter 10 ou 11 dígitos quando informado.");
+    showCadastroClienteFeedback("Telefone deve ter 10 ou 11 dígitos quando informado.", false, "clienteCadastroTelefone");
     return null;
   }
 
   if (cadastro.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cadastro.email)) {
-    showCadastroClienteFeedback("Informe um e-mail válido ou deixe o campo em branco.");
+    showCadastroClienteFeedback("Informe um e-mail válido ou deixe o campo em branco.", false, "clienteCadastroEmail");
     return null;
   }
 
@@ -2765,7 +2962,6 @@ async function submitCadastroCliente() {
   }
 
   const button = el("clientRegistrationSubmit");
-  const payloadOriginal = clonePlain(state.pendingSapPayload);
   const modoManual = state.clientRegistrationMode === "manual";
 
   try {
@@ -2785,22 +2981,19 @@ async function submitCadastroCliente() {
 
     const clienteCriado = resposta?.resultado?.cliente || "--";
 
-    if (modoManual) {
-      showCadastroClienteFeedback(`Cliente ${clienteCriado} criado com sucesso.`, true);
-      showSimpleOperationalToast("Cliente criado no SAP.");
-      log(`Cliente criado manualmente: ${clienteCriado}.`);
-      setStatus("Cliente criado", "success");
-      return;
-    }
-
-    showSimpleOperationalToast("Cliente criado. Retomando fluxo padrão.");
-    log(`Cliente criado: ${clienteCriado}. Retomando fluxo padrão.`);
-    fecharAbaCadastroCliente();
+    state.lastCreatedClient = {
+      cliente: clienteCriado,
+      doc: cadastro.doc,
+      tipo: cadastro.tipo,
+      modoManual,
+      resultado: clonePlain(resposta?.resultado || {})
+    };
+    showCadastroClienteFeedback(`Cliente ${clienteCriado} criado com sucesso.`, true);
+    showSimpleOperationalToast("Cliente criado no SAP.");
+    log(`Cliente criado: ${clienteCriado}.`);
+    setStatus("Cliente criado", "success");
     state.pendingSapAction = null;
-
-    if (payloadOriginal) {
-      await executarFluxo(payloadOriginal, { resume: false });
-    }
+    openClientCreatedModal(clienteCriado);
   } catch (error) {
     showCadastroClienteFeedback(`Falha ao criar cliente: ${error}`);
     log(`Falha ao criar cliente: ${error}`, "error");
@@ -2808,6 +3001,33 @@ async function submitCadastroCliente() {
   } finally {
     button.disabled = false;
     button.textContent = modoManual ? "Criar cliente" : "Criar cliente e continuar";
+  }
+}
+
+function openClientCreatedModal(cliente) {
+  el("clientCreatedMessage").textContent = `Cliente Criado: ${cliente || "--"}`;
+  openModal("clientCreatedModal");
+}
+
+function closeClientCreatedModal() {
+  closeModal("clientCreatedModal");
+}
+
+function prosseguirClienteCriadoParaBoleto() {
+  const dados = clonePlain(state.lastCreatedClient);
+
+  closeClientCreatedModal();
+  fecharAbaCadastroCliente({ mostrarBoleto: false });
+  showBoletoWorkspace();
+
+  if (!dados) {
+    return;
+  }
+
+  atualizarDocumentoUI(dados.doc || "");
+
+  if (dados.tipo) {
+    selecionarTipo(dados.tipo, TIPOS_SOLICITACAO[dados.tipo] || dados.tipo);
   }
 }
 
@@ -2823,8 +3043,14 @@ async function executarCriacaoSetoresPendentes() {
   }
 
   try {
-    button.disabled = true;
-    button.textContent = "Criando setores...";
+    setMonitorMode("setor");
+    resetarEtapas();
+
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Criando setores...";
+    }
+
     setStatus("Cadastrando setores", "running");
 
     const resposta = await window.pywebview.api.adicionar_setores_cliente_sap({
@@ -2836,7 +3062,12 @@ async function executarCriacaoSetoresPendentes() {
     });
 
     if (!resposta?.ok) {
-      el("sapActionMessage").textContent = resposta?.msg || "Não foi possível criar os setores.";
+      const mensagem = resposta?.msg || "Não foi possível criar os setores.";
+
+      if (el("sapActionMessage")) {
+        el("sapActionMessage").textContent = mensagem;
+      }
+
       log(resposta?.msg || "Falha ao criar setores.", "error");
       openLogsPopover();
       return;
@@ -2848,162 +3079,17 @@ async function executarCriacaoSetoresPendentes() {
     state.pendingSapAction = null;
     await executarFluxo(payload, { resume: false });
   } catch (error) {
-    el("sapActionMessage").textContent = `Falha ao criar setores: ${error}`;
+    if (el("sapActionMessage")) {
+      el("sapActionMessage").textContent = `Falha ao criar setores: ${error}`;
+    }
+
     log(`Falha ao criar setores: ${error}`, "error");
     openLogsPopover();
   } finally {
-    button.disabled = false;
-    button.textContent = "Criar setores e continuar";
-  }
-}
-
-function abrirCriacaoSetorManual() {
-  state.pendingSapAction = null;
-  state.pendingSapPayload = null;
-  el("setorCadastroCliente").value = "";
-  ["AE", "AG", "EG"].forEach((setor) => {
-    const checkbox = el(`setorCadastro${setor}`);
-
-    if (checkbox) {
-      checkbox.checked = false;
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Criar setores e continuar";
     }
-  });
-  hideCadastroSetorFeedback();
-  mostrarPainelWorkspace("setor");
-  setStatus("Cadastro de setor", "idle");
-  window.scrollTo({ top: 0, behavior: "smooth" });
-  window.setTimeout(() => el("setorCadastroCliente").focus(), 180);
-}
-
-function cancelarCadastroSetor() {
-  hideCadastroSetorFeedback();
-  showBoletoWorkspace();
-}
-
-function showCadastroSetorFeedback(message, ok = false, warning = false) {
-  const feedback = el("sectorRegistrationFeedback");
-
-  if (!feedback) {
-    return;
-  }
-
-  feedback.textContent = message;
-  feedback.className = `contact-feedback ${warning ? "warning" : ok ? "success" : "error"}`;
-}
-
-function hideCadastroSetorFeedback() {
-  const feedback = el("sectorRegistrationFeedback");
-
-  if (!feedback) {
-    return;
-  }
-
-  feedback.textContent = "";
-  feedback.className = "contact-feedback hidden";
-}
-
-function getSetoresCadastroSelecionados() {
-  return ["AE", "AG", "EG"].filter((setor) => {
-    const checkbox = el(`setorCadastro${setor}`);
-    return Boolean(checkbox?.checked);
-  });
-}
-
-function formatarSetoresLabel(setores) {
-  return (setores || [])
-    .map((setor) => `${setor} (${SETOR_MODELOS[setor]?.titulo || "Setor"})`)
-    .join(", ");
-}
-
-function textoIndicaSetorExistente(texto) {
-  const normalizado = String(texto || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-
-  return normalizado.includes("ja existe") || normalizado.includes("already exists");
-}
-
-function coletarCadastroSetor() {
-  const cliente = String(el("setorCadastroCliente").value || "").replace(/\D/g, "").trim();
-  const setores = getSetoresCadastroSelecionados();
-
-  if (!cliente) {
-    showCadastroSetorFeedback("Informe o número do cliente SAP.");
-    return null;
-  }
-
-  if (!setores.length) {
-    showCadastroSetorFeedback("Selecione ao menos um setor para criar.");
-    return null;
-  }
-
-  return {
-    cliente,
-    setores
-  };
-}
-
-async function submitCadastroSetor() {
-  const cadastro = coletarCadastroSetor();
-
-  if (!cadastro) {
-    return;
-  }
-
-  const button = el("sectorRegistrationSubmit");
-  const setoresLabel = formatarSetoresLabel(cadastro.setores);
-
-  try {
-    button.disabled = true;
-    button.textContent = "Criando setor...";
-    hideCadastroSetorFeedback();
-    setStatus("Cadastrando setores", "running");
-
-    const resposta = await window.pywebview.api.adicionar_setores_cliente_sap(cadastro);
-
-    const resultado = resposta?.resultado || {};
-    const setoresCriados = Array.isArray(resultado.setores_criados) ? resultado.setores_criados : [];
-    const setoresExistentes = Array.isArray(resultado.setores_existentes) ? resultado.setores_existentes : [];
-
-    if (!resposta?.ok) {
-      const mensagem = resposta?.msg || "Não foi possível criar os setores.";
-      const jaExiste = textoIndicaSetorExistente(mensagem);
-      showCadastroSetorFeedback(mensagem, false, jaExiste);
-      log(mensagem, jaExiste ? "warning" : "error");
-
-      if (!jaExiste) {
-        openLogsPopover();
-      }
-
-      return;
-    }
-
-    if (setoresExistentes.length) {
-      const existentesLabel = formatarSetoresLabel(setoresExistentes);
-      const criadosLabel = formatarSetoresLabel(setoresCriados);
-      const mensagem = setoresCriados.length
-        ? `Criados: ${criadosLabel}. Já existiam para o cliente: ${existentesLabel}.`
-        : `O tipo selecionado já existe para o cliente: ${existentesLabel}.`;
-
-      showCadastroSetorFeedback(mensagem, false, true);
-      showSimpleOperationalToast("Setores processados com aviso.");
-      log(`Setores processados com aviso para o cliente ${cadastro.cliente}: ${mensagem}`);
-      setStatus("Setores já existentes", "idle");
-      return;
-    }
-
-    showCadastroSetorFeedback(`Setores criados para o cliente ${cadastro.cliente}: ${setoresLabel}.`, true);
-    showSimpleOperationalToast("Setores criados no SAP.");
-    log(`Setores criados manualmente para o cliente ${cadastro.cliente}: ${setoresLabel}.`);
-    setStatus("Setores criados", "success");
-  } catch (error) {
-    showCadastroSetorFeedback(`Falha ao criar setores: ${error}`);
-    log(`Falha ao criar setores: ${error}`, "error");
-    openLogsPopover();
-  } finally {
-    button.disabled = false;
-    button.textContent = "Criar setor";
   }
 }
 
@@ -3072,6 +3158,7 @@ function closeContactSuccessModal() {
 const MODAL_IDS = [
   "contactModal",
   "contactSuccessModal",
+  "clientCreatedModal",
   "pdfNameModal",
   "paymentFileModal",
   "historyModal",
@@ -3473,8 +3560,8 @@ function limparPainel() {
   closePdfNameModal();
   closePaymentFileModal();
   closeSapActionModal();
+  closeClientCreatedModal();
   fecharAbaCadastroCliente({ mostrarBoleto: false });
-  hideCadastroSetorFeedback();
   showBoletoWorkspace({ status: false });
   limparMensagensValidacao();
   setStatus("Aguardando", "idle");
@@ -3773,6 +3860,8 @@ async function executarFluxo(payload, options = {}) {
     ? cloneCheckpoint(checkpoint || state.resumeCheckpoint)
     : null;
 
+  setMonitorMode("boletos");
+
   if (!resume) {
     hideResumeBox();
     if (resetProgress) {
@@ -3828,6 +3917,14 @@ async function executarFluxo(payload, options = {}) {
 
       if (res.msg) {
         log(res.msg, "error");
+      }
+
+      if (res.acao_pendente?.tipo === "setor_ausente") {
+        setPendingSapAction(res.acao_pendente, payload);
+        hideResumeBox();
+        log("Setor ausente identificado. Criando setor automaticamente pelo tipo de solicitação informado.");
+        await executarCriacaoSetoresPendentes();
+        return res;
       }
 
       if (res.acao_pendente && openSapActionModal(res.acao_pendente, payload)) {
@@ -3970,6 +4067,11 @@ document.addEventListener("keydown", (event) => {
 
   if (modalEstaAberto("contactSuccessModal")) {
     closeContactSuccessModal();
+    return;
+  }
+
+  if (modalEstaAberto("clientCreatedModal")) {
+    closeClientCreatedModal();
     return;
   }
 

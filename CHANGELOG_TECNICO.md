@@ -1,5 +1,26 @@
 # Registro técnico de alterações
 
+## Terça-feira, 26/05/2026 - Versão 1.4.17
+
+**Ajuste aplicado**
+
+- O rótulo `Documento` foi trocado por `Cliente` nas áreas de entrada CPF/CNPJ.
+- Removido o campo visível `Complemento do nome` do cadastro; o backend continua dividindo automaticamente `Nome 1`, `Nome 2` e temas de pesquisa conforme os limites do SAP.
+- `Tratamento` foi movido para o bloco superior junto de `Cliente` e `Tipo de solicitação`; quando o cliente é CNPJ, o campo trava automaticamente como `Empresa`.
+- `Inscrição estadual` ficou travada como `ISENTO`.
+- O cadastro de cliente agora valida os obrigatórios em sequência, destacando o primeiro campo pendente; apenas telefone e e-mail permanecem opcionais.
+- O CEP do cadastro passou a consultar automaticamente o ViaCEP, preencher rua, bairro, cidade e UF quando disponível e bloquear CEP incompleto com 8 dígitos ausentes.
+- Removido o atalho `Criar Setor` da sidebar; quando o fluxo de boleto detectar setor ausente, a criação do setor é acionada automaticamente pelo tipo de solicitação.
+- O monitor de andamento agora troca as etapas conforme a seção: boleto usa o fluxo completo, cliente usa apenas `XD01 - Criar cliente` e setor automático usa apenas `XD01 - Criar setor`.
+- Ao concluir criação de cliente, a interface mostra o modal `Cliente Criado: <número>` com os botões `Prosseguir para Criação de Boleto` e `Fechar`; ao prosseguir, CPF/CNPJ e tipo de solicitação são preenchidos na tela de boleto.
+- Atualizada a versão do projeto de `1.4.16` para `1.4.17`.
+
+**Validação realizada**
+
+- `python -m py_compile interface.py backend\controller.py backend\flows\xd03.py backend\flows\cliente_cadastro.py backend\flows\f110.py backend\flows\f110_boleto.py backend\settings.py`
+- `node --check interface\app.js`
+- Rebuild empresarial concluído em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com arquivos do pacote confirmando a versão `1.4.17`.
+
 ## Terça-feira, 26/05/2026 - Versão 1.4.16
 
 **Ajuste aplicado**
