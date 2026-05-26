@@ -14,6 +14,7 @@ from backend.utils.sap_waits import (
 VKORG_PADRAO = "EMBA"
 VTWEG_PADRAO = "PO"
 BUKRS_PADRAO = "EMBA"
+SETOR_INICIAL_CADASTRO = "AE"
 
 TIPO_PARA_SETOR = {
     "viabilidade": ("AE",),
@@ -365,8 +366,8 @@ def _salvar_cliente_ou_setor(session):
 def criar_cliente(session, dados, logger, progress_callback=None):
     try:
         cadastro = _normalizar_cadastro_cliente(dados)
-        setores = cadastro["setores"]
-        setor_inicial = setores[0]
+        setores_requeridos = cadastro["setores"]
+        setor_inicial = SETOR_INICIAL_CADASTRO
 
         logger.add(0, "Iniciando criacao de cliente no SAP.", publico=True)
         notificar_progresso(
@@ -414,8 +415,13 @@ def criar_cliente(session, dados, logger, progress_callback=None):
             )
 
         setores_criados = [setor_inicial]
+        setores_para_adicionar = [
+            setor
+            for setor in setores_requeridos
+            if setor and setor != setor_inicial
+        ]
 
-        for setor in setores[1:]:
+        for setor in setores_para_adicionar:
             adicionar_setores_cliente(
                 session,
                 {

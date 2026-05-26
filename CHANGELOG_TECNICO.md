@@ -1,5 +1,21 @@
 # Registro técnico de alterações
 
+## Terça-feira, 26/05/2026 - Versão 1.4.13
+
+**Ajuste aplicado**
+
+- A criação de cliente novo agora sempre inicia pelo setor de viabilidade `AE`, seguindo o fluxo do VBS `criacaocliente.vbs`.
+- Quando o tipo solicitado for `Água`, `Esgoto` ou `Água + Esgoto`, o sistema cria primeiro o cliente em `AE` e depois adiciona automaticamente os setores necessários `AG` e/ou `EG`.
+- Evita criar cliente novo diretamente em `AG` ou `EG`, mantendo o padrão operacional usado no SAP.
+- Atualizada a versão do projeto de `1.4.12` para `1.4.13`.
+
+**Validação realizada**
+
+- `python -m py_compile interface.py backend\controller.py backend\flows\xd03.py backend\flows\cliente_cadastro.py backend\flows\f110.py backend\flows\f110_boleto.py backend\settings.py`
+- `node --check interface\app.js`
+- Teste isolado simulando cliente novo em `Água + Esgoto`, confirmando criação inicial em `AE` e adição posterior de `AG` e `EG`.
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`.
+
 ## Segunda-feira, 25/05/2026 18:13:15 - Versão 1.4.12
 
 **Problema identificado**
