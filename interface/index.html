@@ -59,7 +59,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.4.13</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.4.14</span>
           </div>
         </div>
       </div>
@@ -401,6 +401,16 @@
             <input id="clienteCadastroNome2" type="text" maxlength="70" />
           </label>
 
+          <label class="field">
+            <span>Tratamento</span>
+            <select id="clienteCadastroTitulo">
+              <option value="auto">Autom&aacute;tico</option>
+              <option value="Empresa">Empresa</option>
+              <option value="Sr">Sr</option>
+              <option value="Sra">Sra</option>
+            </select>
+          </label>
+
           <label class="field field-span-2">
             <span>Rua</span>
             <input id="clienteCadastroRua" type="text" maxlength="160" />
@@ -434,7 +444,14 @@
 
           <label class="field">
             <span>Estado</span>
-            <input id="clienteCadastroEstado" type="text" maxlength="2" value="BA" />
+            <input
+              id="clienteCadastroEstado"
+              type="text"
+              maxlength="2"
+              value="BA"
+              placeholder="UF"
+              oninput="formatarUfCadastro(this)"
+            />
           </label>
 
           <label class="field">
@@ -444,7 +461,13 @@
 
           <label class="field">
             <span>Telefone</span>
-            <input id="clienteCadastroTelefone" type="text" maxlength="30" />
+            <input
+              id="clienteCadastroTelefone"
+              type="text"
+              maxlength="15"
+              placeholder="(00) 0000-0000"
+              oninput="formatarTelefoneCadastro(this)"
+            />
           </label>
 
           <label class="field">

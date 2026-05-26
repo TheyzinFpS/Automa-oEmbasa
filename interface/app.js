@@ -41,7 +41,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.13";
+const APP_VERSION = "1.4.14";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -315,6 +315,34 @@ function formatarCep(elm) {
 
 function formatarCepCadastro(elm) {
   elm.value = formatarCepValue(elm.value);
+}
+
+function formatarUfCadastro(elm) {
+  elm.value = String(elm.value || "")
+    .replace(/[^A-Za-z]/g, "")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+function formatarTelefoneCadastro(elm) {
+  const digitos = String(elm.value || "").replace(/\D/g, "").slice(0, 11);
+
+  if (digitos.length <= 2) {
+    elm.value = digitos ? `(${digitos}` : "";
+    return;
+  }
+
+  if (digitos.length <= 6) {
+    elm.value = `(${digitos.slice(0, 2)}) ${digitos.slice(2)}`;
+    return;
+  }
+
+  if (digitos.length <= 10) {
+    elm.value = `(${digitos.slice(0, 2)}) ${digitos.slice(2, 6)}-${digitos.slice(6)}`;
+    return;
+  }
+
+  elm.value = `(${digitos.slice(0, 2)}) ${digitos.slice(2, 7)}-${digitos.slice(7)}`;
 }
 
 function formatarCentavosParaMoeda(centavos) {
@@ -2436,6 +2464,7 @@ function preencherCadastroClienteComPayload(payload = {}) {
 
   el("clienteCadastroNome1").value = "";
   el("clienteCadastroNome2").value = "";
+  el("clienteCadastroTitulo").value = "auto";
   el("clienteCadastroRua").value = endereco.rua || "";
   el("clienteCadastroNumero").value = endereco.numero || "";
   el("clienteCadastroCep").value = endereco.sem_cep ? "" : formatarCepValue(endereco.cep || "");
@@ -2504,6 +2533,7 @@ function coletarCadastroCliente() {
     ...payload,
     nome1: el("clienteCadastroNome1").value.trim(),
     nome2: el("clienteCadastroNome2").value.trim(),
+    titulo: el("clienteCadastroTitulo").value,
     rua: el("clienteCadastroRua").value.trim(),
     numero: el("clienteCadastroNumero").value.trim(),
     cep: formatarCepValue(el("clienteCadastroCep").value.trim()),
@@ -2516,6 +2546,7 @@ function coletarCadastroCliente() {
   };
 
   const cepDigitos = obterDigitosCep(cadastro.cep);
+  const telefoneDigitos = String(cadastro.telefone || "").replace(/\D/g, "");
   const obrigatorios = [
     ["Nome / Razão social", cadastro.nome1],
     ["Rua", cadastro.rua],
@@ -2531,6 +2562,16 @@ function coletarCadastroCliente() {
 
   if (faltando.length) {
     showCadastroClienteFeedback(`Preencha: ${faltando.join(", ")}.`);
+    return null;
+  }
+
+  if (!/^[A-Z]{2}$/.test(cadastro.estado)) {
+    showCadastroClienteFeedback("Informe o estado usando a sigla com 2 letras.");
+    return null;
+  }
+
+  if (telefoneDigitos && ![10, 11].includes(telefoneDigitos.length)) {
+    showCadastroClienteFeedback("Telefone deve ter 10 ou 11 dígitos quando informado.");
     return null;
   }
 

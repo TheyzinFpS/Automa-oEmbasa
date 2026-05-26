@@ -15,6 +15,8 @@ VKORG_PADRAO = "EMBA"
 VTWEG_PADRAO = "PO"
 BUKRS_PADRAO = "EMBA"
 SETOR_INICIAL_CADASTRO = "AE"
+NOME_PARTE_LIMITE = 17
+TEMA_PESQUISA_LIMITE = 17
 
 TIPO_PARA_SETOR = {
     "viabilidade": ("AE",),
@@ -53,13 +55,17 @@ def _extrair_numero_sap(texto):
 
 
 def _limitar_texto(valor, limite):
-    texto = str(valor or "").strip()
+    texto = _normalizar_espacos(valor)
     return texto[: int(limite or 0)] if limite else texto
 
 
-def _dividir_nome(nome, nome2="", limite=35):
-    nome1 = str(nome or "").strip()
-    complemento = str(nome2 or "").strip()
+def _normalizar_espacos(valor):
+    return re.sub(r"\s+", " ", str(valor or "")).strip()
+
+
+def _dividir_nome(nome, nome2="", limite=NOME_PARTE_LIMITE):
+    nome1 = _normalizar_espacos(nome)
+    complemento = _normalizar_espacos(nome2)
 
     if complemento:
         return _limitar_texto(nome1, limite), _limitar_texto(complemento, limite)
@@ -72,6 +78,79 @@ def _dividir_nome(nome, nome2="", limite=35):
         corte = limite
 
     return nome1[:corte].strip(), nome1[corte:].strip()[:limite]
+
+
+def _separar_tratamento_nome(nome):
+    texto = _normalizar_espacos(nome)
+    normalizado = texto.upper()
+
+    regras = (
+        ("SRA.", "Sra"),
+        ("SRA ", "Sra"),
+        ("SENHORA ", "Sra"),
+        ("DONA ", "Sra"),
+        ("DNA ", "Sra"),
+        ("SR.", "Sr"),
+        ("SR ", "Sr"),
+        ("SENHOR ", "Sr"),
+    )
+
+    for prefixo, titulo in regras:
+        if normalizado.startswith(prefixo):
+            return titulo, texto[len(prefixo) :].strip()
+
+    return "", texto
+
+
+def _inferir_titulo_cliente(tipo_doc, nome, titulo_informado=""):
+    titulo = str(titulo_informado or "").strip()
+
+    if titulo and titulo.lower() != "auto":
+        return titulo
+
+    titulo_nome, _ = _separar_tratamento_nome(nome)
+
+    if tipo_doc == "cnpj":
+        return "Empresa"
+
+    return titulo_nome or "Sr"
+
+
+def _formatar_cep(valor):
+    digitos = limpar_doc(valor)
+
+    if len(digitos) != 8:
+        raise ValueError("CEP obrigatorio deve conter 8 digitos.")
+
+    return f"{digitos[:5]}-{digitos[5:]}"
+
+
+def _normalizar_uf(valor):
+    uf = re.sub(r"[^A-Za-z]", "", str(valor or "")).upper()[:2]
+
+    if len(uf) != 2:
+        raise ValueError("Estado obrigatorio deve ser informado pela sigla com 2 letras.")
+
+    return uf
+
+
+def _formatar_telefone(valor):
+    digitos = limpar_doc(valor)
+
+    if not digitos:
+        return ""
+
+    if len(digitos) == 10:
+        return f"({digitos[:2]}) {digitos[2:6]}-{digitos[6:]}"
+
+    if len(digitos) == 11:
+        return f"({digitos[:2]}) {digitos[2:7]}-{digitos[7:]}"
+
+    raise ValueError("Telefone deve ter 10 ou 11 digitos quando informado.")
+
+
+def _grupo_tesouraria(tipo_doc):
+    return "C-OUTRECPF" if tipo_doc == "cpf" else "C-OUTRECPJ"
 
 
 def _normalizar_cadastro_cliente(dados):
@@ -90,7 +169,17 @@ def _normalizar_cadastro_cliente(dados):
         or payload.get("nome")
         or ""
     )
-    nome1, nome2 = _dividir_nome(nome_base, payload.get("nome2"))
+    titulo_detectado, nome_sem_tratamento = _separar_tratamento_nome(nome_base)
+    nome1, nome2 = _dividir_nome(
+        nome_sem_tratamento,
+        payload.get("nome2"),
+        NOME_PARTE_LIMITE,
+    )
+    sort1, sort2 = _dividir_nome(
+        payload.get("sort1") or f"{nome_sem_tratamento} {payload.get('nome2') or ''}",
+        payload.get("sort2"),
+        TEMA_PESQUISA_LIMITE,
+    )
 
     endereco = payload.get("endereco") or {}
     rua = payload.get("rua") or endereco.get("rua")
@@ -98,7 +187,9 @@ def _normalizar_cadastro_cliente(dados):
     bairro = payload.get("bairro") or endereco.get("bairro")
     cep = payload.get("cep") or endereco.get("cep")
     cidade = payload.get("cidade") or endereco.get("cidade")
-    estado = (payload.get("estado") or endereco.get("estado") or "BA").upper()
+    estado = _normalizar_uf(payload.get("estado") or endereco.get("estado") or "BA")
+    cep_formatado = _formatar_cep(cep)
+    telefone_formatado = _formatar_telefone(payload.get("telefone") or "")
 
     obrigatorios = {
         "nome/razao social": nome1,
@@ -121,18 +212,22 @@ def _normalizar_cadastro_cliente(dados):
         "setores": setores,
         "grupo_conta": payload.get("grupo_conta")
         or ("PJ01" if tipo_doc == "cnpj" else "PF01"),
-        "titulo": payload.get("titulo") or ("Empresa" if tipo_doc == "cnpj" else ""),
+        "titulo": _inferir_titulo_cliente(
+            tipo_doc,
+            nome_base,
+            payload.get("titulo") or titulo_detectado,
+        ),
         "nome1": nome1,
         "nome2": nome2,
-        "sort1": _limitar_texto(payload.get("sort1") or nome1, 20),
-        "sort2": _limitar_texto(payload.get("sort2") or nome2 or nome1, 20),
+        "sort1": sort1,
+        "sort2": sort2,
         "rua": _limitar_texto(rua, 60),
         "numero": _limitar_texto(numero, 10),
         "bairro": _limitar_texto(bairro, 40),
-        "cep": str(cep or "").strip(),
+        "cep": cep_formatado,
         "cidade": _limitar_texto(cidade, 40).upper(),
-        "estado": _limitar_texto(estado, 2),
-        "telefone": _limitar_texto(payload.get("telefone") or "", 30),
+        "estado": estado,
+        "telefone": telefone_formatado,
         "email": _limitar_texto(payload.get("email") or "", 241),
         "inscricao_estadual": _limitar_texto(
             payload.get("inscricao_estadual") or "ISENTO",
@@ -254,7 +349,7 @@ def _preencher_dados_gerais(session, dados):
             "subADDRESS:SAPLSZA1:0300/subCOUNTRY_SCREEN:SAPLSZA1:0301/"
             "cmbSZA1_D0100-TITLE_MEDI",
             dados["titulo"],
-            required=False,
+            required=True,
         )
 
     prefixo = (
@@ -291,17 +386,16 @@ def _preencher_documentos_fiscais(session, dados):
     if dados["tipo_documento"] == "cnpj":
         _set_text(session, prefixo + "txtKNA1-STCD1", dados["doc"])
     else:
-        _set_text(session, prefixo + "txtKNA1-STCD2", dados["doc"], required=False)
+        _set_text(session, prefixo + "txtKNA1-STCD2", dados["doc"])
 
     _set_text(
         session,
         prefixo + "txtKNA1-STCD3",
         dados["inscricao_estadual"],
-        required=False,
     )
 
 
-def _preencher_dados_empresa(session):
+def _preencher_dados_empresa(session, tipo_doc):
     _press(session, "wnd[0]/tbar[1]/btn[26]")
 
     prefixo = (
@@ -310,7 +404,7 @@ def _preencher_dados_empresa(session):
     )
 
     _set_text(session, prefixo + "ctxtKNB1-AKONT", "11500700")
-    _set_text(session, prefixo + "ctxtKNB1-FDGRV", "C-OUTRECPJ")
+    _set_text(session, prefixo + "ctxtKNB1-FDGRV", _grupo_tesouraria(tipo_doc))
 
 
 def _preencher_dados_vendas(session, setor, incluir_imposto=True):
@@ -403,7 +497,7 @@ def criar_cliente(session, dados, logger, progress_callback=None):
             "Preenchendo dados de empresa e vendas...",
             66,
         )
-        _preencher_dados_empresa(session)
+        _preencher_dados_empresa(session, cadastro["tipo_documento"])
         _preencher_dados_vendas(session, setor_inicial, incluir_imposto=True)
 
         status = _salvar_cliente_ou_setor(session)

@@ -1,5 +1,26 @@
 # Registro técnico de alterações
 
+## Terça-feira, 26/05/2026 - Versão 1.4.14
+
+**Ajuste aplicado**
+
+- Cadastro de cliente passou a quebrar `Nome 1`, `Nome 2`, `Tema de pesquisa 1` e `Tema de pesquisa 2` em partes menores, respeitando o limite operacional de aproximadamente 15/17 caracteres.
+- Para CNPJ, o tratamento do cliente é `Empresa`; para CPF, o tratamento é inferido por prefixos como `Sr`, `Sra`, `Senhor`, `Senhora` ou `Dona`.
+- Adicionado campo de tratamento no cadastro (`Automático`, `Empresa`, `Sr`, `Sra`) para permitir ajuste manual quando necessario.
+- CEP passou a ser normalizado obrigatoriamente no formato `00000-000`.
+- Estado do cadastro passou a aceitar qualquer UF informada por sigla de 2 letras, não apenas `BA`.
+- Telefone opcional passou a ser normalizado no formato `(00) 0000-0000` ou `(00) 00000-0000`.
+- Documento fiscal mantém CNPJ/CPF sem máscara, e inscrição estadual `ISENTO` passa a ser enviada como campo obrigatório.
+- Dados de empresa agora usam `C-OUTRECPJ` para CNPJ e `C-OUTRECPF` para CPF.
+- Atualizada a versão do projeto de `1.4.13` para `1.4.14`.
+
+**Validação realizada**
+
+- `python -m py_compile interface.py backend\controller.py backend\flows\xd03.py backend\flows\cliente_cadastro.py backend\flows\f110.py backend\flows\f110_boleto.py backend\settings.py`
+- `node --check interface\app.js`
+- Teste isolado de normalização do cadastro com CNPJ e CPF, validando tratamento `Empresa/Sra`, quebra de nome, CEP, UF, telefone e `C-OUTRECPJ/C-OUTRECPF`.
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`.
+
 ## Terça-feira, 26/05/2026 - Versão 1.4.13
 
 **Ajuste aplicado**
