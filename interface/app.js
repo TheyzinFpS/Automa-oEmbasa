@@ -35,6 +35,13 @@ const TIPOS_SOLICITACAO = {
   agua_esgoto: "Água + Esgoto"
 };
 
+const TRATAMENTOS_CADASTRO = {
+  auto: "Automático",
+  Empresa: "Empresa",
+  Sr: "Sr",
+  Sra: "Sra"
+};
+
 const SETOR_MODELOS = {
   AE: { titulo: "Viabilidade", vendas: "1055", grupo: "DM" },
   AG: { titulo: "Água", vendas: "1055", grupo: "DM" },
@@ -57,7 +64,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.19";
+const APP_VERSION = "1.4.20";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -1316,6 +1323,18 @@ function toggleSidebar() {
   setSidebarExpanded(!state.sidebarOpen);
 }
 
+function lockSidebarCollapsed(locked) {
+  const sidebar = el("appSidebar");
+
+  if (locked) {
+    setSidebarExpanded(false);
+  }
+
+  if (sidebar) {
+    sidebar.classList.toggle("is-locked-collapsed", Boolean(locked));
+  }
+}
+
 function setSidebarActive(view) {
   const mapa = {
     boletos: "navBoleto",
@@ -1485,6 +1504,80 @@ function selecionarTipo(tipo, label) {
   el("tipoButtonText").textContent = label;
   fecharMenuTipo();
   atualizarTipo();
+}
+
+function atualizarCadastroTipoUI() {
+  const tipo = el("clienteCadastroTipo")?.value || "";
+  const label = TIPOS_SOLICITACAO[tipo] || TIPOS_SOLICITACAO[""];
+  const buttonText = el("clienteCadastroTipoButtonText");
+
+  if (buttonText) {
+    buttonText.textContent = label;
+  }
+}
+
+function setCadastroTipoTravado(travado) {
+  const button = el("clienteCadastroTipoButton");
+
+  if (button) {
+    button.disabled = Boolean(travado);
+    button.classList.toggle("readonly-like", Boolean(travado));
+  }
+}
+
+function toggleCadastroTipoMenu(event) {
+  if (el("clienteCadastroTipoButton")?.disabled) {
+    return;
+  }
+
+  toggleMenu("clienteCadastroTipoMenu", "clienteCadastroTipoButton", event);
+}
+
+function fecharCadastroTipoMenu() {
+  closeMenu("clienteCadastroTipoMenu", "clienteCadastroTipoButton");
+}
+
+function selecionarCadastroTipo(tipo, label) {
+  el("clienteCadastroTipo").value = tipo;
+  el("clienteCadastroTipoButtonText").textContent = label;
+  fecharCadastroTipoMenu();
+  atualizarResumoCadastroManual();
+}
+
+function atualizarCadastroTituloUI() {
+  const titulo = el("clienteCadastroTitulo")?.value || "auto";
+  const buttonText = el("clienteCadastroTituloButtonText");
+
+  if (buttonText) {
+    buttonText.textContent = TRATAMENTOS_CADASTRO[titulo] || TRATAMENTOS_CADASTRO.auto;
+  }
+}
+
+function setCadastroTituloTravado(travado) {
+  const button = el("clienteCadastroTituloButton");
+
+  if (button) {
+    button.disabled = Boolean(travado);
+    button.classList.toggle("readonly-like", Boolean(travado));
+  }
+}
+
+function toggleCadastroTituloMenu(event) {
+  if (el("clienteCadastroTituloButton")?.disabled) {
+    return;
+  }
+
+  toggleMenu("clienteCadastroTituloMenu", "clienteCadastroTituloButton", event);
+}
+
+function fecharCadastroTituloMenu() {
+  closeMenu("clienteCadastroTituloMenu", "clienteCadastroTituloButton");
+}
+
+function selecionarCadastroTitulo(titulo, label) {
+  el("clienteCadastroTitulo").value = titulo;
+  el("clienteCadastroTituloButtonText").textContent = label;
+  fecharCadastroTituloMenu();
 }
 
 // Alterna entre valor de tabela e valor customizado.
@@ -2676,6 +2769,8 @@ function preencherCadastroClienteComPayload(payload = {}) {
   el("clienteCadastroDoc").classList.add("readonly-like");
   el("clienteCadastroTipo").value = payload.tipo || "";
   el("clienteCadastroTipo").disabled = true;
+  setCadastroTipoTravado(true);
+  atualizarCadastroTipoUI();
   el("clienteCadastroRua").value = endereco.rua || "";
   el("clienteCadastroNumero").value = endereco.numero || "";
   el("clienteCadastroCep").value = endereco.sem_cep ? "" : formatarCepValue(endereco.cep || "");
@@ -2701,6 +2796,10 @@ function limparCamposCadastroCliente() {
   el("clienteCadastroTelefone").value = "";
   el("clienteCadastroEmail").value = "";
   el("clienteCadastroTitulo").value = "auto";
+  setCadastroTipoTravado(false);
+  atualizarCadastroTipoUI();
+  setCadastroTituloTravado(false);
+  atualizarCadastroTituloUI();
 }
 
 function atualizarResumoCadastroManual() {
@@ -2711,6 +2810,7 @@ function atualizarResumoCadastroManual() {
   el("clientRegistrationTipo").textContent = TIPOS_SOLICITACAO[tipo] || "--";
   el("clientRegistrationDocBadge").textContent = docInfo.badge || "CPF/CNPJ";
   el("clientRegistrationDocBadge").className = `doc-badge ${docInfo.classe || "neutral"}`;
+  atualizarCadastroTipoUI();
   atualizarTratamentoCadastroPorDocumento();
 }
 
@@ -2726,15 +2826,20 @@ function atualizarTratamentoCadastroPorDocumento() {
     tratamento.value = "Empresa";
     tratamento.disabled = true;
     tratamento.classList.add("readonly-like");
+    setCadastroTituloTravado(true);
+    atualizarCadastroTituloUI();
     return;
   }
 
   tratamento.disabled = false;
   tratamento.classList.remove("readonly-like");
+  setCadastroTituloTravado(false);
 
   if (tratamento.value === "Empresa") {
     tratamento.value = "auto";
   }
+
+  atualizarCadastroTituloUI();
 }
 
 function abrirCadastroClientePanel(mode) {
@@ -2771,6 +2876,7 @@ function abrirCriacaoClienteManual() {
   el("clienteCadastroDoc").classList.remove("readonly-like");
   el("clienteCadastroTipo").value = "";
   el("clienteCadastroTipo").disabled = false;
+  setCadastroTipoTravado(false);
   limparCamposCadastroCliente();
   atualizarResumoCadastroManual();
   hideCadastroClienteFeedback();
@@ -2833,9 +2939,16 @@ function showCadastroClienteFeedback(message, ok = false, fieldId = "") {
       field.classList.add("has-error");
     }
 
-    if (target && typeof target.focus === "function" && !target.disabled && !target.readOnly) {
-      target.scrollIntoView({ behavior: "smooth", block: "center" });
-      window.setTimeout(() => target.focus(), 160);
+    const focusTarget =
+      fieldId === "clienteCadastroTipo"
+        ? el("clienteCadastroTipoButton")
+        : fieldId === "clienteCadastroTitulo"
+          ? el("clienteCadastroTituloButton")
+          : target;
+
+    if (focusTarget && typeof focusTarget.focus === "function" && !focusTarget.disabled && !focusTarget.readOnly) {
+      (field || focusTarget).scrollIntoView({ behavior: "smooth", block: "center" });
+      window.setTimeout(() => focusTarget.focus(), 160);
     }
   }
 }
@@ -3278,12 +3391,14 @@ async function carregarDiagnosticoSobre() {
 }
 
 function openAboutModal() {
+  lockSidebarCollapsed(true);
   openModal("aboutModal");
   carregarDiagnosticoSobre();
 }
 
 function closeAboutModal() {
   closeModal("aboutModal");
+  lockSidebarCollapsed(false);
 }
 
 function updateContactCharCount() {
@@ -3894,7 +4009,7 @@ async function executarFluxo(payload, options = {}) {
         preencherResultado(res.resultado);
       }
 
-      if (res.msg) {
+      if (res.msg && !(Array.isArray(res.logs) && res.logs.length)) {
         log(res.msg, "error");
       }
 
@@ -3984,6 +4099,10 @@ document.addEventListener("click", (event) => {
   const valueButton = el("valueModeButton");
   const tipoMenu = el("tipoMenu");
   const tipoButton = el("tipoButton");
+  const cadastroTipoMenu = el("clienteCadastroTipoMenu");
+  const cadastroTipoButton = el("clienteCadastroTipoButton");
+  const cadastroTituloMenu = el("clienteCadastroTituloMenu");
+  const cadastroTituloButton = el("clienteCadastroTituloButton");
   const popover = el("logPopover");
   const balloon = el("logBalloon");
   const card = el("contactCard");
@@ -3997,6 +4116,24 @@ document.addEventListener("click", (event) => {
 
   if (tipoMenu && tipoButton && !tipoMenu.contains(event.target) && !tipoButton.contains(event.target)) {
     fecharMenuTipo();
+  }
+
+  if (
+    cadastroTipoMenu &&
+    cadastroTipoButton &&
+    !cadastroTipoMenu.contains(event.target) &&
+    !cadastroTipoButton.contains(event.target)
+  ) {
+    fecharCadastroTipoMenu();
+  }
+
+  if (
+    cadastroTituloMenu &&
+    cadastroTituloButton &&
+    !cadastroTituloMenu.contains(event.target) &&
+    !cadastroTituloButton.contains(event.target)
+  ) {
+    fecharCadastroTituloMenu();
   }
 
   if (popover && balloon && !popover.contains(event.target) && !balloon.contains(event.target)) {

@@ -121,9 +121,13 @@ video {
 }
 
 .app-sidebar:hover,
-.app-sidebar.is-open,
-.app-sidebar:focus-within {
+.app-sidebar.is-open {
   width: var(--sidebar-expanded);
+}
+
+.app-sidebar.is-locked-collapsed,
+.app-sidebar.is-locked-collapsed:hover {
+  width: var(--sidebar-collapsed);
 }
 
 .sidebar-toggle {
@@ -257,9 +261,7 @@ video {
 .app-sidebar:hover .sidebar-label,
 .app-sidebar:hover .sidebar-brand-copy,
 .app-sidebar.is-open .sidebar-label,
-.app-sidebar.is-open .sidebar-brand-copy,
-.app-sidebar:focus-within .sidebar-label,
-.app-sidebar:focus-within .sidebar-brand-copy {
+.app-sidebar.is-open .sidebar-brand-copy {
   opacity: 1;
   transform: translateX(0);
 }
@@ -297,15 +299,44 @@ video {
 
 .theme-icon {
   display: inline-flex;
+  flex: 0 0 30px;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   background: var(--accent-soft);
   color: var(--accent);
   font-size: 0.72rem;
   font-weight: 800;
+}
+
+.app-sidebar:not(:hover):not(.is-open) .sidebar-nav-item,
+.app-sidebar:not(:hover):not(.is-open) .sidebar-utility,
+.app-sidebar.is-locked-collapsed .sidebar-nav-item,
+.app-sidebar.is-locked-collapsed .sidebar-utility {
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+}
+
+.app-sidebar:not(:hover):not(.is-open) .sidebar-label,
+.app-sidebar:not(:hover):not(.is-open) .sidebar-brand-copy,
+.app-sidebar.is-locked-collapsed .sidebar-label,
+.app-sidebar.is-locked-collapsed .sidebar-brand-copy {
+  width: 0;
+  opacity: 0;
+  transform: translateX(-6px);
+}
+
+.app-sidebar:not(:hover):not(.is-open) .sidebar-icon,
+.app-sidebar:not(:hover):not(.is-open) .theme-icon,
+.app-sidebar.is-locked-collapsed .sidebar-icon,
+.app-sidebar.is-locked-collapsed .theme-icon {
+  flex-basis: 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
 }
 
 .hero {
@@ -845,6 +876,15 @@ video {
   margin-bottom: 8px;
 }
 
+.optional-chip {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
 .custom-select-shell {
   position: relative;
 }
@@ -972,6 +1012,14 @@ input.is-loading {
 
 .select-toggle:hover {
   transform: translateY(-1px);
+}
+
+.select-toggle:disabled,
+.select-toggle.readonly-like {
+  cursor: default;
+  color: var(--muted);
+  background: rgba(11, 79, 159, 0.08);
+  transform: none;
 }
 
 .select-toggle.open .chevron {
@@ -2465,8 +2513,7 @@ input.is-loading {
   }
 
   .app-sidebar:hover,
-  .app-sidebar.is-open,
-  .app-sidebar:focus-within {
+  .app-sidebar.is-open {
     width: 100%;
   }
 

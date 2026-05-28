@@ -1,5 +1,24 @@
 # Registro técnico de alterações
 
+## Quinta-feira, 28/05/2026 - Versao 1.4.20
+
+**Ajuste aplicado**
+
+- No cadastro de cliente, `Tipo de solicitacao` e `Tratamento` passaram a usar dropdown visual no mesmo padrao da tela de criacao de boletos.
+- Os campos `Telefone` e `E-mail` agora exibem o marcador discreto `Opcional` no canto direito do rotulo.
+- Corrigido o estado minimizado da sidebar para manter os icones de Historico, tema e Sobre redondos, sem achatamento.
+- Ao abrir o modal `Sobre`, a sidebar e recolhida e fica travada no estado compacto enquanto o modal estiver aberto.
+- O log operacional deixou de exibir mensagens-resumo duplicadas como `Resumo da falha...` e o `msg` final quando ja existe diagnostico detalhado no painel.
+- Atualizada a versao do projeto de `1.4.19` para `1.4.20`.
+
+**Validacao realizada**
+
+- `python -m py_compile interface.py backend\controller.py backend\flows\xd03.py backend\flows\cliente_cadastro.py backend\flows\f110.py backend\flows\f110_boleto.py backend\settings.py`
+- `node --check interface\app.js`
+- Checagem de handlers declarados no HTML contra `interface\app.js`.
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com arquivos do pacote confirmando a versao `1.4.20`.
+
 ## Quinta-feira, 28/05/2026 - Versao 1.4.19
 
 **Ajuste aplicado**

@@ -104,7 +104,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.4.19</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.4.20</span>
           </div>
         </div>
       </div>
@@ -450,23 +450,75 @@
 
           <label class="field">
             <span>Tipo de solicita&ccedil;&atilde;o</span>
-            <select id="clienteCadastroTipo" onchange="atualizarResumoCadastroManual()">
-              <option value="">Selecione</option>
-              <option value="viabilidade">Viabilidade</option>
-              <option value="agua">&Aacute;gua</option>
-              <option value="esgoto">Esgoto</option>
-              <option value="agua_esgoto">&Aacute;gua + Esgoto</option>
-            </select>
+            <input id="clienteCadastroTipo" type="hidden" value="" />
+
+            <div class="custom-select-shell">
+              <button
+                id="clienteCadastroTipoButton"
+                class="select-toggle"
+                type="button"
+                aria-haspopup="true"
+                aria-expanded="false"
+                aria-controls="clienteCadastroTipoMenu"
+                onclick="toggleCadastroTipoMenu(event)"
+              >
+                <span id="clienteCadastroTipoButtonText">Selecione</span>
+                <span class="chevron">&#9662;</span>
+              </button>
+
+              <div id="clienteCadastroTipoMenu" class="value-menu hidden">
+                <button type="button" onclick="selecionarCadastroTipo('', 'Selecione')">
+                  Selecione
+                </button>
+                <button type="button" onclick="selecionarCadastroTipo('viabilidade', 'Viabilidade')">
+                  Viabilidade
+                </button>
+                <button type="button" onclick="selecionarCadastroTipo('agua', '\u00c1gua')">
+                  &Aacute;gua
+                </button>
+                <button type="button" onclick="selecionarCadastroTipo('esgoto', 'Esgoto')">
+                  Esgoto
+                </button>
+                <button type="button" onclick="selecionarCadastroTipo('agua_esgoto', '\u00c1gua + Esgoto')">
+                  &Aacute;gua + Esgoto
+                </button>
+              </div>
+            </div>
           </label>
 
           <label class="field">
             <span>Tratamento</span>
-            <select id="clienteCadastroTitulo">
-              <option value="auto">Autom&aacute;tico</option>
-              <option value="Empresa">Empresa</option>
-              <option value="Sr">Sr</option>
-              <option value="Sra">Sra</option>
-            </select>
+            <input id="clienteCadastroTitulo" type="hidden" value="auto" />
+
+            <div class="custom-select-shell">
+              <button
+                id="clienteCadastroTituloButton"
+                class="select-toggle"
+                type="button"
+                aria-haspopup="true"
+                aria-expanded="false"
+                aria-controls="clienteCadastroTituloMenu"
+                onclick="toggleCadastroTituloMenu(event)"
+              >
+                <span id="clienteCadastroTituloButtonText">Autom&aacute;tico</span>
+                <span class="chevron">&#9662;</span>
+              </button>
+
+              <div id="clienteCadastroTituloMenu" class="value-menu hidden">
+                <button type="button" onclick="selecionarCadastroTitulo('auto', 'Autom\u00e1tico')">
+                  Autom&aacute;tico
+                </button>
+                <button type="button" onclick="selecionarCadastroTitulo('Empresa', 'Empresa')">
+                  Empresa
+                </button>
+                <button type="button" onclick="selecionarCadastroTitulo('Sr', 'Sr')">
+                  Sr
+                </button>
+                <button type="button" onclick="selecionarCadastroTitulo('Sra', 'Sra')">
+                  Sra
+                </button>
+              </div>
+            </div>
           </label>
         </div>
 
@@ -525,7 +577,10 @@
           </label>
 
           <label class="field">
-            <span>Telefone</span>
+            <div class="field-row">
+              <span>Telefone</span>
+              <small class="optional-chip">Opcional</small>
+            </div>
             <input
               id="clienteCadastroTelefone"
               type="text"
@@ -536,7 +591,10 @@
           </label>
 
           <label class="field">
-            <span>E-mail</span>
+            <div class="field-row">
+              <span>E-mail</span>
+              <small class="optional-chip">Opcional</small>
+            </div>
             <input id="clienteCadastroEmail" type="email" maxlength="160" />
           </label>
         </div>

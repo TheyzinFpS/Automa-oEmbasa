@@ -337,7 +337,7 @@ class API:
                             )
                         ),
                         nivel="ERRO",
-                        publico=True,
+                        publico=cancelado,
                     )
 
                     if resultado.get("dados"):
