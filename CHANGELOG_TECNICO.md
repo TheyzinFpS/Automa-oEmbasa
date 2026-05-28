@@ -1,5 +1,24 @@
 # Registro técnico de alterações
 
+## Quinta-feira, 28/05/2026 - Versao 1.4.24
+
+**Ajuste aplicado**
+
+- Ao concluir o fluxo de boleto com sucesso na F110, a tela agora limpa os campos preenchidos da criacao de boleto sem apagar o resultado final, logs ou status de conclusao.
+- Em lotes de empreendimentos, a limpeza dos campos acontece apenas depois que todos os itens terminam, preservando os payloads ja montados durante a execucao.
+- Na criacao de cliente aberta a partir da criacao de boleto, o cadastro passou a reaproveitar apenas CPF/CNPJ, nome quando enviado no payload, e tipo de solicitacao.
+- Removido o reaproveitamento automatico do endereco do empreendimento na tela de criacao de cliente.
+- Atualizada a versao do projeto de `1.4.23` para `1.4.24`.
+
+**Validacao realizada**
+
+- `python -m py_compile interface.py backend\settings.py`
+- `node --check interface\app.js`
+- Checagem de handlers declarados no HTML contra `interface\app.js`.
+- Revisao por busca dos novos pontos `limparFormularioCriacaoBoleto` e `preencherCadastroClienteComPayload`.
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com arquivos do pacote confirmando a versao `1.4.24`.
+
 ## Quinta-feira, 28/05/2026 - Versao 1.4.23
 
 **Ajuste aplicado**

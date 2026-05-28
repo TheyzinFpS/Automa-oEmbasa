@@ -64,7 +64,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.23";
+const APP_VERSION = "1.4.24";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -720,12 +720,29 @@ function limparCamposEndereco() {
   resetarEnderecoAutoCep();
   el("enderecoEmpreendimento").value = "";
   el("enderecoRua").value = "";
+  el("enderecoNumero").value = "";
   el("enderecoCep").value = "";
   el("enderecoBairro").value = "";
   el("enderecoComplemento").value = "";
   el("enderecoCidade").value = "";
+  el("enderecoEstado").value = "BA";
   setSemNumero(false);
   setSemCep(false);
+  limparMensagensValidacao();
+}
+
+function limparFormularioCriacaoBoleto() {
+  atualizarDocumentoUI("");
+  el("tipo").value = "";
+  el("tipoButtonText").textContent = TIPOS_SOLICITACAO[""];
+  state.lastTipo = "";
+  state.valueMode = "auto";
+  atualizarModoValorUI();
+  limparCamposEndereco();
+  limparFilaEmpreendimentos();
+  setEmpreendimentoAberto(false);
+  fecharMenuTipo();
+  fecharMenuValor();
   limparMensagensValidacao();
 }
 
@@ -2804,8 +2821,14 @@ function cancelarAcaoSapPendente() {
 }
 
 function preencherCadastroClienteComPayload(payload = {}) {
-  const endereco = payload.endereco || {};
   const docInfo = analisarDocumento(payload.doc || "");
+  const nomeCliente = String(
+    payload.nome_cliente
+    || payload.cliente_nome
+    || payload.nome
+    || payload.razao_social
+    || ""
+  ).trim();
 
   state.clientRegistrationMode = "pending";
   el("clientRegistrationKicker").textContent = "Cadastro SAP";
@@ -2816,7 +2839,7 @@ function preencherCadastroClienteComPayload(payload = {}) {
   el("clientRegistrationDocBadge").className = `doc-badge ${docInfo.classe || "neutral"}`;
   el("clientRegistrationSubmit").textContent = "Criar cliente e continuar";
 
-  el("clienteCadastroNome1").value = "";
+  el("clienteCadastroNome1").value = nomeCliente;
   el("clienteCadastroDoc").value = docInfo.formatado || formatarDocumento(payload.doc || "");
   el("clienteCadastroDoc").readOnly = true;
   el("clienteCadastroDoc").classList.add("readonly-like");
@@ -2824,12 +2847,12 @@ function preencherCadastroClienteComPayload(payload = {}) {
   el("clienteCadastroTipo").disabled = true;
   setCadastroTipoTravado(true);
   atualizarCadastroTipoUI();
-  el("clienteCadastroRua").value = endereco.rua || "";
-  el("clienteCadastroNumero").value = endereco.numero || "";
-  el("clienteCadastroCep").value = endereco.sem_cep ? "" : formatarCepValue(endereco.cep || "");
-  el("clienteCadastroBairro").value = endereco.bairro || "";
-  el("clienteCadastroCidade").value = endereco.cidade || "";
-  el("clienteCadastroEstado").value = endereco.estado || "BA";
+  el("clienteCadastroRua").value = "";
+  el("clienteCadastroNumero").value = "";
+  el("clienteCadastroCep").value = "";
+  el("clienteCadastroBairro").value = "";
+  el("clienteCadastroCidade").value = "";
+  el("clienteCadastroEstado").value = "BA";
   el("clienteCadastroInscricao").value = "ISENTO";
   el("clienteCadastroTelefone").value = "";
   el("clienteCadastroEmail").value = "";
@@ -3945,7 +3968,8 @@ async function executarLoteEmpreendimentos(payloads) {
         resume,
         checkpoint: checkpointCliente,
         manageButtons: false,
-        resetProgress: false
+        resetProgress: false,
+        clearFormOnSuccess: false
       });
 
       if (!resultado || !resultado.ok) {
@@ -3986,6 +4010,7 @@ async function executarLoteEmpreendimentos(payloads) {
     }
 
     limparFilaEmpreendimentos();
+    limparFormularioCriacaoBoleto();
     setStatus("Lote concluído", "success");
     log("Todos os empreendimentos do lote foram processados.");
   } finally {
@@ -4000,7 +4025,8 @@ async function executarFluxo(payload, options = {}) {
     resume = false,
     checkpoint = null,
     manageButtons = true,
-    resetProgress = true
+    resetProgress = true,
+    clearFormOnSuccess = true
   } = options;
   const resumeCheckpoint = resume
     ? cloneCheckpoint(checkpoint || state.resumeCheckpoint)
@@ -4097,6 +4123,9 @@ async function executarFluxo(payload, options = {}) {
 
     preencherResultado(res.resultado || {});
     setStatus("Concluído", "success");
+    if (clearFormOnSuccess) {
+      limparFormularioCriacaoBoleto();
+    }
     return res;
   } catch (error) {
     setStatus("Falha no processamento", "error");
