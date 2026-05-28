@@ -4,7 +4,6 @@ import json
 import threading
 import time
 import traceback
-import uuid
 from pathlib import Path
 
 import webview
@@ -83,7 +82,12 @@ class API:
 
         try:
             with self._ui_lock:
-                window.evaluate_js(script)
+                run_js = getattr(window, "run_js", None)
+
+                if callable(run_js):
+                    run_js(script)
+                else:
+                    window.evaluate_js(script)
             return True
         except Exception:
             return False
@@ -178,31 +182,7 @@ class API:
         except Exception:
             pass
 
-        for method_name in ("show",):
-            method = getattr(window, method_name, None)
-
-            if not callable(method):
-                continue
-
-            try:
-                method()
-            except Exception:
-                continue
-
-        if maximizar:
-            method = getattr(window, "maximize", None)
-
-            if callable(method):
-                try:
-                    method()
-                except Exception:
-                    pass
-
         self._evaluate_js_safe("try { window.focus(); } catch (e) {}")
-
-    def preparar_janela_aviso_operacional(self):
-        self._trazer_interface_para_frente(maximizar=True)
-        return {"ok": True}
 
     def _aguardar_aviso_operacional(self, tipo, payload=None, timeout=900):
         """
@@ -214,24 +194,13 @@ class API:
         """
 
         payload = dict(payload or {})
-        payload["id"] = payload.get("id") or uuid.uuid4().hex
         payload["tipo"] = str(tipo or "")
-
-        try:
-            self._trazer_interface_para_frente(maximizar=True)
-        except Exception:
-            pass
 
         self._emitir_funcao_js(
             "mostrarAvisoOperacional",
             str(tipo or ""),
             _serializar_para_front(payload),
         )
-
-        try:
-            self._trazer_interface_para_frente(maximizar=True)
-        except Exception:
-            pass
 
         return True
 

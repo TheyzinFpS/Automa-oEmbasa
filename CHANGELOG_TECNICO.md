@@ -1,5 +1,24 @@
 # Registro técnico de alterações
 
+## Quinta-feira, 28/05/2026 - Versao 1.4.19
+
+**Ajuste aplicado**
+
+- Corrigido o modal do PDFCreator para nao executar mais copia nem chamada `pywebview.api` ao clicar; o backend ja copia o nome automaticamente e o botao agora apenas fecha o aviso.
+- Removida a chamada frontend `preparar_janela_aviso_operacional`, evitando reentrada JavaScript -> Python durante a exibicao do modal.
+- Centralizado o foco/maximizacao da interface em uma unica chamada do backend quando chega o evento `PDF_NAME_READY`.
+- Simplificada a rotina `_trazer_interface_para_frente`, removendo a duplicidade de `show` e `maximize`.
+- A emissao de JavaScript pelo backend passou a preferir `window.run_js`, sem retorno sincronizado, com fallback para `evaluate_js`.
+- Atualizada a versao do projeto de `1.4.18` para `1.4.19`.
+
+**Validacao realizada**
+
+- `python -m py_compile interface.py backend\controller.py backend\flows\xd03.py backend\flows\cliente_cadastro.py backend\flows\f110.py backend\flows\f110_boleto.py backend\settings.py`
+- `node --check interface\app.js`
+- Checagem de handlers declarados no HTML contra `interface\app.js`.
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com arquivos do pacote confirmando a versao `1.4.19`.
+
 ## Quarta-feira, 27/05/2026 - Versao 1.4.18
 
 **Ajuste aplicado**

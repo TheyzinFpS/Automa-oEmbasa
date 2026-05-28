@@ -57,7 +57,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.18";
+const APP_VERSION = "1.4.19";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -125,10 +125,8 @@ const state = {
   cancelRequested: false,
   currentPdfNameNotice: "",
   lastPdfNameNotice: "",
-  currentPdfNoticeId: "",
   currentPaymentFileNotice: "",
   lastPaymentFileNotice: "",
-  currentPaymentNoticeId: "",
   operationalNoticeQueue: [],
   simpleOperationalToastTimer: null,
   pendingSapAction: null,
@@ -2019,12 +2017,6 @@ function prepararInterfaceParaAvisoOperacional() {
   } catch (error) {
     // O foco visual pode depender do Windows/SAP, mas o aviso fica pronto na interface.
   }
-
-  try {
-    window.pywebview?.api?.preparar_janela_aviso_operacional?.();
-  } catch (error) {
-    // O backend tambem tenta trazer a janela para frente antes de emitir o aviso.
-  }
 }
 
 function showSimpleOperationalToast(message) {
@@ -2096,9 +2088,8 @@ function openPdfNameModal(nomePdf) {
   openModal("pdfNameModal");
 }
 
-function openPdfNameModalComConfirmacao(nomePdf, noticeId = "") {
+function openPdfNameModalComConfirmacao(nomePdf) {
   state.lastPdfNameNotice = "";
-  state.currentPdfNoticeId = String(noticeId || "");
   openPdfNameModal(nomePdf);
 }
 
@@ -2109,20 +2100,18 @@ function closePdfNameModal() {
 async function confirmarAvisoOperacional(noticeId) {
   const id = String(noticeId || "").trim();
 
-  if (!id || !window.pywebview?.api?.confirmar_aviso_operacional) {
+  if (!id) {
     return;
   }
 
   try {
-    await window.pywebview.api.confirmar_aviso_operacional(id);
+    void id;
   } catch (error) {
     log(`Não foi possível confirmar o aviso operacional: ${error}`, "error");
   }
 }
 
-async function copyPdfNameAndClose() {
-  await copiarTextoParaAreaTransferencia(state.currentPdfNameNotice);
-  state.currentPdfNoticeId = "";
+function closePdfNameNotice() {
   closePdfNameModal();
   processarProximoAvisoOperacional();
 }
@@ -2152,9 +2141,8 @@ function openPaymentFileModal(nomeArquivo) {
   openModal("paymentFileModal");
 }
 
-function openPaymentFileModalComConfirmacao(nomeArquivo, noticeId = "") {
+function openPaymentFileModalComConfirmacao(nomeArquivo) {
   state.lastPaymentFileNotice = "";
-  state.currentPaymentNoticeId = String(noticeId || "");
   openPaymentFileModal(nomeArquivo);
 }
 
@@ -2162,9 +2150,7 @@ function closePaymentFileModal() {
   closeModal("paymentFileModal");
 }
 
-async function copyPaymentFileNameAndClose() {
-  await copiarTextoParaAreaTransferencia(state.currentPaymentFileNotice);
-  state.currentPaymentNoticeId = "";
+function closePaymentFileNotice() {
   closePaymentFileModal();
   processarProximoAvisoOperacional();
 }
@@ -2185,7 +2171,6 @@ function processarProximoAvisoOperacional() {
 }
 
 function mostrarAvisoOperacionalAgora(tipo, payload = {}) {
-  const noticeId = String(payload.id || "");
   const nome = String(payload.nome || payload.nome_arquivo || payload.nome_pdf || "").trim();
 
   if (!nome) {
@@ -2194,12 +2179,12 @@ function mostrarAvisoOperacionalAgora(tipo, payload = {}) {
   }
 
   if (tipo === "payment") {
-    copiarTextoParaAreaTransferencia(nome);
+    openPaymentFileModalComConfirmacao(nome);
     processarProximoAvisoOperacional();
     return;
   }
 
-  openPdfNameModalComConfirmacao(nome, noticeId);
+  openPdfNameModalComConfirmacao(nome);
 }
 
 function mostrarAvisoOperacional(tipo, payload = {}) {
@@ -3546,10 +3531,8 @@ function limparPainel() {
   hideResumeBox();
   state.currentPdfNameNotice = "";
   state.lastPdfNameNotice = "";
-  state.currentPdfNoticeId = "";
   state.currentPaymentFileNotice = "";
   state.lastPaymentFileNotice = "";
-  state.currentPaymentNoticeId = "";
   state.operationalNoticeQueue = [];
   state.pendingSapAction = null;
   state.pendingSapPayload = null;
@@ -4072,14 +4055,12 @@ document.addEventListener("keydown", (event) => {
   }
 
   if (modalEstaAberto("pdfNameModal")) {
-    state.currentPdfNoticeId = "";
     closePdfNameModal();
     processarProximoAvisoOperacional();
     return;
   }
 
   if (modalEstaAberto("paymentFileModal")) {
-    state.currentPaymentNoticeId = "";
     closePaymentFileModal();
     processarProximoAvisoOperacional();
     return;
