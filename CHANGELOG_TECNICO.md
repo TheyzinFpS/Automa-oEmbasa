@@ -1,5 +1,24 @@
 # Registro técnico de alterações
 
+## Quinta-feira, 28/05/2026 - Versao 1.4.23
+
+**Ajuste aplicado**
+
+- Revisado o fluxo do modal de boleto no processo `Agua + Esgoto`.
+- Quando um novo nome de PDF chega enquanto o modal de boleto anterior ainda esta aberto, o frontend agora enfileira o proximo aviso em vez de trocar o texto do modal atual.
+- A fila continua sem chamar `pywebview.api` e sem bloquear o backend SAP; o proximo nome aparece apenas depois que o usuario fecha o modal atual.
+- Removida a funcao frontend morta `confirmarAvisoOperacional`, eliminando qualquer indicio de confirmacao backend no modal de boleto.
+- Atualizada a versao do projeto de `1.4.22` para `1.4.23`.
+
+**Validacao realizada**
+
+- `python -m py_compile interface.py backend\controller.py backend\flows\f110.py backend\flows\f110_boleto.py backend\settings.py`
+- `node --check interface\app.js`
+- Checagem de handlers declarados no HTML contra `interface\app.js`.
+- Revisao por busca de chamadas antigas de modal do meio de pagamento e chamadas `pywebview.api` no modal de boleto.
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com arquivos do pacote confirmando a versao `1.4.23`.
+
 ## Quinta-feira, 28/05/2026 - Versao 1.4.22
 
 **Ajuste aplicado**

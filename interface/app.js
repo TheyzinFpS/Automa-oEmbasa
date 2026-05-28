@@ -64,7 +64,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.22";
+const APP_VERSION = "1.4.23";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -2081,6 +2081,23 @@ function tratarAvisoNomePdf(mensagem) {
   const nomePdf = extrairNomePdfDoAviso(mensagem);
 
   if (nomePdf) {
+    if (modalEstaAberto("pdfNameModal") && state.currentPdfNameNotice !== nomePdf) {
+      const jaEnfileirado = state.operationalNoticeQueue.some((item) => {
+        const payload = item?.payload || {};
+        const nomeFila = String(payload.nome || payload.nome_arquivo || payload.nome_pdf || "").trim();
+        return item?.tipo === "pdf" && nomeFila === nomePdf;
+      });
+
+      if (!jaEnfileirado) {
+        state.operationalNoticeQueue.push({
+          tipo: "pdf",
+          payload: { nome_pdf: nomePdf }
+        });
+      }
+
+      return limparMensagemAvisoPdf(mensagem);
+    }
+
     openPdfNameModal(nomePdf);
   }
 
@@ -2275,20 +2292,6 @@ function openPdfNameModalComConfirmacao(nomePdf) {
 
 function closePdfNameModal() {
   closeModal("pdfNameModal");
-}
-
-async function confirmarAvisoOperacional(noticeId) {
-  const id = String(noticeId || "").trim();
-
-  if (!id) {
-    return;
-  }
-
-  try {
-    void id;
-  } catch (error) {
-    log(`Não foi possível confirmar o aviso operacional: ${error}`, "error");
-  }
 }
 
 function closePdfNameNotice() {
