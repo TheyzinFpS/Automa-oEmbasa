@@ -104,7 +104,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.4.21</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.4.22</span>
           </div>
         </div>
       </div>
@@ -640,6 +640,19 @@
             <span>Doc. fat</span>
             <strong id="resultDocFat">--</strong>
           </div>
+          <div>
+            <span>Meio de pagamento</span>
+            <button
+              id="resultMeioPagamentoButton"
+              type="button"
+              class="result-copy-button"
+              onclick="copiarMeioPagamentoResultado()"
+              disabled
+            >
+              <strong id="resultMeioPagamento">--</strong>
+              <small id="resultMeioPagamentoHint">Aguardando nome</small>
+            </button>
+          </div>
         </div>
 
         <div id="resumeBox" class="resume-box hidden">
@@ -879,31 +892,6 @@
           type="button"
           class="primary-action"
           onclick="closePdfNameNotice()"
-        >
-          Fechar
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <div id="paymentFileModal" class="contact-success-modal hidden" aria-live="polite">
-    <div class="contact-backdrop"></div>
-
-    <div class="contact-success-card pdf-name-card">
-      <p class="section-kicker">Meio de pagamento</p>
-      <h2>Nome do arquivo pronto</h2>
-      <p>
-        O nome abaixo j&aacute; foi copiado automaticamente. Cole na janela de salvamento do arquivo de meio de pagamento.
-        O padr&atilde;o &eacute; <strong>ano.m&ecirc;s.dia - doc.fat</strong>.
-      </p>
-
-      <div id="paymentFileNameValue" class="pdf-name-value"></div>
-
-      <div class="batch-confirm-actions pdf-name-actions">
-        <button
-          type="button"
-          class="primary-action"
-          onclick="closePaymentFileNotice()"
         >
           Fechar
         </button>

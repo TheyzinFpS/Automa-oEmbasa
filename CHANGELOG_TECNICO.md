@@ -1,5 +1,25 @@
 # Registro técnico de alterações
 
+## Quinta-feira, 28/05/2026 - Versao 1.4.22
+
+**Ajuste aplicado**
+
+- Adicionada a box `Meio de pagamento` na area de resultado do andamento do processo.
+- O backend agora envia o nome padrao do arquivo de meio de pagamento antes de abrir a etapa de salvamento, no formato `ano.mes.dia - doc.fat`.
+- A box `Meio de pagamento` copia o texto apenas no clique do usuario, usando clipboard local no frontend e sem chamada `pywebview.api`.
+- Removido o modal de meio de pagamento, evitando reentrada frontend/backend durante a etapa do Explorer.
+- O resultado final passou a preservar `nome_arquivo_meio_pagamento`, inclusive no fluxo composto `Agua + Esgoto`.
+- Atualizada a versao do projeto de `1.4.21` para `1.4.22`.
+
+**Validacao realizada**
+
+- `python -m py_compile interface.py backend\controller.py backend\flows\f110.py backend\flows\f110_boleto.py backend\settings.py`
+- `node --check interface\app.js`
+- Checagem de handlers declarados no HTML contra `interface\app.js`.
+- Teste isolado da montagem do nome do meio de pagamento e da preservacao do evento `PAYMENT_FILE_READY::` no fluxo composto.
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com arquivos do pacote confirmando a versao `1.4.22`.
+
 ## Quinta-feira, 28/05/2026 - Versao 1.4.21
 
 **Ajuste aplicado**

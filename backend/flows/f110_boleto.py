@@ -1,3 +1,4 @@
+import json
 import re
 import time
 import unicodedata
@@ -1257,6 +1258,7 @@ def baixar_arquivo_meio_pagamento(
     notice_callback=None,
     data_exec=None,
     identificacao=None,
+    cliente=None,
     doc_fat=None,
 ):
     """
@@ -1270,6 +1272,17 @@ def baixar_arquivo_meio_pagamento(
       confirma o botão do SAP e segue para SP02.
     """
 
+    nome_arquivo = montar_nome_arquivo_meio_pagamento(doc_fat)
+    payload_nome = json.dumps(
+        {
+            "nome": nome_arquivo,
+            "cliente": cliente,
+            "doc_fat": doc_fat,
+        },
+        ensure_ascii=False,
+    )
+
+    _notificar(progress_callback, f"{_PAYMENT_NOTICE_PREFIX}{payload_nome}", 98)
     _notificar(progress_callback, "Abrindo meio de pagamento...", 99)
 
     try:
@@ -1335,7 +1348,7 @@ def baixar_arquivo_meio_pagamento(
 
     return {
         "arquivo_meio_pagamento": "CONFIRMADO",
-        "nome_arquivo_meio_pagamento": montar_nome_arquivo_meio_pagamento(doc_fat),
+        "nome_arquivo_meio_pagamento": nome_arquivo,
     }
 
 
@@ -1363,6 +1376,7 @@ def finalizar_boleto_f110(
             notice_callback=notice_callback,
             data_exec=data_exec,
             identificacao=identificacao,
+            cliente=cliente,
             doc_fat=numero_boleto,
         )
     )
@@ -1615,4 +1629,3 @@ def selecionar_boletos_sp02(
         status="concluido",
     )
     return resultado
-

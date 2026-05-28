@@ -267,6 +267,8 @@ class SAPController:
             "boleto": contexto.get("boleto"),
             "identificacao_pagamento": contexto.get("identificacao_pagamento"),
             "identificacoes_pagamento": contexto.get("identificacoes_pagamento"),
+            "nome_arquivo_meio_pagamento": contexto.get("nome_arquivo_meio_pagamento"),
+            "nomes_arquivo_meio_pagamento": contexto.get("nomes_arquivo_meio_pagamento"),
             "agua_esgoto": contexto.get("agua_esgoto"),
             "nomes_pdf_sugeridos": contexto.get("nomes_pdf_sugeridos"),
             "spools_boletos": contexto.get("spools_boletos"),
@@ -647,8 +649,14 @@ class SAPController:
             status_chave = str(status or "").strip().lower()
             mensagem_base = mensagens.get(etapa_chave)
             mensagem_final = mensagem
+            mensagem_original = str(mensagem or "")
+            evento_operacional = mensagem_original.startswith(
+                ("PDF_NAME_READY::", "PAYMENT_FILE_READY::", "SIMPLE_NOTICE::")
+            )
 
-            if mensagem_base and status_chave in {
+            if evento_operacional:
+                mensagem_final = mensagem
+            elif mensagem_base and status_chave in {
                 "processando",
                 "processing",
                 "running",
@@ -973,8 +981,14 @@ class SAPController:
                 )
 
                 if not resultado_f110["ok"]:
+                    dados_f110 = resultado_f110.get("dados") or {}
                     contexto["doc_fat"] = item.get("doc_fat")
                     contexto["faturamento"] = item.get("faturamento")
+                    contexto["nome_arquivo_meio_pagamento"] = (
+                        dados_f110.get("nome_arquivo_meio_pagamento")
+                        or item.get("nome_arquivo_meio_pagamento")
+                        or contexto.get("nome_arquivo_meio_pagamento")
+                    )
                     return self._falha(
                         etapa="F110",
                         mensagem=resultado_f110["mensagem"],
@@ -1061,6 +1075,14 @@ class SAPController:
             )
             contexto["identificacoes_pagamento"] = {
                 item["tipo"]: item.get("identificacao_pagamento")
+                for item in itens
+            }
+            contexto["nome_arquivo_meio_pagamento"] = " | ".join(
+                f"{item['tipo_label']}: {item.get('nome_arquivo_meio_pagamento') or '--'}"
+                for item in itens
+            )
+            contexto["nomes_arquivo_meio_pagamento"] = {
+                item["tipo"]: item.get("nome_arquivo_meio_pagamento")
                 for item in itens
             }
             contexto["nomes_pdf_sugeridos"] = {
@@ -1483,6 +1505,10 @@ class SAPController:
                     (resultado_f110.get("dados") or {}).get("identificacao_pagamento")
                     or contexto.get("identificacao_pagamento")
                 )
+                contexto["nome_arquivo_meio_pagamento"] = (
+                    (resultado_f110.get("dados") or {}).get("nome_arquivo_meio_pagamento")
+                    or contexto.get("nome_arquivo_meio_pagamento")
+                )
 
                 return self._falha(
                     etapa="F110",
@@ -1497,6 +1523,9 @@ class SAPController:
             contexto["boleto"] = (resultado_f110.get("dados") or {}).get("boleto")
             contexto["identificacao_pagamento"] = (
                 (resultado_f110.get("dados") or {}).get("identificacao_pagamento")
+            )
+            contexto["nome_arquivo_meio_pagamento"] = (
+                (resultado_f110.get("dados") or {}).get("nome_arquivo_meio_pagamento")
             )
             self._garantir_janela_unica_sap(session, origem="F110")
 

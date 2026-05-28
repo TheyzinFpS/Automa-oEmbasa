@@ -64,7 +64,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.21";
+const APP_VERSION = "1.4.22";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -134,6 +134,7 @@ const state = {
   lastPdfNameNotice: "",
   currentPaymentFileNotice: "",
   lastPaymentFileNotice: "",
+  paymentFileCopiedTimer: 0,
   operationalNoticeQueue: [],
   simpleOperationalToastTimer: null,
   pendingSapAction: null,
@@ -2015,17 +2016,41 @@ function extrairNomePdfDoAviso(mensagem) {
 }
 
 function extrairNomeMeioPagamentoDoAviso(mensagem) {
+  return extrairDadosMeioPagamentoDoAviso(mensagem).nome;
+}
+
+function extrairDadosMeioPagamentoDoAviso(mensagem) {
   const texto = String(mensagem || "").trim();
 
   if (!texto) {
-    return "";
+    return {};
   }
 
   if (texto.startsWith(PAYMENT_FILE_NOTICE_PREFIX)) {
-    return texto.slice(PAYMENT_FILE_NOTICE_PREFIX.length).trim();
+    const payload = texto.slice(PAYMENT_FILE_NOTICE_PREFIX.length).trim();
+
+    if (!payload) {
+      return {};
+    }
+
+    if (payload.startsWith("{")) {
+      try {
+        const dados = JSON.parse(payload);
+        const nome = String(dados.nome || dados.nome_arquivo || dados.nomeArquivo || "").trim();
+        return {
+          nome,
+          cliente: dados.cliente,
+          doc_fat: dados.doc_fat || dados.docFat
+        };
+      } catch (error) {
+        return { nome: payload };
+      }
+    }
+
+    return { nome: payload };
   }
 
-  return "";
+  return {};
 }
 
 function limparMensagemAvisoPdf(mensagem) {
@@ -2063,10 +2088,11 @@ function tratarAvisoNomePdf(mensagem) {
 }
 
 function tratarAvisoMeioPagamento(mensagem) {
-  const nomeArquivo = extrairNomeMeioPagamentoDoAviso(mensagem);
+  const dadosMeioPagamento = extrairDadosMeioPagamentoDoAviso(mensagem);
+  const nomeArquivo = dadosMeioPagamento.nome;
 
   if (nomeArquivo) {
-    copiarTextoParaAreaTransferencia(nomeArquivo);
+    atualizarMeioPagamentoResultado(dadosMeioPagamento);
   }
 
   return limparMensagemAvisoMeioPagamento(mensagem);
@@ -2156,6 +2182,67 @@ async function copiarTextoParaAreaTransferencia(texto) {
   copiarTextoFallback(conteudo);
 }
 
+function setMeioPagamentoResultado(nomeArquivo, copied = false) {
+  const nome = String(nomeArquivo || "").trim();
+  const value = el("resultMeioPagamento");
+  const button = el("resultMeioPagamentoButton");
+  const hint = el("resultMeioPagamentoHint");
+
+  if (value) {
+    value.textContent = nome || "--";
+  }
+
+  if (button) {
+    button.disabled = !nome;
+    button.classList.toggle("copied", Boolean(nome && copied));
+  }
+
+  if (hint) {
+    hint.textContent = nome ? (copied ? "Texto copiado" : "Clique para copiar") : "Aguardando nome";
+  }
+}
+
+function atualizarMeioPagamentoResultado(payload = {}) {
+  const dados = typeof payload === "string" ? { nome: payload } : (payload || {});
+  const nome = String(dados.nome || dados.nome_arquivo || dados.nomeArquivo || "").trim();
+
+  if (!nome) {
+    return;
+  }
+
+  state.currentPaymentFileNotice = nome;
+  state.lastPaymentFileNotice = nome;
+
+  if (dados.cliente && el("resultCliente")) {
+    el("resultCliente").textContent = dados.cliente;
+  }
+
+  if ((dados.doc_fat || dados.docFat) && el("resultDocFat")) {
+    el("resultDocFat").textContent = dados.doc_fat || dados.docFat;
+  }
+
+  setMeioPagamentoResultado(nome, false);
+  el("resultBox")?.classList.remove("hidden");
+}
+
+async function copiarMeioPagamentoResultado() {
+  const nome = String(state.currentPaymentFileNotice || el("resultMeioPagamento")?.textContent || "").trim();
+
+  if (!nome || nome === "--") {
+    return;
+  }
+
+  await copiarTextoParaAreaTransferencia(nome);
+  setMeioPagamentoResultado(nome, true);
+  showSimpleOperationalToast("Meio de pagamento copiado.");
+  window.clearTimeout(state.paymentFileCopiedTimer);
+  state.paymentFileCopiedTimer = window.setTimeout(() => {
+    setMeioPagamentoResultado(nome, false);
+  }, 3200);
+}
+
+window.copiarMeioPagamentoResultado = copiarMeioPagamentoResultado;
+
 function openPdfNameModal(nomePdf) {
   const nomeLimpo = String(nomePdf || "").trim();
 
@@ -2209,47 +2296,8 @@ function closePdfNameNotice() {
   processarProximoAvisoOperacional();
 }
 
-function openPaymentFileModal(nomeArquivo) {
-  const nomeLimpo = String(nomeArquivo || "").trim();
-
-  if (!nomeLimpo) {
-    return;
-  }
-
-  if (state.lastPaymentFileNotice === nomeLimpo) {
-    return;
-  }
-
-  state.currentPaymentFileNotice = nomeLimpo;
-  state.lastPaymentFileNotice = nomeLimpo;
-
-  prepararInterfaceParaAvisoOperacional();
-
-  const value = el("paymentFileNameValue");
-
-  if (value) {
-    value.textContent = nomeLimpo;
-  }
-
-  openModal("paymentFileModal");
-}
-
-function openPaymentFileModalComConfirmacao(nomeArquivo) {
-  state.lastPaymentFileNotice = "";
-  openPaymentFileModal(nomeArquivo);
-}
-
-function closePaymentFileModal() {
-  closeModal("paymentFileModal");
-}
-
-function closePaymentFileNotice() {
-  closePaymentFileModal();
-  processarProximoAvisoOperacional();
-}
-
 function algumAvisoOperacionalAberto() {
-  return modalEstaAberto("pdfNameModal") || modalEstaAberto("paymentFileModal");
+  return modalEstaAberto("pdfNameModal");
 }
 
 function processarProximoAvisoOperacional() {
@@ -2272,7 +2320,7 @@ function mostrarAvisoOperacionalAgora(tipo, payload = {}) {
   }
 
   if (tipo === "payment") {
-    openPaymentFileModalComConfirmacao(nome);
+    atualizarMeioPagamentoResultado({ ...payload, nome });
     processarProximoAvisoOperacional();
     return;
   }
@@ -2562,9 +2610,15 @@ function escapeHtml(value) {
 // Preenche o card de resultado com os dados essenciais do processo.
 function preencherResultado(resultado = {}) {
   const box = el("resultBox");
+  const nomeMeioPagamento =
+    resultado.nome_arquivo_meio_pagamento
+    || resultado.meio_pagamento
+    || state.currentPaymentFileNotice
+    || "";
 
   el("resultCliente").textContent = resultado.cliente || "--";
-  el("resultDocFat").textContent = resultado.doc_fat || "--";
+  el("resultDocFat").textContent = resultado.doc_fat || resultado.faturamento || "--";
+  setMeioPagamentoResultado(nomeMeioPagamento, false);
 
   box.classList.remove("hidden");
 }
@@ -2575,6 +2629,10 @@ function esconderResultado() {
   el("resultBox").classList.add("hidden");
   el("resultCliente").textContent = "--";
   el("resultDocFat").textContent = "--";
+  state.currentPaymentFileNotice = "";
+  state.lastPaymentFileNotice = "";
+  window.clearTimeout(state.paymentFileCopiedTimer);
+  setMeioPagamentoResultado("", false);
 }
 
 function cloneCheckpoint(checkpoint) {
@@ -3246,7 +3304,6 @@ const MODAL_IDS = [
   "contactSuccessModal",
   "clientCreatedModal",
   "pdfNameModal",
-  "paymentFileModal",
   "historyModal",
   "aboutModal",
   "batchConfirmModal",
@@ -3640,11 +3697,11 @@ function limparPainel() {
   state.lastPdfNameNotice = "";
   state.currentPaymentFileNotice = "";
   state.lastPaymentFileNotice = "";
+  window.clearTimeout(state.paymentFileCopiedTimer);
   state.operationalNoticeQueue = [];
   state.pendingSapAction = null;
   state.pendingSapPayload = null;
   closePdfNameModal();
-  closePaymentFileModal();
   closeSapActionModal();
   closeClientCreatedModal();
   fecharAbaCadastroCliente({ mostrarBoleto: false });
@@ -4185,12 +4242,6 @@ document.addEventListener("keydown", (event) => {
 
   if (modalEstaAberto("pdfNameModal")) {
     closePdfNameModal();
-    processarProximoAvisoOperacional();
-    return;
-  }
-
-  if (modalEstaAberto("paymentFileModal")) {
-    closePaymentFileModal();
     processarProximoAvisoOperacional();
     return;
   }
