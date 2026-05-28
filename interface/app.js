@@ -1,4 +1,4 @@
-﻿const MONITOR_STAGES = {
+const MONITOR_STAGES = {
   boletos: [
   // Ordem visual das etapas exibidas no painel de andamento.
   { id: "XD03", codigo: "XD03", titulo: "Buscar cliente" },
@@ -57,7 +57,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.17";
+const APP_VERSION = "1.4.18";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -2122,10 +2122,8 @@ async function confirmarAvisoOperacional(noticeId) {
 
 async function copyPdfNameAndClose() {
   await copiarTextoParaAreaTransferencia(state.currentPdfNameNotice);
-  const noticeId = state.currentPdfNoticeId;
   state.currentPdfNoticeId = "";
   closePdfNameModal();
-  await confirmarAvisoOperacional(noticeId);
   processarProximoAvisoOperacional();
 }
 
@@ -2166,10 +2164,8 @@ function closePaymentFileModal() {
 
 async function copyPaymentFileNameAndClose() {
   await copiarTextoParaAreaTransferencia(state.currentPaymentFileNotice);
-  const noticeId = state.currentPaymentNoticeId;
   state.currentPaymentNoticeId = "";
   closePaymentFileModal();
-  await confirmarAvisoOperacional(noticeId);
   processarProximoAvisoOperacional();
 }
 
@@ -2193,13 +2189,13 @@ function mostrarAvisoOperacionalAgora(tipo, payload = {}) {
   const nome = String(payload.nome || payload.nome_arquivo || payload.nome_pdf || "").trim();
 
   if (!nome) {
-    confirmarAvisoOperacional(noticeId);
+    processarProximoAvisoOperacional();
     return;
   }
 
   if (tipo === "payment") {
     copiarTextoParaAreaTransferencia(nome);
-    confirmarAvisoOperacional(noticeId);
+    processarProximoAvisoOperacional();
     return;
   }
 
@@ -4076,20 +4072,16 @@ document.addEventListener("keydown", (event) => {
   }
 
   if (modalEstaAberto("pdfNameModal")) {
-    if (state.currentPdfNoticeId) {
-      return;
-    }
-
+    state.currentPdfNoticeId = "";
     closePdfNameModal();
+    processarProximoAvisoOperacional();
     return;
   }
 
   if (modalEstaAberto("paymentFileModal")) {
-    if (state.currentPaymentNoticeId) {
-      return;
-    }
-
+    state.currentPaymentNoticeId = "";
     closePaymentFileModal();
+    processarProximoAvisoOperacional();
     return;
   }
 

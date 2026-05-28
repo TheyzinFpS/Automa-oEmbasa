@@ -1,5 +1,27 @@
 # Registro técnico de alterações
 
+## Quarta-feira, 27/05/2026 - Versao 1.4.18
+
+**Ajuste aplicado**
+
+- Integrados os arquivos revisados enviados em `EMBASA_ARQUIVOS_ATUAIS_MODIFICADOS.zip` sobre a base `1.4.17`.
+- O meio de pagamento na F110 voltou ao fluxo manual estavel: `Shift+F6` seguido imediatamente de `F4`, sem modal, copia, pausa ou controle do Explorer entre esses comandos.
+- A automacao agora aguarda indefinidamente o usuario concluir o salvamento manual do arquivo no Explorer antes de confirmar o SAP e seguir para a SP02.
+- O modal de nome do PDF na SP02 passou a ser apenas informativo; o botao copia e fecha localmente, sem chamada de confirmacao para o backend.
+- A montagem do nome do PDF recebeu filtros para ignorar textos operacionais do SAP e priorizar o nome real do cliente.
+- O cadastro de cliente diferencia CPF e CNPJ: pessoa juridica preenche CNPJ/ISENTO, enquanto pessoa fisica preenche CPF, marca a checkbox de pessoa fisica e nao envia ISENTO.
+- Os dados financeiros do cliente agora incluem condicao de pagamento `0001`, meio de pagamento `A` e banco parceiro `BB100`.
+- A XD03 recebeu fallback com `CTRL+F1` quando Nome 1/Nome 2 nao aparecem na primeira leitura.
+- Atualizada a versao do projeto de `1.4.17` para `1.4.18`.
+
+**Validacao realizada**
+
+- `python -m py_compile interface.py backend\controller.py backend\flows\xd03.py backend\flows\cliente_cadastro.py backend\flows\f110.py backend\flows\f110_boleto.py backend\settings.py`
+- `node --check interface\app.js`
+- `node` check de handlers declarados no HTML contra `interface\app.js`.
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com arquivos do pacote confirmando a versao `1.4.18`.
+
 ## Terça-feira, 26/05/2026 - Versão 1.4.17
 
 **Ajuste aplicado**

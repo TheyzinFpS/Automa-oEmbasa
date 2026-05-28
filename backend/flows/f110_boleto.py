@@ -1,4 +1,4 @@
-﻿import re
+import re
 import time
 import unicodedata
 
@@ -101,17 +101,91 @@ def _limpar_parte_nome_arquivo(valor, fallback="INFORMAR"):
     return texto.strip(" .-") or fallback
 
 
+
+def _buscar_valor_aninhado(objeto, caminhos):
+    for caminho in caminhos:
+        atual = objeto
+        ok = True
+
+        for chave in caminho:
+            if isinstance(atual, dict):
+                atual = atual.get(chave)
+            else:
+                atual = None
+
+            if atual in (None, ""):
+                ok = False
+                break
+
+        if ok:
+            texto = str(atual).strip()
+            if texto:
+                return texto
+
+    return ""
+
+
+def _parece_nome_cliente_valido(valor):
+    texto = _normalizar_texto(valor)
+
+    if not texto:
+        return False
+
+    bloqueios = (
+        "FILA AUTOMATICA",
+        "PROCESSAMENTO SINCRONO",
+        "SPOOL",
+        "BOLETO",
+        "CONTAS A RECEBER",
+        "SAP",
+        "PDFCREATOR",
+        "VIABILIDADE",
+        "PROJETO AGUA",
+        "PROJETO ESGOTO",
+    )
+
+    return not any(item in texto for item in bloqueios)
+
+
+
 def montar_nome_pdf_sugerido(numero_boleto, dados=None, cliente=None):
     dados = dados or {}
     endereco = dados.get("endereco") or {}
     tipo = str(dados.get("tipo") or "").strip().lower()
 
-    nome_cliente = (
-        dados.get("nome_cliente")
-        or dados.get("cliente_nome")
-        or dados.get("razao_social")
-        or dados.get("nome")
-    )
+    # O nome pode vir de lugares diferentes conforme o fluxo:
+    # boleto direto, cliente recém-criado, cliente em cache, cadastro, dados_cliente etc.
+    # Evita usar textos operacionais do SAP como "Fila automática processamento síncrono".
+    candidatos_nome = [
+        dados.get("nome_cliente"),
+        dados.get("cliente_nome"),
+        dados.get("razao_social"),
+        dados.get("razaoSocial"),
+        dados.get("nome"),
+        dados.get("nome1"),
+        dados.get("nome_1"),
+        _buscar_valor_aninhado(dados, [
+            ("cliente", "nome"),
+            ("cliente", "nome_cliente"),
+            ("cliente", "razao_social"),
+            ("cliente", "razaoSocial"),
+            ("cliente", "nome1"),
+            ("cliente_info", "nome"),
+            ("cliente_info", "razao_social"),
+            ("dados_cliente", "nome"),
+            ("dados_cliente", "razao_social"),
+            ("cadastro", "nome"),
+            ("cadastro", "razao_social"),
+            ("doc_info", "nome"),
+            ("doc_info", "razao_social"),
+        ]),
+    ]
+
+    nome_cliente = ""
+    for candidato in candidatos_nome:
+        if _parece_nome_cliente_valido(candidato):
+            nome_cliente = str(candidato).strip()
+            break
 
     documento = (dados.get("doc_info") or {}).get("formatado") or formatar_doc(
         dados.get("doc", "")
@@ -167,28 +241,30 @@ def _aguardar_copia_interface(
     emitir_aviso=True,
     aguardar_confirmacao=True,
 ):
+    """
+    Copia o nome e emite aviso apenas informativo.
+
+    Importante:
+    - não chama notice_callback;
+    - não espera confirmação do frontend;
+    - não bloqueia o backend;
+    - o botão do modal apenas copia/fecha localmente no app.js.
+    """
+
     _copiar_nome_pdf(nome)
 
     if not emitir_aviso:
         return True
 
-    if aguardar_confirmacao and callable(notice_callback):
-        notice_callback(
-            tipo,
-            {
-                "nome": nome,
-                "mensagem": mensagem or nome,
-            },
-        )
-        return True
-
     prefixo = _PAYMENT_NOTICE_PREFIX if tipo == "payment" else _PDF_NOTICE_PREFIX
+
     _notificar(
         progress_callback,
         f"{prefixo}{nome}",
         percentual,
         status="concluido" if tipo == "pdf" else "processando",
     )
+
     return True
 
 
@@ -1183,6 +1259,17 @@ def baixar_arquivo_meio_pagamento(
     identificacao=None,
     doc_fat=None,
 ):
+    """
+    Fluxo simples/padrão do meio de pagamento.
+
+    Regras:
+    - Não abre modal.
+    - Não copia nome automaticamente.
+    - Não controla Explorer pelo Python.
+    - Apenas abre o F4, aguarda o usuário selecionar/salvar o arquivo,
+      confirma o botão do SAP e segue para SP02.
+    """
+
     _notificar(progress_callback, "Abrindo meio de pagamento...", 99)
 
     try:
@@ -1200,33 +1287,21 @@ def baixar_arquivo_meio_pagamento(
         session.findById("wnd[0]").sendVKey(19)
         wait_until_ready(session)
 
+        # ORDEM OBRIGATÓRIA:
+        # O F4 precisa vir imediatamente após o sendVKey(18).
+        # Não inserir modal, callback, cópia, sleep ou lógica de Explorer entre eles.
         session.findById("wnd[0]").sendVKey(18)
+        session.findById("wnd[1]").sendVKey(4)
         wait_until_ready(session)
 
-        nome_arquivo = montar_nome_arquivo_meio_pagamento(doc_fat)
-        _aguardar_copia_interface(
-            "payment",
-            nome_arquivo,
-            notice_callback=None,
-            progress_callback=progress_callback,
-            mensagem="Copie o nome antes de salvar o arquivo de meio de pagamento.",
-            percentual=99,
-            emitir_aviso=False,
-            aguardar_confirmacao=False,
-        )
         _notificar(
             progress_callback,
-            "Nome do meio de pagamento copiado. Cole no campo Nome do arquivo.",
-            99,
-        )
-        _notificar(
-            progress_callback,
-            "SIMPLE_NOTICE::Nome do meio de pagamento copiado. Cole no campo Nome do arquivo.",
+            "Janela de salvamento aberta. Selecione/salve o arquivo para continuar.",
             99,
         )
 
-        wait_for_element(session, "wnd[1]", timeout=10).sendVKey(4)
-
+        # Aguarda o usuário concluir a seleção/salvamento no Explorer.
+        # Quando o SAP voltar com o botão OK disponível, pressiona e segue.
         _aguardar_salvamento_meio_pagamento(
             session,
             logger=logger,
@@ -1350,10 +1425,12 @@ def finalizar_boleto_f110(
     _aguardar_copia_interface(
         "pdf",
         nome_pdf_sugerido,
-        notice_callback=notice_callback,
+        notice_callback=None,
         progress_callback=progress_callback,
-        mensagem="Copie o nome do PDF e use o comando manual de impressão no SAP.",
+        mensagem="Nome do PDF copiado.",
         percentual=100,
+        emitir_aviso=True,
+        aguardar_confirmacao=False,
     )
 
     if aguardar_apos_copia_segundos:
@@ -1375,6 +1452,14 @@ def finalizar_boleto_f110(
     resultado["pdf_boleto"] = "LINHA_SELECIONADA"
     resultado["spool_boleto"] = "LINHA_SELECIONADA"
     resultado["impressao_manual"] = True
+
+    _notificar(
+        progress_callback,
+        "Boleto gerado com sucesso. Linha selecionada e nome do PDF copiado.",
+        100,
+        status="concluido",
+    )
+
     return resultado
 
 

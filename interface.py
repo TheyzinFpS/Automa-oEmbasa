@@ -205,36 +205,33 @@ class API:
         return {"ok": True}
 
     def _aguardar_aviso_operacional(self, tipo, payload=None, timeout=900):
-        tipo_chave = str(tipo or "").strip().lower()
+        """
+        Aviso operacional apenas informativo.
 
-        if tipo_chave == "payment":
-            return True
+        Não aguarda clique, confirmação nem retorno do frontend.
+        Isso evita travamento do pywebview quando o fluxo SAP já terminou
+        ou quando o backend está ocupado.
+        """
 
         payload = dict(payload or {})
-        notice_id = uuid.uuid4().hex
-        evento = threading.Event()
-
-        with self._notice_lock:
-            self._notice_events[notice_id] = evento
-
-        payload["id"] = notice_id
+        payload["id"] = payload.get("id") or uuid.uuid4().hex
         payload["tipo"] = str(tipo or "")
 
-        self._trazer_interface_para_frente(maximizar=True)
+        try:
+            self._trazer_interface_para_frente(maximizar=True)
+        except Exception:
+            pass
+
         self._emitir_funcao_js(
             "mostrarAvisoOperacional",
             str(tipo or ""),
             _serializar_para_front(payload),
         )
-        self._trazer_interface_para_frente(maximizar=True)
 
-        confirmado = evento.wait(timeout)
-
-        with self._notice_lock:
-            self._notice_events.pop(notice_id, None)
-
-        if not confirmado:
-            raise TimeoutError("Aviso operacional não foi confirmado pelo usuário.")
+        try:
+            self._trazer_interface_para_frente(maximizar=True)
+        except Exception:
+            pass
 
         return True
 

@@ -217,6 +217,10 @@ def _grupo_tesouraria(tipo_doc):
 def _normalizar_cadastro_cliente(dados):
     payload = dict(dados or {})
     doc = limpar_doc(payload.get("doc"))
+
+    # Critério:
+    # 11 dígitos = CPF / pessoa física
+    # 14 dígitos = CNPJ / pessoa jurídica
     tipo_doc = tipo_documento(doc)
     tipo = str(payload.get("tipo") or "").strip().lower()
     setores = _ordenar_setores(
@@ -342,6 +346,28 @@ def _set_key(session, element_id, value, timeout=8, required=True):
     return None
 
 
+
+def _set_checkbox(session, element_id, selected=True, timeout=8, required=True):
+    try:
+        if not required:
+            timeout = min(float(timeout or 1), 1.0)
+
+        element = wait_for_element(session, element_id, timeout=timeout)
+
+        try:
+            element.selected = bool(selected)
+        except Exception:
+            element.Selected = bool(selected)
+
+        return element
+
+    except Exception:
+        if required:
+            raise
+
+    return None
+
+
 def _press(session, element_id, timeout=8, required=True):
     try:
         if not required:
@@ -449,15 +475,35 @@ def _preencher_documentos_fiscais(session, dados):
     )
 
     if dados["tipo_documento"] == "cnpj":
+        # Pessoa jurídica: preenche CNPJ e Inscrição Estadual como ISENTO.
         _set_text(session, prefixo + "txtKNA1-STCD1", dados["doc"])
+        _set_text(
+            session,
+            prefixo + "txtKNA1-STCD3",
+            dados["inscricao_estadual"],
+        )
+
     else:
+        # Pessoa física: preenche CPF e marca a checkbox "Pessoa física".
+        # Não preenche inscrição estadual/ISENTO para pessoa física.
         _set_text(session, prefixo + "txtKNA1-STCD2", dados["doc"])
 
-    _set_text(
-        session,
-        prefixo + "txtKNA1-STCD3",
-        dados["inscricao_estadual"],
-    )
+        # Campo SAP padrão de pessoa física: KNA1-STKZN.
+        # O ID pode variar por layout, por isso tentamos variações sem travar.
+        for checkbox_id in (
+            prefixo + "chkKNA1-STKZN",
+            prefixo + "chkKNA1-STKZN_01",
+            "wnd[0]/usr/chkKNA1-STKZN",
+        ):
+            marcado = _set_checkbox(
+                session,
+                checkbox_id,
+                selected=True,
+                timeout=1,
+                required=False,
+            )
+            if marcado is not None:
+                break
 
 
 def _preencher_dados_empresa(session, tipo_doc):
@@ -470,6 +516,44 @@ def _preencher_dados_empresa(session, tipo_doc):
 
     _set_text(session, prefixo + "ctxtKNB1-AKONT", "11500700")
     _set_text(session, prefixo + "ctxtKNB1-FDGRV", _grupo_tesouraria(tipo_doc))
+
+    # Dados de pagamento da área de empresa.
+    # Mantém o fluxo padrão: preenche os campos e NÃO salva aqui,
+    # porque o salvamento final continua sendo feito por _salvar_cliente_ou_setor().
+    tab_pagamento = (
+        "wnd[0]/usr/subSUBTAB:SAPLATAB:0100/tabsTABSTRIP100/tabpTAB02"
+    )
+    wait_for_element(session, tab_pagamento, timeout=8).select()
+    wait_until_ready(session)
+
+    prefixo_pagamento_area1 = (
+        "wnd[0]/usr/subSUBTAB:SAPLATAB:0100/tabsTABSTRIP100/tabpTAB02/"
+        "ssubSUBSC:SAPLATAB:0200/subAREA1:SAPMF02D:7215/"
+    )
+    prefixo_pagamento_area2 = (
+        "wnd[0]/usr/subSUBTAB:SAPLATAB:0100/tabsTABSTRIP100/tabpTAB02/"
+        "ssubSUBSC:SAPLATAB:0200/subAREA2:SAPMF02D:7216/"
+    )
+
+    _set_text(session, prefixo_pagamento_area1 + "ctxtKNB1-ZTERM", "0001")
+    _set_text(session, prefixo_pagamento_area2 + "ctxtKNB1-ZWELS", "A")
+    banco = _set_text(session, prefixo_pagamento_area2 + "ctxtKNB1-HBKID", "BB100")
+
+    if banco is not None:
+        try:
+            banco.setFocus()
+        except Exception:
+            try:
+                banco.SetFocus()
+            except Exception:
+                pass
+
+        try:
+            banco.caretPosition = 5
+        except Exception:
+            pass
+
+    wait_until_ready(session)
 
 
 def _preencher_dados_vendas(session, setor, incluir_imposto=True):

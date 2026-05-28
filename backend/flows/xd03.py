@@ -59,7 +59,16 @@ _CAMPO_NOME2_CLIENTE = (
     "txtADDR1_DATA-NAME2"
 )
 
+
 _TEXTOS_IGNORADOS_NOME_CLIENTE = {
+    "imposto ret.na fonte",
+    "seguros",
+    "correspondencia",
+    "correspondência",
+    "pagamentos",
+    "administracao conta",
+    "administração conta",
+    "dados da empresa",
     "cliente",
     "empresa",
     "emba",
@@ -259,6 +268,48 @@ def _fechar_popup_areas_cliente(session):
         pass
 
 
+def _ir_para_dados_gerais_cliente(session, logger=None):
+    """
+    Fallback único para captura de nome na XD03.
+
+    Se Nome 1/Nome 2 não forem encontrados, entende que o SAP caiu
+    na tela de Dados da empresa ou em outra tela da XD03. Então executa
+    CTRL + F1 por sendVKey(25) para retornar aos Dados gerais e refaz
+    a leitura padrão de DATA-NAME1 e DATA-NAME2.
+    """
+
+    try:
+        session.findById("wnd[0]").maximize()
+    except Exception:
+        pass
+
+    try:
+        session.findById("wnd[0]").sendVKey(25)
+        wait_until_ready(session)
+    except Exception as exc:
+        if logger:
+            logger.add(
+                0,
+                f"Falha ao executar CTRL+F1 para Dados gerais: {exc}",
+                nivel="DEBUG",
+                publico=False,
+            )
+
+    try:
+        session.findById("wnd[0]/shellcont").close()
+        wait_until_ready(session)
+    except Exception:
+        pass
+
+    if logger:
+        logger.add(
+            0,
+            "Fallback XD03 executado: CTRL+F1 para retornar aos Dados gerais.",
+            nivel="DEBUG",
+            publico=False,
+        )
+
+
 def _ler_nome_cliente_dados_gerais(session):
     # Leitura oficial da aba Endereco: Nome 1 + Nome 2.
     nome1 = _ler_texto(wait_for_element(session, _CAMPO_NOME1_CLIENTE, timeout=8))
@@ -303,7 +354,9 @@ def _capturar_nome_cliente_dados_gerais(
     logger,
     progress_callback=None,
 ):
-    # Entra na tela de dados gerais da XD03 e captura Nome 1/Nome 2.
+    # 1. Tenta Nome 1 / Nome 2 normalmente.
+    # 2. Se não encontrar, executa CTRL+F1 para Dados gerais.
+    # 3. Tenta Nome 1 / Nome 2 novamente.
     notificar_progresso(
         progress_callback,
         "XD03",
@@ -323,6 +376,17 @@ def _capturar_nome_cliente_dados_gerais(
         if nome_cliente:
             logger.add(0, f"Nome do cliente identificado: {nome_cliente}")
             return nome_cliente
+
+        _ir_para_dados_gerais_cliente(session, logger=logger)
+        nome_cliente = _ler_nome_cliente_dados_gerais(session)
+
+        if nome_cliente:
+            logger.add(
+                0,
+                f"Nome do cliente identificado após fallback CTRL+F1: {nome_cliente}",
+            )
+            return nome_cliente
+
     except Exception as exc:
         logger.add(
             0,
