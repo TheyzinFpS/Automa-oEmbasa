@@ -64,7 +64,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.20";
+const APP_VERSION = "1.4.21";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -2363,7 +2363,7 @@ function renderHistoryDetail(registro = null) {
       ${campoHistorico("Número do cliente", registro.numero_cliente)}
       ${campoHistorico("Número do pedido", pedido)}
       ${campoHistorico("Doc. fat", docFat)}
-      ${campoHistorico("Boleto/BOL", registro.boleto || registro.identificacao_pagamento)}
+      ${campoHistorico("Numero do BOL", registro.numero_bol || registro.identificacao_pagamento || registro.boleto)}
       ${campoHistorico("Tipo", registro.tipo_solicitacao_label)}
       ${campoHistorico("Valor", registro.valor)}
       ${campoHistorico("Empreendimento", endereco.empreendimento)}
@@ -2559,18 +2559,12 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-// Preenche o card de resultado com cliente, faturamento, doc_fat e boleto.
+// Preenche o card de resultado com os dados essenciais do processo.
 function preencherResultado(resultado = {}) {
   const box = el("resultBox");
 
-  const valorPedidoOuFaturamento = resultado.pedido || resultado.faturamento || "--";
-  const valorBoletoOuIdentificacao =
-    resultado.boleto || resultado.identificacao_pagamento || "--";
-
   el("resultCliente").textContent = resultado.cliente || "--";
-  el("resultPedido").textContent = valorPedidoOuFaturamento;
   el("resultDocFat").textContent = resultado.doc_fat || "--";
-  el("resultBoleto").textContent = valorBoletoOuIdentificacao;
 
   box.classList.remove("hidden");
 }
@@ -2580,9 +2574,7 @@ window.preencherResultado = preencherResultado;
 function esconderResultado() {
   el("resultBox").classList.add("hidden");
   el("resultCliente").textContent = "--";
-  el("resultPedido").textContent = "--";
   el("resultDocFat").textContent = "--";
-  el("resultBoleto").textContent = "--";
 }
 
 function cloneCheckpoint(checkpoint) {

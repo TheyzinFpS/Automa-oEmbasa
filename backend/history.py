@@ -213,6 +213,67 @@ def montar_texto_padrao(dados: dict[str, Any], resultado: dict[str, Any] | None 
     )
 
 
+def _texto_bol(valor: Any) -> str:
+    texto = _texto(valor)
+
+    if not texto:
+        return ""
+
+    if texto.upper() in {"GERADO", "LINHA_SELECIONADA", "--"}:
+        return ""
+
+    return texto
+
+
+def _numero_bol(resultado: dict[str, Any]) -> str:
+    direto = (
+        _texto_bol(resultado.get("numero_bol"))
+        or _texto_bol(resultado.get("identificacao_pagamento"))
+    )
+
+    if direto:
+        return direto
+
+    identificacoes = resultado.get("identificacoes_pagamento")
+
+    if isinstance(identificacoes, dict):
+        partes = []
+
+        for tipo, valor in identificacoes.items():
+            bol = _texto_bol(valor)
+
+            if bol:
+                label = TIPOS_LABEL.get(str(tipo or "").lower(), _texto(tipo, "Tipo"))
+                partes.append(f"{label}: {bol}")
+
+        if partes:
+            return " | ".join(partes)
+
+    agua_esgoto = resultado.get("agua_esgoto")
+
+    if isinstance(agua_esgoto, list):
+        partes = []
+
+        for item in agua_esgoto:
+            if not isinstance(item, dict):
+                continue
+
+            bol = _texto_bol(item.get("identificacao_pagamento"))
+
+            if bol:
+                label = _texto(
+                    item.get("tipo_label")
+                    or TIPOS_LABEL.get(str(item.get("tipo") or "").lower()),
+                    "Tipo",
+                )
+                partes.append(f"{label}: {bol}")
+
+        if partes:
+            return " | ".join(partes)
+
+    return _texto_bol(resultado.get("boleto"))
+
+
 def _montar_registro(dados: dict[str, Any], resultado: dict[str, Any]) -> dict[str, Any]:
     agora = _agora()
     documento = limpar_doc(dados.get("doc") or resultado.get("documento") or "")
@@ -236,6 +297,7 @@ def _montar_registro(dados: dict[str, Any], resultado: dict[str, Any]) -> dict[s
     tipo = _texto(dados.get("tipo") or resultado.get("tipo")).lower()
     usuario = _texto(getpass.getuser(), "usuario")
     texto_padrao = montar_texto_padrao(dados, resultado)
+    numero_bol = _numero_bol(resultado)
     registro_id = f"{agora.strftime('%Y%m%d%H%M%S')}_{_slug(numero_pedido, 'pedido')}"
 
     return {
@@ -254,7 +316,8 @@ def _montar_registro(dados: dict[str, Any], resultado: dict[str, Any]) -> dict[s
         "numero_pedido": numero_pedido,
         "faturamento": _texto(resultado.get("faturamento")),
         "doc_fat": _texto(resultado.get("doc_fat")),
-        "boleto": _texto(resultado.get("boleto") or resultado.get("identificacao_pagamento")),
+        "numero_bol": numero_bol,
+        "boleto": _texto(resultado.get("boleto")),
         "identificacao_pagamento": _texto(resultado.get("identificacao_pagamento")),
         "tipo_solicitacao": tipo,
         "tipo_solicitacao_label": TIPOS_LABEL.get(tipo, _texto(tipo, "Não informado")),
@@ -281,7 +344,7 @@ def _conteudo_txt(registro: dict[str, Any]) -> str:
         "PEDIDO",
         f"Número do pedido: {registro.get('numero_pedido', '')}",
         f"Doc. fat: {registro.get('doc_fat') or registro.get('faturamento') or ''}",
-        f"Boleto/BOL: {registro.get('boleto') or registro.get('identificacao_pagamento') or ''}",
+        f"Numero do BOL: {registro.get('numero_bol') or registro.get('identificacao_pagamento') or registro.get('boleto') or ''}",
         f"Tipo de solicitação: {registro.get('tipo_solicitacao_label', '')}",
         f"Valor: {registro.get('valor', '')}",
         "",
@@ -365,6 +428,7 @@ def _registro_resumo(registro: dict[str, Any]) -> dict[str, Any]:
         "numero_cliente": registro.get("numero_cliente"),
         "numero_pedido": registro.get("numero_pedido"),
         "doc_fat": registro.get("doc_fat"),
+        "numero_bol": registro.get("numero_bol"),
         "tipo_solicitacao_label": registro.get("tipo_solicitacao_label"),
         "empreendimento": (registro.get("endereco") or {}).get("empreendimento"),
     }
@@ -391,7 +455,9 @@ def listar_historico_pedidos(filtro: str = "", limite: int | None = None) -> lis
                     "numero_cliente",
                     "numero_pedido",
                     "doc_fat",
+                    "numero_bol",
                     "boleto",
+                    "identificacao_pagamento",
                     "tipo_solicitacao_label",
                 )
             )

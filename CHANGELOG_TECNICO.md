@@ -1,5 +1,23 @@
 # Registro técnico de alterações
 
+## Quinta-feira, 28/05/2026 - Versao 1.4.21
+
+**Ajuste aplicado**
+
+- A box final do andamento do processo foi simplificada para exibir apenas `Cliente` e `Doc. fat`, removendo `Pedido` e `Boleto`.
+- O historico passou a gravar o campo `numero_bol` com a identificacao BOL real usada na F110, priorizando `BOL01`, `BOL02` ou a lista por tipo no fluxo `Agua + Esgoto`.
+- A tela de detalhe do historico passou a exibir o campo como `Numero do BOL`, mantendo compatibilidade com registros antigos que ainda usam `identificacao_pagamento` ou `boleto`.
+- A busca do historico agora considera tambem `numero_bol` e `identificacao_pagamento`.
+- Atualizada a versao do projeto de `1.4.20` para `1.4.21`.
+
+**Validacao realizada**
+
+- `python -m py_compile interface.py backend\controller.py backend\history.py backend\flows\f110.py backend\settings.py`
+- `node --check interface\app.js`
+- Checagem de handlers declarados no HTML contra `interface\app.js`.
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com arquivos do pacote confirmando a versao `1.4.21`.
+
 ## Quinta-feira, 28/05/2026 - Versao 1.4.20
 
 **Ajuste aplicado**
