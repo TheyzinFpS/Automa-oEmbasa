@@ -1,3 +1,5 @@
+import time
+
 from backend.cache.cliente_cache import ClienteCache
 from backend.flows.common import notificar_progresso, resultado_padrao
 from backend.utils.sap_waits import (
@@ -60,55 +62,6 @@ _CAMPO_NOME2_CLIENTE = (
 )
 
 
-_TEXTOS_IGNORADOS_NOME_CLIENTE = {
-    "imposto ret.na fonte",
-    "seguros",
-    "correspondencia",
-    "correspondência",
-    "pagamentos",
-    "administracao conta",
-    "administração conta",
-    "dados da empresa",
-    "cliente",
-    "empresa",
-    "emba",
-    "embasa",
-    "área de vendas",
-    "area de vendas",
-    "organização vendas",
-    "organizacao vendas",
-    "canal distribuição",
-    "canal distribuicao",
-    "setor de atividade",
-    "todas as áreas vendas...",
-    "todas as areas vendas...",
-    "áreas de vendas do cliente...",
-    "areas de vendas do cliente...",
-    "projeto",
-    "distr. água/ esgoto",
-    "distr. agua/ esgoto",
-    "água",
-    "agua",
-    "esgoto",
-    "viabilidade",
-}
-
-_FRAGMENTOS_IGNORADOS_NOME_CLIENTE = (
-    "cliente exibir",
-    "exibir:",
-    "1ª tela",
-    "1a tela",
-    "áreas de vendas",
-    "areas de vendas",
-    "organização vendas",
-    "organizacao vendas",
-    "canal distribuição",
-    "canal distribuicao",
-    "setor de atividade",
-    "todas as",
-)
-
-
 def limpar_doc(doc):
     return "".join(filter(str.isdigit, str(doc)))
 
@@ -152,102 +105,6 @@ def _montar_nome_cliente(nome1, nome2):
     return " ".join(parte for parte in partes if parte).strip()
 
 
-def _coletar_textos_recursivo(componente, textos, profundidade=0, max_profundidade=5):
-    if componente is None or profundidade > max_profundidade:
-        return
-
-    texto = _ler_texto(componente)
-    if texto:
-        textos.append(texto)
-
-    try:
-        filhos = getattr(componente, "Children", None)
-        total = filhos.Count if filhos is not None else 0
-    except Exception:
-        total = 0
-
-    for indice in range(total):
-        try:
-            filho = filhos(indice)
-        except Exception:
-            continue
-
-        _coletar_textos_recursivo(
-            filho,
-            textos,
-            profundidade=profundidade + 1,
-            max_profundidade=max_profundidade,
-        )
-
-
-def _texto_parece_nome_cliente(texto, codigo_cliente, documento):
-    valor = str(texto or "").strip()
-    normalizado = valor.lower()
-    somente_digitos = limpar_doc(valor)
-
-    if len(valor) < 4:
-        return False
-
-    if not any(char.isalpha() for char in valor):
-        return False
-
-    if normalizado in _TEXTOS_IGNORADOS_NOME_CLIENTE:
-        return False
-
-    if any(fragmento in normalizado for fragmento in _FRAGMENTOS_IGNORADOS_NOME_CLIENTE):
-        return False
-
-    if str(codigo_cliente or "").strip() and str(codigo_cliente).strip() in valor:
-        return False
-
-    if documento and somente_digitos == documento:
-        return False
-
-    return True
-
-
-def _capturar_nome_cliente(session, codigo_cliente, documento):
-    # Tenta ler o nome exibido ao lado do cliente na XD03.
-    # O SAP GUI pode variar o ID do campo de nome conforme layout/tema, então a
-    # leitura é feita por varredura dos textos visíveis da janela de cliente.
-    textos = []
-
-    for alvo in ("wnd[1]", "wnd[0]"):
-        try:
-            componente = session.findById(alvo)
-        except Exception:
-            continue
-
-        _coletar_textos_recursivo(componente, textos)
-
-    candidatos = []
-    vistos = set()
-
-    for texto in textos:
-        valor = str(texto or "").strip()
-        chave = valor.lower()
-
-        if chave in vistos:
-            continue
-
-        vistos.add(chave)
-
-        if _texto_parece_nome_cliente(valor, codigo_cliente, documento):
-            candidatos.append(valor)
-
-    if not candidatos:
-        return ""
-
-    candidatos.sort(
-        key=lambda item: (
-            " " not in item,
-            len(item) < 8,
-            -len(item),
-        )
-    )
-    return candidatos[0].strip()
-
-
 def _fechar_popup_areas_cliente(session):
     # Fecha somente a janela de areas de vendas, preservando a tela inicial XD03.
     for element_id in (
@@ -268,57 +125,81 @@ def _fechar_popup_areas_cliente(session):
         pass
 
 
-def _ir_para_dados_gerais_cliente(session, logger=None):
+def _campos_nome_cliente_disponiveis(session):
+    return (
+        element_exists(session, _CAMPO_NOME1_CLIENTE)
+        and element_exists(session, _CAMPO_NOME2_CLIENTE)
+    )
+
+
+def _aguardar_campos_nome_cliente(session, timeout=1.5, interval=0.1):
+    deadline = time.monotonic() + max(0.0, float(timeout or 0.0))
+
+    while time.monotonic() < deadline:
+        if _campos_nome_cliente_disponiveis(session):
+            return True
+
+        time.sleep(max(0.05, float(interval or 0.1)))
+
+    return _campos_nome_cliente_disponiveis(session)
+
+
+def _ir_para_dados_gerais_cliente(
+    session,
+    logger=None,
+    tentativas=4,
+    espera_campos=1.5,
+):
     """
-    Fallback único para captura de nome na XD03.
+    Abre os Dados gerais antes de qualquer captura de nome na XD03.
 
-    Se Nome 1/Nome 2 não forem encontrados, entende que o SAP caiu
-    na tela de Dados da empresa ou em outra tela da XD03. Então executa
-    CTRL + F1 por sendVKey(25) para retornar aos Dados gerais e refaz
-    a leitura padrão de DATA-NAME1 e DATA-NAME2.
+    O CTRL + F1 e repetido ate DATA-NAME1 e DATA-NAME2 ficarem disponiveis.
+    O limite evita manter a automacao presa indefinidamente se o SAP abrir
+    uma tela inesperada.
     """
 
-    try:
-        session.findById("wnd[0]").maximize()
-    except Exception:
-        pass
+    ultimo_erro = ""
 
-    try:
-        session.findById("wnd[0]").sendVKey(25)
-        wait_until_ready(session)
-    except Exception as exc:
-        if logger:
-            logger.add(
-                0,
-                f"Falha ao executar CTRL+F1 para Dados gerais: {exc}",
-                nivel="DEBUG",
-                publico=False,
-            )
+    for tentativa in range(1, max(1, int(tentativas or 1)) + 1):
+        try:
+            session.findById("wnd[0]").sendVKey(25)
+            wait_until_ready(session)
+        except Exception as exc:
+            ultimo_erro = str(exc)
 
-    try:
-        session.findById("wnd[0]/shellcont").close()
-        wait_until_ready(session)
-    except Exception:
-        pass
+        try:
+            session.findById("wnd[0]/shellcont").close()
+            wait_until_ready(session)
+        except Exception:
+            pass
+
+        if _aguardar_campos_nome_cliente(session, timeout=espera_campos):
+            if logger:
+                logger.add(
+                    0,
+                    f"Dados gerais abertos com CTRL+F1 na tentativa {tentativa}.",
+                    nivel="DEBUG",
+                    publico=False,
+                )
+            return True
 
     if logger:
+        detalhe = f" Ultimo erro: {ultimo_erro}" if ultimo_erro else ""
         logger.add(
             0,
-            "Fallback XD03 executado: CTRL+F1 para retornar aos Dados gerais.",
+            "CTRL+F1 nao exibiu os campos DATA-NAME1 e DATA-NAME2."
+            + detalhe,
             nivel="DEBUG",
             publico=False,
         )
+
+    return False
 
 
 def _ler_nome_cliente_dados_gerais(session):
     # Leitura oficial da aba Endereco: Nome 1 + Nome 2.
     nome1 = _ler_texto(wait_for_element(session, _CAMPO_NOME1_CLIENTE, timeout=8))
-    nome2 = ""
-
-    try:
-        nome2 = _ler_texto(session.findById(_CAMPO_NOME2_CLIENTE))
-    except Exception:
-        nome2 = ""
+    nome2 = _ler_texto(wait_for_element(session, _CAMPO_NOME2_CLIENTE, timeout=8))
 
     return _montar_nome_cliente(nome1, nome2)
 
@@ -349,14 +230,10 @@ def _voltar_da_tela_dados_gerais_cliente(session, logger):
 
 def _capturar_nome_cliente_dados_gerais(
     session,
-    codigo_cliente,
-    documento,
     logger,
     progress_callback=None,
 ):
-    # 1. Tenta Nome 1 / Nome 2 normalmente.
-    # 2. Se não encontrar, executa CTRL+F1 para Dados gerais.
-    # 3. Tenta Nome 1 / Nome 2 novamente.
+    # Toda captura passa por CTRL+F1 e pelos campos oficiais DATA-NAME1/DATA-NAME2.
     notificar_progresso(
         progress_callback,
         "XD03",
@@ -371,21 +248,21 @@ def _capturar_nome_cliente_dados_gerais(
         if not element_exists(session, _CAMPO_NOME1_CLIENTE):
             press_and_wait(session, _BOTAO_CONFIRMAR_CLIENTE)
 
-        nome_cliente = _ler_nome_cliente_dados_gerais(session)
+        if not _ir_para_dados_gerais_cliente(session, logger=logger):
+            raise RuntimeError(
+                "CTRL+F1 nao exibiu os campos DATA-NAME1 e DATA-NAME2 da XD03."
+            )
 
-        if nome_cliente:
-            logger.add(0, f"Nome do cliente identificado: {nome_cliente}")
-            return nome_cliente
-
-        _ir_para_dados_gerais_cliente(session, logger=logger)
         nome_cliente = _ler_nome_cliente_dados_gerais(session)
 
         if nome_cliente:
             logger.add(
                 0,
-                f"Nome do cliente identificado após fallback CTRL+F1: {nome_cliente}",
+                f"Nome do cliente identificado apos CTRL+F1: {nome_cliente}",
             )
             return nome_cliente
+
+        raise RuntimeError("Os campos DATA-NAME1 e DATA-NAME2 estao vazios.")
 
     except Exception as exc:
         logger.add(
@@ -397,12 +274,7 @@ def _capturar_nome_cliente_dados_gerais(
     finally:
         _voltar_da_tela_dados_gerais_cliente(session, logger)
 
-    nome_fallback = _capturar_nome_cliente(session, codigo_cliente, documento)
-
-    if nome_fallback:
-        logger.add(0, f"Nome do cliente identificado por fallback: {nome_fallback}")
-
-    return nome_fallback
+    return ""
 
 
 def _abrir_xd03(session, logger):
@@ -630,10 +502,6 @@ def _buscar(session, campo, doc, logger, tipo, progress_callback=None):
         )
 
     logger.add(0, f"Cliente encontrado: {codigo}")
-    nome_cliente = _capturar_nome_cliente(session, codigo, doc)
-
-    if nome_cliente:
-        logger.add(0, f"Nome do cliente identificado: {nome_cliente}")
 
     notificar_progresso(
         progress_callback,
@@ -651,7 +519,7 @@ def _buscar(session, campo, doc, logger, tipo, progress_callback=None):
             "cliente": codigo,
             "documento": doc,
             "tipo_documento": tipo,
-            "nome_cliente": nome_cliente,
+            "nome_cliente": "",
         },
     )
 
@@ -713,11 +581,6 @@ def buscar_cliente(session, dados, logger, progress_callback=None):
                     "nome_cliente": cliente_cache.get("nome_cliente"),
                 },
             )
-
-            if not resultado["dados"].get("nome_cliente"):
-                nome_cliente = _capturar_nome_cliente(session, codigo_cliente, doc)
-                if nome_cliente:
-                    resultado["dados"]["nome_cliente"] = nome_cliente
 
         else:
             notificar_progresso(
@@ -826,8 +689,6 @@ def buscar_cliente(session, dados, logger, progress_callback=None):
 
             nome_cliente = _capturar_nome_cliente_dados_gerais(
                 session,
-                resultado["dados"]["cliente"],
-                doc,
                 logger,
                 progress_callback=progress_callback,
             )

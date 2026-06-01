@@ -1,5 +1,30 @@
 # Registro técnico de alterações
 
+## Segunda-feira, 01/06/2026 - Versao 1.4.28
+
+**Ajuste aplicado**
+
+- Restaurada na sidebar a entrada manual `Criar cliente`, mantendo o formulario cadastral dentro da interface.
+- O cadastro manual aceita CPF/CNPJ e tipo de solicitacao editaveis; apos sucesso, retorna automaticamente para a criacao de boletos com esses dois campos reaproveitados.
+- Mantida a retomada automatica ja existente quando o cadastro de cliente foi iniciado por um boleto pendente: depois do XD01, o fluxo volta ao boleto original e pesquisa o codigo pelo CPF/CNPJ no XD03.
+- A captura do nome no XD03 deixou de usar a varredura recursiva de textos visiveis da tela.
+- Toda leitura de nome agora envia `CTRL + F1` por `sendVKey(25)` e repete o comando ate os campos oficiais `DATA-NAME1` e `DATA-NAME2` estarem disponiveis, aguardando a renderizacao entre tentativas e mantendo limite de seguranca para telas SAP inesperadas.
+- `DATA-NAME1` e `DATA-NAME2` passaram a ser a unica fonte utilizada para montar o nome do cliente, tanto para clientes existentes quanto para clientes recem-criados localizados novamente no XD03.
+- Removida a maximizacao paralela da janela SAP que existia dentro do antigo fallback de captura do nome.
+- Atualizada a versao do projeto de `1.4.27` para `1.4.28`.
+
+**Validacao realizada**
+
+- `python -m py_compile interface.py main.py backend\settings.py backend\controller.py backend\flows\cliente_cadastro.py backend\flows\xd03.py backend\utils\sap_waits.py`
+- `node --check interface\app.js`
+- Checagem de handlers declarados no HTML contra `interface\app.js`.
+- Teste isolado do XD03 com sessao SAP simulada, validando repeticao de `CTRL + F1` ate `DATA-NAME1` e `DATA-NAME2`.
+- Teste estrutural da sidebar e da navegacao manual para `Criar cliente`.
+- `git diff --check`
+- Renderizacao local da interface em `http://127.0.0.1:8765`: sidebar com a nova acao `CL`, rodape `1.4.28` e console sem erros ou avisos.
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.28` confirmada no pacote.
+- Smoke test do executavel empacotado: processo iniciado, permaneceu responsivo e encerrou normalmente apos a verificacao.
+
 ## Segunda-feira, 01/06/2026 - Versao 1.4.27
 
 **Ajuste aplicado**

@@ -64,7 +64,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.27";
+const APP_VERSION = "1.4.28";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -139,6 +139,7 @@ const state = {
   simpleOperationalToastTimer: null,
   pendingSapAction: null,
   pendingSapPayload: null,
+  clientRegistrationSource: "",
   currentWorkspace: "boletos",
   monitorMode: "boletos",
   sidebarOpen: false,
@@ -1354,7 +1355,7 @@ function lockSidebarCollapsed(locked) {
 function setSidebarActive(view) {
   const mapa = {
     boletos: "navBoleto",
-    cliente: "navBoleto"
+    cliente: "navCliente"
   };
 
   Object.values(mapa).forEach((id) => {
@@ -1413,6 +1414,27 @@ function showBoletoWorkspace(options = {}) {
   if (options.status !== false && !state.flowRunning) {
     setStatus("Aguardando", "idle");
   }
+}
+
+function showClienteRegistrationWorkspace() {
+  if (state.flowRunning) {
+    showSimpleOperationalToast("Aguarde a conclusão da ação SAP atual.");
+    return;
+  }
+
+  const payload = {
+    doc: limparDocumento(el("doc")?.value || ""),
+    tipo: el("tipo")?.value || "",
+    _cadastro_manual: true
+  };
+
+  state.pendingSapAction = null;
+  state.pendingSapPayload = clonePlain(payload);
+  preencherCadastroClienteComPayload(payload, { travarOrigem: false });
+  abrirCadastroClientePanel();
+  setSidebarExpanded(false);
+  setStatus("Cadastro de cliente", "idle");
+  window.setTimeout(() => el("clienteCadastroDoc")?.focus(), 180);
 }
 
 // Atualiza visualmente o status operacional da base.
@@ -2819,7 +2841,8 @@ function cancelarAcaoSapPendente() {
   setStatus("Aguardando", "idle");
 }
 
-function preencherCadastroClienteComPayload(payload = {}) {
+function preencherCadastroClienteComPayload(payload = {}, options = {}) {
+  const { travarOrigem = true } = options;
   const docInfo = analisarDocumento(payload.doc || "");
   const nomeCliente = String(
     payload.nome_cliente
@@ -2839,11 +2862,11 @@ function preencherCadastroClienteComPayload(payload = {}) {
 
   el("clienteCadastroNome1").value = nomeCliente;
   el("clienteCadastroDoc").value = docInfo.formatado || formatarDocumento(payload.doc || "");
-  el("clienteCadastroDoc").readOnly = true;
-  el("clienteCadastroDoc").classList.add("readonly-like");
+  el("clienteCadastroDoc").readOnly = travarOrigem;
+  el("clienteCadastroDoc").classList.toggle("readonly-like", travarOrigem);
   el("clienteCadastroTipo").value = payload.tipo || "";
-  el("clienteCadastroTipo").disabled = true;
-  setCadastroTipoTravado(true);
+  el("clienteCadastroTipo").disabled = travarOrigem;
+  setCadastroTipoTravado(travarOrigem);
   atualizarCadastroTipoUI();
   el("clienteCadastroRua").value = "";
   el("clienteCadastroNumero").value = "";
@@ -2854,6 +2877,7 @@ function preencherCadastroClienteComPayload(payload = {}) {
   el("clienteCadastroInscricao").value = "ISENTO";
   el("clienteCadastroTelefone").value = "";
   el("clienteCadastroEmail").value = "";
+  state.clientRegistrationSource = travarOrigem ? "boleto" : "manual";
   atualizarTratamentoCadastroPorDocumento();
   hideCadastroClienteFeedback();
 }
@@ -2932,6 +2956,12 @@ function fecharAbaCadastroCliente(options = {}) {
 }
 
 function cancelarCadastroCliente() {
+  if (state.clientRegistrationSource === "manual") {
+    state.pendingSapAction = null;
+    state.pendingSapPayload = null;
+  }
+
+  state.clientRegistrationSource = "";
   fecharAbaCadastroCliente();
   setStatus("Aguardando", "idle");
 }
@@ -2999,27 +3029,24 @@ function hideCadastroClienteFeedback() {
 }
 
 function coletarCadastroCliente() {
-  const payload = clonePlain(state.pendingSapPayload);
-
-  if (!payload) {
-    showCadastroClienteFeedback("Dados do fluxo original não foram encontrados.");
-    return null;
-  }
-
-  const docInfo = analisarDocumento(payload.doc);
+  const payload = clonePlain(state.pendingSapPayload) || {};
+  const docInfo = analisarDocumento(el("clienteCadastroDoc")?.value || payload.doc || "");
+  const tipo = el("clienteCadastroTipo")?.value || payload.tipo || "";
 
   if (![11, 14].includes(docInfo.digitos.length)) {
     showCadastroClienteFeedback("Informe CPF ou CNPJ completo antes de criar o cliente.", false, "clienteCadastroDoc");
     return null;
   }
 
-  if (!payload.tipo) {
+  if (!tipo) {
     showCadastroClienteFeedback("Selecione o tipo de solicitação para definir o setor inicial.", false, "clienteCadastroTipo");
     return null;
   }
 
   const cadastro = {
     ...payload,
+    doc: docInfo.digitos,
+    tipo,
     nome1: el("clienteCadastroNome1").value.trim(),
     nome2: "",
     titulo: el("clienteCadastroTitulo").value,
@@ -3075,6 +3102,12 @@ function coletarCadastroCliente() {
   return cadastro;
 }
 
+function preencherBoletoAposCadastroCliente(cadastro = {}) {
+  atualizarDocumentoUI(cadastro.doc || "");
+  el("tipo").value = cadastro.tipo || "";
+  atualizarTipo();
+}
+
 async function submitCadastroCliente() {
   const cadastro = coletarCadastroCliente();
 
@@ -3083,12 +3116,9 @@ async function submitCadastroCliente() {
   }
 
   const button = el("clientRegistrationSubmit");
-  const payloadOriginal = clonePlain(state.pendingSapPayload);
-
-  if (!payloadOriginal) {
-    showCadastroClienteFeedback("Dados do boleto original não foram encontrados.");
-    return;
-  }
+  const payloadOriginal = clonePlain(state.pendingSapPayload) || {};
+  const origem = state.clientRegistrationSource
+    || (payloadOriginal._cadastro_manual ? "manual" : "boleto");
 
   try {
     button.disabled = true;
@@ -3105,13 +3135,23 @@ async function submitCadastroCliente() {
       return;
     }
 
-    showCadastroClienteFeedback("Cliente criado. Retomando busca pelo CPF/CNPJ no XD03...", true);
-    showSimpleOperationalToast("Cliente criado. Localizando código no XD03.");
-    log("Cliente criado no SAP. Retomando fluxo pelo XD03 para localizar o código.");
+    preencherBoletoAposCadastroCliente(cadastro);
     state.pendingSapAction = null;
     state.pendingSapPayload = null;
+    state.clientRegistrationSource = "";
     fecharAbaCadastroCliente({ mostrarBoleto: false });
     showBoletoWorkspace({ status: false });
+
+    if (origem === "manual") {
+      showSimpleOperationalToast("Cliente criado. Complete os dados do boleto para continuar.");
+      log("Cliente criado no SAP. Formulário de boletos preenchido com CPF/CNPJ e tipo solicitado.");
+      setStatus("Cliente criado", "success");
+      window.setTimeout(() => el("enderecoEmpreendimento")?.focus(), 180);
+      return;
+    }
+
+    showSimpleOperationalToast("Cliente criado. Localizando código no XD03.");
+    log("Cliente criado no SAP. Retomando fluxo pelo XD03 para localizar o código.");
     setStatus("Retomando pelo XD03", "running");
     await gerarBoleto();
   } catch (error) {
@@ -3649,6 +3689,7 @@ function limparPainel() {
   state.operationalNoticeQueue = [];
   state.pendingSapAction = null;
   state.pendingSapPayload = null;
+  state.clientRegistrationSource = "";
   closePdfNameModal();
   closeSapActionModal();
   fecharAbaCadastroCliente({ mostrarBoleto: false });
