@@ -1,5 +1,28 @@
 # Registro técnico de alterações
 
+## Segunda-feira, 01/06/2026 - Versao 1.4.27
+
+**Ajuste aplicado**
+
+- Corrigido o preenchimento fiscal de clientes pessoa fisica no XD01.
+- CPF e CNPJ agora usam o mesmo campo fiscal SAP `KNA1-STCD1`, conforme o layout EMBASA gravado.
+- A inscricao estadual `KNA1-STCD3 = ISENTO` volta a ser preenchida obrigatoriamente tambem para CPF.
+- Removida a tentativa paralela de preencher `KNA1-STCD2` e marcar `KNA1-STKZN`, pois esses controles nao pertencem ao roteiro EMBASA utilizado pelo aplicativo.
+- O grupo de contas `PF01` ou `PJ01` passou a ser obrigatorio na primeira tela da criacao do cliente; se o SAP rejeitar o valor, o fluxo informa a falha em vez de seguir silenciosamente com campos vazios.
+- Mantida a flexibilidade do grupo de contas na extensao posterior de setores para clientes ja existentes.
+- Atualizada a versao do projeto de `1.4.26` para `1.4.27`.
+
+**Validacao realizada**
+
+- `python -m py_compile backend\flows\cliente_cadastro.py interface.py backend\controller.py backend\flows\xd03.py backend\settings.py`
+- `node --check interface\app.js`
+- Teste isolado do preenchimento fiscal com CPF e CNPJ, validando `STCD1`, `STCD3 = ISENTO` e ausencia de chamadas a `STCD2/STKZN`.
+- Teste isolado da primeira tela do XD01, validando envio de `PF01`.
+- Checagem de handlers declarados no HTML contra `interface\app.js`.
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.27` confirmada no pacote.
+- Smoke test do executavel empacotado: processo iniciado, permaneceu responsivo e encerrou normalmente apos a verificacao.
+
 ## Segunda-feira, 01/06/2026 - Versao 1.4.26
 
 **Ajuste aplicado**

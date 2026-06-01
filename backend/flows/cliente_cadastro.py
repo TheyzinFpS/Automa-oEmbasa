@@ -342,27 +342,6 @@ def _set_key(session, element_id, value, timeout=8, required=True):
 
 
 
-def _set_checkbox(session, element_id, selected=True, timeout=8, required=True):
-    try:
-        if not required:
-            timeout = min(float(timeout or 1), 1.0)
-
-        element = wait_for_element(session, element_id, timeout=timeout)
-
-        try:
-            element.selected = bool(selected)
-        except Exception:
-            element.Selected = bool(selected)
-
-        return element
-
-    except Exception:
-        if required:
-            raise
-
-    return None
-
-
 def _press(session, element_id, timeout=8, required=True):
     try:
         if not required:
@@ -413,7 +392,12 @@ def _preencher_primeira_tela(
     incluir_empresa=True,
 ):
     if grupo_conta:
-        _set_key(session, "wnd[1]/usr/cmbRF02D-KTOKD", grupo_conta, required=False)
+        _set_key(
+            session,
+            "wnd[1]/usr/cmbRF02D-KTOKD",
+            grupo_conta,
+            required=incluir_empresa,
+        )
 
     _set_text(session, "wnd[1]/usr/ctxtRF02D-KUNNR", cliente, required=False)
 
@@ -469,36 +453,13 @@ def _preencher_documentos_fiscais(session, dados):
         "ssubSUBSC:SAPLATAB:0200/subAREA3:SAPMF02D:7122/"
     )
 
-    if dados["tipo_documento"] == "cnpj":
-        # Pessoa jurídica: preenche CNPJ e Inscrição Estadual como ISENTO.
-        _set_text(session, prefixo + "txtKNA1-STCD1", dados["doc"])
-        _set_text(
-            session,
-            prefixo + "txtKNA1-STCD3",
-            dados["inscricao_estadual"],
-        )
-
-    else:
-        # Pessoa física: preenche CPF e marca a checkbox "Pessoa física".
-        # Não preenche inscrição estadual/ISENTO para pessoa física.
-        _set_text(session, prefixo + "txtKNA1-STCD2", dados["doc"])
-
-        # Campo SAP padrão de pessoa física: KNA1-STKZN.
-        # O ID pode variar por layout, por isso tentamos variações sem travar.
-        for checkbox_id in (
-            prefixo + "chkKNA1-STKZN",
-            prefixo + "chkKNA1-STKZN_01",
-            "wnd[0]/usr/chkKNA1-STKZN",
-        ):
-            marcado = _set_checkbox(
-                session,
-                checkbox_id,
-                selected=True,
-                timeout=1,
-                required=False,
-            )
-            if marcado is not None:
-                break
+    # O layout EMBASA usa o mesmo campo fiscal para CPF e CNPJ.
+    _set_text(session, prefixo + "txtKNA1-STCD1", dados["doc"])
+    _set_text(
+        session,
+        prefixo + "txtKNA1-STCD3",
+        dados["inscricao_estadual"],
+    )
 
 
 def _preencher_dados_empresa(session, tipo_doc):
