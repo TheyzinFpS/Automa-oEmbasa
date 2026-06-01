@@ -110,11 +110,6 @@ def _erro_indica_setor_existente(session, exc=None):
     return _texto_indica_setor_existente(contexto)
 
 
-def _extrair_numero_sap(texto):
-    numeros = re.findall(r"\b\d{6,12}\b", str(texto or ""))
-    return numeros[-1] if numeros else ""
-
-
 def _limitar_texto(valor, limite):
     texto = _normalizar_espacos(valor)
     return texto[: int(limite or 0)] if limite else texto
@@ -650,40 +645,27 @@ def criar_cliente(session, dados, logger, progress_callback=None):
         _preencher_dados_vendas(session, setor_inicial, incluir_imposto=True)
 
         status = _salvar_cliente_ou_setor(session)
-        cliente = _extrair_numero_sap(status)
-
-        if not cliente:
-            raise RuntimeError(
-                "Cliente salvo, mas nao foi possivel capturar o numero SAP na barra de status."
-            )
-
         setores_criados = [setor_inicial]
-        setores_para_adicionar = [
+        setores_pendentes = [
             setor
             for setor in setores_requeridos
             if setor and setor != setor_inicial
         ]
 
-        for setor in setores_para_adicionar:
-            adicionar_setores_cliente(
-                session,
-                {
-                    "cliente": cliente,
-                    "doc": cadastro["doc"],
-                    "tipo_documento": cadastro["tipo_documento"],
-                    "setores": [setor],
-                },
-                logger,
-                progress_callback=progress_callback,
-                abrir_nova_transacao=True,
-            )
-            setores_criados.append(setor)
+        if status:
+            logger.add(0, f"Retorno SAP ao salvar cliente: {status}")
+
+        logger.add(
+            0,
+            "Cliente salvo no XD01. O codigo SAP sera localizado pelo CPF/CNPJ no XD03.",
+            publico=True,
+        )
 
         notificar_progresso(
             progress_callback,
             "XD01",
             "concluido",
-            f"Cliente {cliente} criado e preparado para o fluxo.",
+            "Cliente criado. Retomando busca pelo CPF/CNPJ no XD03...",
             100,
         )
 
@@ -692,13 +674,13 @@ def criar_cliente(session, dados, logger, progress_callback=None):
             etapa="XD01",
             mensagem="Cliente criado com sucesso.",
             dados={
-                "cliente": cliente,
                 "documento": cadastro["doc"],
                 "tipo_documento": cadastro["tipo_documento"],
                 "nome_cliente": " ".join(
                     parte for parte in (cadastro["nome1"], cadastro["nome2"]) if parte
                 ).strip(),
                 "setores_criados": setores_criados,
+                "setores_pendentes": setores_pendentes,
             },
         )
     except Exception as exc:

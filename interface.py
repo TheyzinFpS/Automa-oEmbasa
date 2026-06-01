@@ -493,7 +493,6 @@ class API:
                 resultado_final.update(_serializar_para_front(payload))
 
                 if payload["ok"]:
-                    self._emitir_preencher_resultado(payload["resultado"])
                     self._emitir_status("Concluido", "success")
                 else:
                     self._emitir_status("Falha no processamento", "error")

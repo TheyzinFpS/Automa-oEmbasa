@@ -40,15 +40,6 @@
         <span class="sidebar-label">Cria&ccedil;&atilde;o de boletos</span>
       </button>
 
-      <button
-        id="navCliente"
-        class="sidebar-nav-item"
-        type="button"
-        onclick="abrirCriacaoClienteManual()"
-      >
-        <span class="sidebar-icon">CL</span>
-        <span class="sidebar-label">Criar Cliente</span>
-      </button>
     </nav>
 
     <div class="sidebar-footer" aria-label="Utilit&aacute;rios">
@@ -104,7 +95,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.4.25</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.4.26</span>
           </div>
         </div>
       </div>
@@ -738,28 +729,6 @@
           onclick="cancelarAcaoSapPendente()"
         >
           Agora n&atilde;o
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <div id="clientCreatedModal" class="contact-success-modal hidden">
-    <div class="contact-backdrop" onclick="closeClientCreatedModal()"></div>
-
-    <div class="contact-success-card batch-confirm-card sap-action-card">
-      <p class="section-kicker">Cadastro conclu&iacute;do</p>
-      <h2 id="clientCreatedTitle">Cliente criado</h2>
-      <p id="clientCreatedMessage">Cliente Criado: --</p>
-      <div class="batch-confirm-actions">
-        <button
-          type="button"
-          class="primary-action"
-          onclick="prosseguirClienteCriadoParaBoleto()"
-        >
-          Prosseguir para Cria&ccedil;&atilde;o de Boleto
-        </button>
-        <button type="button" class="ghost-action" onclick="closeClientCreatedModal()">
-          Fechar
         </button>
       </div>
     </div>

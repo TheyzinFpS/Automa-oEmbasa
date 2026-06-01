@@ -64,7 +64,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.25";
+const APP_VERSION = "1.4.26";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -142,11 +142,9 @@ const state = {
   currentWorkspace: "boletos",
   monitorMode: "boletos",
   sidebarOpen: false,
-  clientRegistrationMode: "pending",
   cadastroCepLookupTimer: 0,
   cadastroCepLookupSeq: 0,
   cadastroCepLookupController: null,
-  lastCreatedClient: null,
   historicoItens: [],
   historicoSelecionado: null
 };
@@ -1356,7 +1354,7 @@ function lockSidebarCollapsed(locked) {
 function setSidebarActive(view) {
   const mapa = {
     boletos: "navBoleto",
-    cliente: "navCliente"
+    cliente: "navBoleto"
   };
 
   Object.values(mapa).forEach((id) => {
@@ -1479,7 +1477,7 @@ function formatarDoc(elm) {
 
 function formatarDocCadastro(elm) {
   elm.value = formatarDocumento(elm.value);
-  atualizarResumoCadastroManual();
+  atualizarResumoCadastroCliente();
 }
 
 // Atualiza tipo de solicitação e reseta valor customizado quando necessário.
@@ -1559,7 +1557,7 @@ function selecionarCadastroTipo(tipo, label) {
   el("clienteCadastroTipo").value = tipo;
   el("clienteCadastroTipoButtonText").textContent = label;
   fecharCadastroTipoMenu();
-  atualizarResumoCadastroManual();
+  atualizarResumoCadastroCliente();
 }
 
 function atualizarCadastroTituloUI() {
@@ -2831,7 +2829,6 @@ function preencherCadastroClienteComPayload(payload = {}) {
     || ""
   ).trim();
 
-  state.clientRegistrationMode = "pending";
   el("clientRegistrationKicker").textContent = "Cadastro SAP";
   el("clientRegistrationTitle").textContent = "Criar cliente";
   el("clientRegistrationDoc").textContent = docInfo.formatado || payload.doc || "--";
@@ -2861,25 +2858,7 @@ function preencherCadastroClienteComPayload(payload = {}) {
   hideCadastroClienteFeedback();
 }
 
-function limparCamposCadastroCliente() {
-  el("clienteCadastroNome1").value = "";
-  el("clienteCadastroRua").value = "";
-  el("clienteCadastroNumero").value = "";
-  el("clienteCadastroCep").value = "";
-  el("clienteCadastroBairro").value = "";
-  el("clienteCadastroCidade").value = "";
-  el("clienteCadastroEstado").value = "BA";
-  el("clienteCadastroInscricao").value = "ISENTO";
-  el("clienteCadastroTelefone").value = "";
-  el("clienteCadastroEmail").value = "";
-  el("clienteCadastroTitulo").value = "auto";
-  setCadastroTipoTravado(false);
-  atualizarCadastroTipoUI();
-  setCadastroTituloTravado(false);
-  atualizarCadastroTituloUI();
-}
-
-function atualizarResumoCadastroManual() {
+function atualizarResumoCadastroCliente() {
   const docInfo = analisarDocumento(el("clienteCadastroDoc")?.value || "");
   const tipo = el("clienteCadastroTipo")?.value || "";
 
@@ -2919,8 +2898,7 @@ function atualizarTratamentoCadastroPorDocumento() {
   atualizarCadastroTituloUI();
 }
 
-function abrirCadastroClientePanel(mode) {
-  state.clientRegistrationMode = mode;
+function abrirCadastroClientePanel() {
   setMonitorMode("cliente");
   mostrarPainelWorkspace("cliente");
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -2936,30 +2914,9 @@ function abrirAbaCadastroCliente() {
   }
 
   preencherCadastroClienteComPayload(payload);
-  abrirCadastroClientePanel("pending");
+  abrirCadastroClientePanel();
   setStatus("Aguardando cadastro", "idle");
   window.setTimeout(() => el("clienteCadastroNome1").focus(), 180);
-}
-
-function abrirCriacaoClienteManual() {
-  state.pendingSapAction = null;
-  state.pendingSapPayload = null;
-  state.clientRegistrationMode = "manual";
-  el("clientRegistrationKicker").textContent = "Cadastro manual";
-  el("clientRegistrationTitle").textContent = "Criar cliente";
-  el("clientRegistrationSubmit").textContent = "Criar cliente";
-  el("clienteCadastroDoc").value = "";
-  el("clienteCadastroDoc").readOnly = false;
-  el("clienteCadastroDoc").classList.remove("readonly-like");
-  el("clienteCadastroTipo").value = "";
-  el("clienteCadastroTipo").disabled = false;
-  setCadastroTipoTravado(false);
-  limparCamposCadastroCliente();
-  atualizarResumoCadastroManual();
-  hideCadastroClienteFeedback();
-  abrirCadastroClientePanel("manual");
-  setStatus("Cadastro de cliente", "idle");
-  window.setTimeout(() => el("clienteCadastroDoc").focus(), 180);
 }
 
 function fecharAbaCadastroCliente(options = {}) {
@@ -3042,14 +2999,7 @@ function hideCadastroClienteFeedback() {
 }
 
 function coletarCadastroCliente() {
-  const modoManual = state.clientRegistrationMode === "manual";
-  const payload = modoManual
-    ? {
-        doc: limparDocumento(el("clienteCadastroDoc").value),
-        tipo: el("clienteCadastroTipo").value,
-        endereco: {}
-      }
-    : clonePlain(state.pendingSapPayload);
+  const payload = clonePlain(state.pendingSapPayload);
 
   if (!payload) {
     showCadastroClienteFeedback("Dados do fluxo original não foram encontrados.");
@@ -3133,7 +3083,12 @@ async function submitCadastroCliente() {
   }
 
   const button = el("clientRegistrationSubmit");
-  const modoManual = state.clientRegistrationMode === "manual";
+  const payloadOriginal = clonePlain(state.pendingSapPayload);
+
+  if (!payloadOriginal) {
+    showCadastroClienteFeedback("Dados do boleto original não foram encontrados.");
+    return;
+  }
 
   try {
     button.disabled = true;
@@ -3150,55 +3105,22 @@ async function submitCadastroCliente() {
       return;
     }
 
-    const clienteCriado = resposta?.resultado?.cliente || "--";
-
-    state.lastCreatedClient = {
-      cliente: clienteCriado,
-      doc: cadastro.doc,
-      tipo: cadastro.tipo,
-      modoManual,
-      resultado: clonePlain(resposta?.resultado || {})
-    };
-    showCadastroClienteFeedback(`Cliente ${clienteCriado} criado com sucesso.`, true);
-    showSimpleOperationalToast("Cliente criado no SAP.");
-    log(`Cliente criado: ${clienteCriado}.`);
-    setStatus("Cliente criado", "success");
+    showCadastroClienteFeedback("Cliente criado. Retomando busca pelo CPF/CNPJ no XD03...", true);
+    showSimpleOperationalToast("Cliente criado. Localizando código no XD03.");
+    log("Cliente criado no SAP. Retomando fluxo pelo XD03 para localizar o código.");
     state.pendingSapAction = null;
-    openClientCreatedModal(clienteCriado);
+    state.pendingSapPayload = null;
+    fecharAbaCadastroCliente({ mostrarBoleto: false });
+    showBoletoWorkspace({ status: false });
+    setStatus("Retomando pelo XD03", "running");
+    await gerarBoleto();
   } catch (error) {
     showCadastroClienteFeedback(`Falha ao criar cliente: ${error}`);
     log(`Falha ao criar cliente: ${error}`, "error");
     openLogsPopover();
   } finally {
     button.disabled = false;
-    button.textContent = modoManual ? "Criar cliente" : "Criar cliente e continuar";
-  }
-}
-
-function openClientCreatedModal(cliente) {
-  el("clientCreatedMessage").textContent = `Cliente Criado: ${cliente || "--"}`;
-  openModal("clientCreatedModal");
-}
-
-function closeClientCreatedModal() {
-  closeModal("clientCreatedModal");
-}
-
-function prosseguirClienteCriadoParaBoleto() {
-  const dados = clonePlain(state.lastCreatedClient);
-
-  closeClientCreatedModal();
-  fecharAbaCadastroCliente({ mostrarBoleto: false });
-  showBoletoWorkspace();
-
-  if (!dados) {
-    return;
-  }
-
-  atualizarDocumentoUI(dados.doc || "");
-
-  if (dados.tipo) {
-    selecionarTipo(dados.tipo, TIPOS_SOLICITACAO[dados.tipo] || dados.tipo);
+    button.textContent = "Criar cliente e continuar";
   }
 }
 
@@ -3329,7 +3251,6 @@ function closeContactSuccessModal() {
 const MODAL_IDS = [
   "contactModal",
   "contactSuccessModal",
-  "clientCreatedModal",
   "pdfNameModal",
   "historyModal",
   "aboutModal",
@@ -3730,7 +3651,6 @@ function limparPainel() {
   state.pendingSapPayload = null;
   closePdfNameModal();
   closeSapActionModal();
-  closeClientCreatedModal();
   fecharAbaCadastroCliente({ mostrarBoleto: false });
   showBoletoWorkspace({ status: false });
   limparMensagensValidacao();
@@ -4265,11 +4185,6 @@ document.addEventListener("keydown", (event) => {
 
   if (modalEstaAberto("contactSuccessModal")) {
     closeContactSuccessModal();
-    return;
-  }
-
-  if (modalEstaAberto("clientCreatedModal")) {
-    closeClientCreatedModal();
     return;
   }
 

@@ -1,5 +1,30 @@
 # Registro técnico de alterações
 
+## Segunda-feira, 01/06/2026 - Versao 1.4.26
+
+**Ajuste aplicado**
+
+- Removida a tentativa de capturar o codigo do cliente pela barra de status logo apos salvar o cadastro no XD01.
+- O cadastro inicial agora cria somente o cliente com o setor padrao de Viabilidade (`AE`) e conclui sem depender de um numero SAP ainda indisponivel.
+- Depois do cadastro, a interface retorna automaticamente ao boleto original e reinicia o fluxo pelo XD03 usando o CPF/CNPJ informado.
+- A retomada usa a mesma entrada da criacao de boletos para preservar tambem lotes com varios empreendimentos.
+- O XD03 passa a ser o ponto unico para localizar o codigo real do novo cliente.
+- Quando o tipo solicitado exigir outro setor, a verificacao existente do XD03 identifica a ausencia, cria os setores necessarios com o codigo localizado e retoma o boleto automaticamente.
+- Acoes cadastrais intermediarias deixaram de preencher o card de resultado final antes da criacao efetiva do boleto.
+- Removidos da sidebar a criacao manual isolada de cliente e o modal intermediario de confirmacao, pois o cadastro agora nasce exclusivamente de um boleto com cliente nao localizado.
+- Atualizada a versao do projeto de `1.4.25` para `1.4.26`.
+
+**Validacao realizada**
+
+- `python -m py_compile interface.py backend\flows\cliente_cadastro.py backend\flows\xd03.py backend\controller.py backend\settings.py`
+- `node --check interface\app.js`
+- Teste isolado do encerramento do XD01 sem codigo na barra de status.
+- Checagem de handlers declarados no HTML contra `interface\app.js`.
+- Revisao por busca de referencias antigas do modal e da criacao manual isolada.
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.26` confirmada no pacote.
+- Smoke test do executavel empacotado: processo iniciado, permaneceu responsivo e encerrou normalmente apos a verificacao.
+
 ## Segunda-feira, 01/06/2026 - Versao 1.4.25
 
 **Ajuste aplicado**
