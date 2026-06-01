@@ -19,6 +19,7 @@ from backend.history import (
 )
 from backend.logger import Logger
 from backend.sap_connection import conectar_sap
+from backend.utils.sap_waits import SapKeepAlive
 from backend.support_mail import process_support_request
 from backend.settings import SETTINGS
 from backend.validators import validar_dados
@@ -50,14 +51,28 @@ class API:
         self._window = None
         self._ui_lock = threading.Lock()
         self._flow_lock = threading.Lock()
+        self._sap_activity_lock = threading.Lock()
         self._flow_running = False
         self._cancel_event = threading.Event()
         self._last_progress = {}
         self._notice_lock = threading.Lock()
         self._notice_events = {}
+        self._keep_alive = SapKeepAlive(
+            intervalo=60,
+            pode_executar=self._pode_executar_keep_alive,
+            bloqueio_atividade=self._sap_activity_lock,
+        )
+        self._keep_alive.start()
 
     def set_window(self, window):
         self._window = window
+
+    def stop(self):
+        self._keep_alive.stop()
+
+    def _pode_executar_keep_alive(self):
+        with self._flow_lock:
+            return not self._flow_running
 
     # Localiza a janela ativa do pywebview para emitir eventos ao frontend.
     def _get_window(self):
@@ -318,10 +333,11 @@ class API:
                     publico=False,
                 )
 
-                resultado = self._executar_fluxo_com_callback(
-                    dados_tratados,
-                    resume_checkpoint=resume_checkpoint,
-                )
+                with self._sap_activity_lock:
+                    resultado = self._executar_fluxo_com_callback(
+                        dados_tratados,
+                        resume_checkpoint=resume_checkpoint,
+                    )
                 resultado = _serializar_para_front(resultado)
 
                 if not resultado["ok"]:
@@ -456,13 +472,14 @@ class API:
             try:
                 self._emitir_status(status_texto, "running")
                 self._logger.add(-1, status_texto, publico=True)
-                session = conectar_sap()
-                resultado = executor(
-                    session,
-                    dados,
-                    self._logger,
-                    progress_callback=self._emitir_progresso,
-                )
+                with self._sap_activity_lock:
+                    session = conectar_sap()
+                    resultado = executor(
+                        session,
+                        dados,
+                        self._logger,
+                        progress_callback=self._emitir_progresso,
+                    )
                 resultado = _serializar_para_front(resultado)
 
                 payload = {

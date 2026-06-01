@@ -1,5 +1,33 @@
 # Registro técnico de alterações
 
+## Segunda-feira, 01/06/2026 - Versao 1.4.25
+
+**Ajuste aplicado**
+
+- Integradas as alteracoes recebidas para manter a sessao SAP ativa enquanto o aplicativo permanece aberto e ocioso.
+- Criada a classe `SapKeepAlive`, com ping silencioso a cada 60 segundos e descarte automatico de referencias antigas da sessao SAP.
+- O keep-alive agora inicializa e finaliza COM dentro da propria thread, seguindo o requisito do Windows para acesso COM por thread.
+- Adicionado bloqueio nao concorrente para impedir que o keep-alive dispute a sessao com geracao de boletos, cadastro de cliente ou criacao de setores.
+- O ping ignora sessoes SAP ocupadas (`Busy`) para evitar chamadas que poderiam bloquear a thread em comunicacoes pendentes com o servidor.
+- Ao fechar a interface, o aplicativo solicita explicitamente a parada da thread de keep-alive.
+- Ao abrir o modal final do PDFCreator, o frontend reforca a copia automatica do nome do boleto sem chamar o backend e sem bloquear o fluxo SAP.
+- Incluido `pythoncom` nos imports empacotados do PyInstaller.
+- Atualizada a versao do projeto de `1.4.24` para `1.4.25`.
+
+**Validacao realizada**
+
+- `python -m py_compile interface.py main.py backend\utils\sap_waits.py backend\settings.py`
+- `node --check interface\app.js`
+- Teste isolado de `SapKeepAlive` com sessao SAP simulada, cobrindo ping permitido, sessao ocupada e bloqueio durante fluxo principal.
+- Checagem de handlers declarados no HTML contra `interface\app.js`.
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.25`, `pythoncom311.dll` e `pywintypes311.dll` confirmados no pacote.
+- Smoke test do executavel empacotado: processo iniciado, permaneceu responsivo e encerrou normalmente apos a verificacao.
+
+**Validacao operacional recomendada**
+
+- Manter uma sessao SAP real ociosa por um periodo superior ao timeout configurado no servidor para confirmar o efeito do ping no ambiente corporativo.
+
 ## Quinta-feira, 28/05/2026 - Versao 1.4.24
 
 **Ajuste aplicado**

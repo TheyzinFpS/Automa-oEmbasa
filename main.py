@@ -264,7 +264,10 @@ def main() -> None:
         )
         api.set_window(window)
 
-        webview.start(gui="edgechromium")
+        try:
+            webview.start(gui="edgechromium")
+        finally:
+            api.stop()
     except Exception:
         write_startup_log(traceback.format_exc())
         raise

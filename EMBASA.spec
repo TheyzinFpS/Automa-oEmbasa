@@ -18,6 +18,7 @@ hiddenimports = [
     "pythonnet.runtime",
     "clr_loader",
     "clr_loader.ffi",
+    "pythoncom",
     "tkinter",
     "win32com",
     "win32com.client",
