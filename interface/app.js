@@ -64,7 +64,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.29";
+const APP_VERSION = "1.4.30";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -3304,10 +3304,19 @@ function modalEstaAberto(id) {
   return modal && !modal.classList.contains("hidden");
 }
 
+function sincronizarLayoutDosModaisOperacionais() {
+  const exibirEmConjunto =
+    modalEstaAberto("pdfNameModal") &&
+    modalEstaAberto("batchConfirmModal");
+
+  document.body.classList.toggle("operational-modals-split", exibirEmConjunto);
+}
+
 // Mantem o scroll preso no modal aberto, evitando que a tela de fundo role.
 function sincronizarScrollDosModais() {
   const existeModalAberto = MODAL_IDS.some(modalEstaAberto);
   document.body.classList.toggle("modal-open", existeModalAberto);
+  sincronizarLayoutDosModaisOperacionais();
 }
 
 function openModal(id) {

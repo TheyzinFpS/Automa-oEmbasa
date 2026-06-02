@@ -1,5 +1,25 @@
 # Registro técnico de alterações
 
+## Terça-feira, 02/06/2026 - Versao 1.4.30
+
+**Ajuste aplicado**
+
+- Corrigida a sobreposicao entre o modal `PDFCreator` e a confirmacao de continuidade da fila de empreendimentos.
+- Quando os dois avisos estao abertos ao mesmo tempo, a interface ativa automaticamente um layout operacional compartilhado.
+- Em telas largas, o nome do PDF fica visivel a esquerda e a confirmacao do proximo empreendimento a direita.
+- Em janelas estreitas, os modais ficam separados entre a metade superior e inferior da tela, com rolagem interna quando necessaria.
+- Os dois cards permanecem clicaveis de forma independente, sem alterar a execucao SAP, a fila ou a espera de confirmacao do usuario.
+- Atualizada a versao do projeto de `1.4.29` para `1.4.30`.
+
+**Validacao realizada**
+
+- `node --check interface\app.js`
+- Checagem de handlers declarados no HTML contra `interface\app.js`.
+- `git diff --check`
+- Renderizacao local dos dois modais simultaneos em largura ampla e reduzida.
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.30` confirmada no pacote.
+- Smoke test do executavel empacotado: processo iniciado, permaneceu responsivo e encerrou normalmente apos a verificacao.
+
 ## Terça-feira, 02/06/2026 - Versao 1.4.29
 
 **Ajuste aplicado**
