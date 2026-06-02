@@ -1,5 +1,33 @@
 # Registro técnico de alterações
 
+## Terça-feira, 02/06/2026 - Versao 1.4.29
+
+**Ajuste aplicado**
+
+- Ativado o envio funcional do formulario `Fale Conosco` para `augusto.cruz@embasa.ba.gov.br`.
+- O canal padrao passou a ser `outlook_desktop`: a aplicacao usa o perfil corporativo ja autenticado no Outlook classico do Windows, evitando armazenar senha no executavel ou no arquivo de configuracao.
+- Mantido o canal `smtp` como alternativa configuravel para ambientes que possuam servidor, remetente e credenciais proprias.
+- Imagens JPG, JPEG e PNG anexadas pelo usuario agora sao gravadas em pasta temporaria, inseridas no e-mail do Outlook e removidas automaticamente depois do envio.
+- Adicionada validacao do conteudo base64 e da consistencia do tamanho dos anexos antes da entrega.
+- Se o Outlook nao estiver disponivel ou conectado, a interface informa ao usuario que deve abrir o Outlook corporativo e tentar novamente.
+- A confirmacao de sucesso agora apresenta o protocolo `FAFTA-AAAAMMDD-HHMMSS` do atendimento.
+- Mantido o snapshot local em `%LOCALAPPDATA%\EMBASA\atendimentos` para rastreio do pedido.
+- Atualizada a versao do projeto de `1.4.28` para `1.4.29`.
+
+**Validacao realizada**
+
+- `python -m py_compile interface.py main.py backend\settings.py backend\support_mail.py`
+- `node --check interface\app.js`
+- Checagem de handlers declarados no HTML contra `interface\app.js`.
+- Teste isolado com Outlook simulado, validando destino, assunto, corpo, anexos, envio e remocao da pasta temporaria.
+- Teste isolado do canal SMTP preservado.
+- Teste de rejeicao de anexo base64 invalido.
+- Renderizacao local do modal `Fale Conosco` em `http://127.0.0.1:8765`, com abertura pelo botao, campos obrigatorios, anexos, botao de envio e console sem erros ou avisos.
+- Validacao visual do formulario vazio: a interface exibiu `Informe a matricula.` sem fechar ou travar o modal.
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.29`, canal `outlook_desktop` e destino `augusto.cruz@embasa.ba.gov.br` confirmados no pacote.
+- Smoke test do executavel empacotado: processo iniciado, permaneceu responsivo e encerrou normalmente apos a verificacao.
+
 ## Segunda-feira, 01/06/2026 - Versao 1.4.28
 
 **Ajuste aplicado**

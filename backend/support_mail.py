@@ -5,6 +5,7 @@ import json
 import mimetypes
 import smtplib
 import ssl
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from email.message import EmailMessage
@@ -182,11 +183,27 @@ def _attach_files(message: EmailMessage, attachments: list[SupportAttachment]) -
     for attachment in attachments:
         maintype, subtype = attachment.mime_type.split("/", 1) if "/" in attachment.mime_type else ("application", "octet-stream")
         message.add_attachment(
-            base64.b64decode(attachment.content_base64),
+            _decode_attachment(attachment),
             maintype=maintype,
             subtype=subtype,
             filename=attachment.name,
         )
+
+
+def _decode_attachment(attachment: SupportAttachment) -> bytes:
+    try:
+        content = base64.b64decode(attachment.content_base64, validate=True)
+    except Exception as exc:
+        raise ValueError(
+            f"O conteúdo do anexo {attachment.name} está inválido."
+        ) from exc
+
+    if len(content) != attachment.size:
+        raise ValueError(
+            f"O tamanho recebido para o anexo {attachment.name} não confere."
+        )
+
+    return content
 
 
 # Salva uma cópia local do atendimento para rastreio mesmo se o e-mail falhar.
@@ -222,13 +239,8 @@ def _save_support_snapshot(payload: dict, protocolo: str) -> str:
     return str(snapshot_path)
 
 
-# Envia o e-mail interno do pedido de atendimento.
-def send_support_emails(payload: dict, protocolo: str) -> dict:
-    config = _support_config()
-
-    if not _setting_bool(config.get("notification_email_enabled"), default=False):
-        raise ValueError("O envio por e-mail ainda não está configurado no sistema.")
-
+# Envia o atendimento usando um servidor SMTP configurado explicitamente.
+def _send_support_email_smtp(payload: dict, protocolo: str, config: dict) -> dict:
     smtp_host = str(config.get("smtp_host") or "").strip()
     smtp_port = int(config.get("smtp_port") or 587)
     smtp_username = str(config.get("smtp_username") or "").strip()
@@ -280,7 +292,80 @@ def send_support_emails(payload: dict, protocolo: str) -> dict:
 
     return {
         "destination_email": destination_email,
+        "delivery_mode": "smtp",
     }
+
+
+# Envia o atendimento pelo perfil já autenticado no Outlook clássico do Windows.
+def _send_support_email_outlook(payload: dict, protocolo: str, config: dict) -> dict:
+    destination_email = str(config.get("destination_email") or "").strip()
+    subject_prefix = str(config.get("subject_prefix") or "[EMBASA Atendimento]").strip()
+
+    if not destination_email:
+        raise ValueError("Configuração de e-mail incompleta. Ajuste: destination_email")
+
+    support_subject = f"{subject_prefix} {protocolo}"
+    support_body = _build_support_body(payload, protocolo)
+    pythoncom = None
+
+    try:
+        import pythoncom as pythoncom_module
+        import win32com.client
+
+        pythoncom_module.CoInitialize()
+        pythoncom = pythoncom_module
+        outlook = win32com.client.Dispatch("Outlook.Application")
+        message = outlook.CreateItem(0)
+        message.To = destination_email
+        message.Subject = support_subject
+        message.Body = support_body
+
+        with tempfile.TemporaryDirectory(prefix="embasa_atendimento_") as temp_dir:
+            for index, attachment in enumerate(payload["attachments"], start=1):
+                attachment_path = Path(temp_dir) / f"{index:02d}_{attachment.name}"
+                attachment_path.write_bytes(_decode_attachment(attachment))
+                message.Attachments.Add(str(attachment_path))
+
+            message.Send()
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(
+            "Não foi possível enviar o atendimento pelo Outlook. "
+            "Abra o Outlook corporativo, confirme que sua conta está conectada "
+            "e tente novamente."
+        ) from exc
+    finally:
+        if pythoncom is not None:
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+
+    return {
+        "destination_email": destination_email,
+        "delivery_mode": "outlook_desktop",
+    }
+
+
+# Envia o e-mail interno do pedido de atendimento.
+def send_support_emails(payload: dict, protocolo: str) -> dict:
+    config = _support_config()
+
+    if not _setting_bool(config.get("notification_email_enabled"), default=False):
+        raise ValueError("O envio por e-mail ainda não está configurado no sistema.")
+
+    delivery_mode = str(config.get("delivery_mode") or "outlook_desktop").strip().lower()
+
+    if delivery_mode == "outlook_desktop":
+        return _send_support_email_outlook(payload, protocolo, config)
+
+    if delivery_mode == "smtp":
+        return _send_support_email_smtp(payload, protocolo, config)
+
+    raise ValueError(
+        "Modo de envio de atendimento inválido. Use outlook_desktop ou smtp."
+    )
 
 
 # Fluxo completo do Fale Conosco: validar, salvar protocolo e enviar e-mails.

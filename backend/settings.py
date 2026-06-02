@@ -10,7 +10,7 @@ from pathlib import Path
 DEFAULT_SETTINGS = {
     "app": {
         "name": "EMBASA",
-        "version": "1.4.28",
+        "version": "1.4.29",
         "company_code": "EMBA",
     },
     "security": {
@@ -44,8 +44,9 @@ DEFAULT_SETTINGS = {
         "max_action_delay_seconds": 30,
     },
     "support": {
-        "notification_email_enabled": False,
-        "destination_email": "",
+        "notification_email_enabled": True,
+        "delivery_mode": "outlook_desktop",
+        "destination_email": "augusto.cruz@embasa.ba.gov.br",
         "smtp_host": "",
         "smtp_port": 587,
         "smtp_use_tls": True,

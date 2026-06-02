@@ -595,7 +595,10 @@ class API:
         return _serializar_para_front(
             {
                 "ok": True,
-                "msg": "Seu pedido foi enviado com sucesso para o atendimento interno.",
+                "msg": (
+                    "Seu pedido foi enviado com sucesso para o atendimento interno. "
+                    f"Protocolo: {resultado['protocolo']}."
+                ),
                 "protocolo": resultado["protocolo"],
                 "snapshot_path": resultado["snapshot_path"],
                 "email_destino": resultado.get("destination_email"),

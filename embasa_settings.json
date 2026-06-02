@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "EMBASA",
-    "version": "1.4.28",
+    "version": "1.4.29",
     "company_code": "EMBA"
   },
   "startup": {
@@ -35,6 +35,8 @@
     "lock_timeout_seconds": 5
   },
   "support": {
-    "notification_email_enabled": false
+    "notification_email_enabled": true,
+    "delivery_mode": "outlook_desktop",
+    "destination_email": "augusto.cruz@embasa.ba.gov.br"
   }
 }
