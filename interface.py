@@ -10,7 +10,11 @@ import webview
 
 from backend.controller import SAPController
 from backend.documentos import analisar_doc, limpar_doc
-from backend.flows.cliente_cadastro import adicionar_setores_cliente, criar_cliente
+from backend.flows.cliente_cadastro import (
+    adicionar_setores_cliente,
+    criar_cliente,
+    criar_cliente_multa_contratual,
+)
 from backend.history import (
     diagnostico_historico,
     listar_historico_pedidos,
@@ -22,8 +26,8 @@ from backend.sap_connection import conectar_sap
 from backend.utils.sap_waits import SapKeepAlive
 from backend.support_mail import process_support_request
 from backend.settings import SETTINGS
-from backend.validators import validar_dados
-from backend.valores import analisar_valor
+from backend.validators import validar_dados, validar_dados_multa_contratual
+from backend.valores import analisar_valor, analisar_valor_sem_limite
 
 
 # Converte objetos Python para tipos seguros de enviar ao JavaScript.
@@ -248,6 +252,15 @@ class API:
 
     def _executar_fluxo_com_callback(self, dados_tratados, resume_checkpoint=None):
         return self._controller.executar_fluxo(
+            dados_tratados,
+            progress_callback=self._emitir_progresso,
+            notice_callback=self._aguardar_aviso_operacional,
+            resume_checkpoint=resume_checkpoint,
+            cancel_event=self._cancel_event,
+        )
+
+    def _executar_fluxo_multa_com_callback(self, dados_tratados, resume_checkpoint=None):
+        return self._controller.executar_fluxo_multa_contratual(
             dados_tratados,
             progress_callback=self._emitir_progresso,
             notice_callback=self._aguardar_aviso_operacional,
@@ -531,11 +544,218 @@ class API:
 
         return _serializar_para_front(resultado_final)
 
+    def gerar_boleto_multa_contratual(self, dados):
+        resultado_final = {}
+        concluido = threading.Event()
+
+        with self._flow_lock:
+            if self._flow_running:
+                return {
+                    "ok": False,
+                    "msg": "JÃ¡ existe uma criaÃ§Ã£o de boleto em andamento.",
+                    "tempo_real": True,
+                }
+
+            self._flow_running = True
+            self._cancel_event.clear()
+            self._last_progress = {}
+
+        def worker():
+            add_original = self._instalar_logger_tempo_real()
+
+            try:
+                dados_tratados = dict(dados)
+                resume_checkpoint = dados_tratados.get("_resume_checkpoint")
+                resume_mode = isinstance(resume_checkpoint, dict) and bool(
+                    resume_checkpoint
+                )
+
+                if not resume_mode:
+                    self._logger.clear()
+                    self._emitir_reset_progresso()
+                    self._emitir_status("Processando Multa Contratual", "running")
+                else:
+                    self._emitir_status("Retomando Multa Contratual", "running")
+
+                contrato = "".join(
+                    ch for ch in str(dados.get("contrato", "")) if ch.isdigit()
+                )[:9]
+                dados_tratados["doc"] = limpar_doc(dados.get("doc", ""))[:14]
+                dados_tratados["doc_info"] = analisar_doc(dados_tratados["doc"])
+                dados_tratados["tipo"] = "multa_contratual"
+                dados_tratados["modalidade"] = "multa_contratual"
+                dados_tratados["contrato"] = contrato
+
+                erros = validar_dados_multa_contratual(dados_tratados)
+
+                if erros:
+                    resultado_final.update(
+                        _serializar_para_front(
+                            {
+                                "ok": False,
+                                "msg": "Erros: " + ", ".join(erros),
+                                "doc_info": dados_tratados["doc_info"],
+                                "tempo_real": True,
+                            }
+                        )
+                    )
+                    self._emitir_status("AtenÃ§Ã£o", "error")
+                    return
+
+                dados_tratados["valor_info"] = analisar_valor_sem_limite(
+                    dados.get("valor", "")
+                )
+                dados_tratados["valor"] = dados_tratados["valor_info"]["formatado"]
+
+                self._logger.add(
+                    -1,
+                    "Fluxo Multa Contratual preparado para SAP.",
+                    publico=True,
+                )
+                self._logger.add(
+                    -1,
+                    f"Documento preparado para SAP: {dados_tratados['doc']}",
+                    publico=False,
+                )
+                self._logger.add(
+                    -1,
+                    f"Contrato informado: {dados_tratados['contrato']}",
+                    publico=False,
+                )
+                self._logger.add(
+                    -1,
+                    f"Valor confirmado: {dados_tratados['valor_info']['formatado']}",
+                    publico=False,
+                )
+
+                with self._sap_activity_lock:
+                    resultado = self._executar_fluxo_multa_com_callback(
+                        dados_tratados,
+                        resume_checkpoint=resume_checkpoint,
+                    )
+                resultado = _serializar_para_front(resultado)
+
+                if not resultado["ok"]:
+                    cancelado = bool(resultado.get("cancelado"))
+                    self._logger.add(
+                        -1,
+                        (
+                            f"Cancelamento na etapa {resultado['etapa']}: {resultado['mensagem']}"
+                            if cancelado
+                            else (
+                                f"Resumo da falha: etapa {resultado['etapa']} - "
+                                f"{resultado['mensagem']}. Veja o diagnÃ³stico detalhado acima."
+                            )
+                        ),
+                        nivel="ERRO",
+                        publico=cancelado,
+                    )
+
+                    if resultado.get("dados"):
+                        self._emitir_preencher_resultado(resultado["dados"] or {})
+
+                    resultado_final.update(
+                        _serializar_para_front(
+                            {
+                                "ok": False,
+                                "cancelado": cancelado,
+                                "msg": resultado["mensagem"],
+                                "logs": self._logger.get_logs(public_only=True),
+                                "doc_info": dados_tratados["doc_info"],
+                                "resultado": resultado.get("dados") or {},
+                                "acao_pendente": resultado.get("acao_pendente"),
+                                "checkpoint": resultado.get("checkpoint"),
+                                "tempo_real": True,
+                            }
+                        )
+                    )
+
+                    self._emitir_status(
+                        "Cancelado" if cancelado else "Falha no processamento",
+                        "error",
+                    )
+                    return
+
+                dados_resultado = resultado.get("dados") or {}
+                resultado["dados"] = dados_resultado
+
+                registro_historico = registrar_historico_pedido(
+                    dados_tratados,
+                    dados_resultado,
+                    logger=self._logger,
+                )
+
+                if registro_historico:
+                    dados_resultado["historico_id"] = registro_historico.get("id")
+                    dados_resultado["historico_txt"] = registro_historico.get("txt_path")
+
+                payload_sucesso = {
+                    "ok": True,
+                    "logs": self._logger.get_logs(public_only=True),
+                    "resultado": dados_resultado,
+                    "doc_info": dados_tratados["doc_info"],
+                    "valor_info": dados_tratados["valor_info"],
+                    "checkpoint": None,
+                    "tempo_real": True,
+                }
+
+                resultado_final.update(_serializar_para_front(payload_sucesso))
+                self._emitir_preencher_resultado(resultado["dados"] or {})
+                self._emitir_status("ConcluÃ­do", "success")
+
+            except Exception as e:
+                erro_publico = (
+                    "Falha detalhada fora de uma etapa SAP.\n"
+                    "O que o sistema fazia: preparar, executar ou finalizar a chamada de Multa Contratual.\n"
+                    f"Bloqueio tÃ©cnico retornado: {str(e) or 'sem detalhe retornado'}.\n"
+                    f"Log tÃ©cnico completo: {self._logger.log_file_path}."
+                )
+                self._logger.add(
+                    -1,
+                    erro_publico,
+                    nivel="ERRO",
+                    publico=True,
+                )
+                self._logger.add(
+                    -1,
+                    traceback.format_exc(),
+                    nivel="ERRO",
+                    publico=False,
+                )
+                resultado_final.update(
+                    {
+                        "ok": False,
+                        "msg": str(e),
+                        "logs": self._logger.get_logs(public_only=True),
+                        "tempo_real": True,
+                    }
+                )
+                self._emitir_status("Falha no processamento", "error")
+            finally:
+                self._restaurar_logger(add_original)
+                with self._flow_lock:
+                    self._flow_running = False
+                concluido.set()
+
+        threading.Thread(target=worker, daemon=True).start()
+        concluido.wait()
+
+        return _serializar_para_front(resultado_final)
+
     def cadastrar_cliente_sap(self, dados):
         return self._executar_acao_cliente_sap(
             dados,
             criar_cliente,
             "Cadastrando cliente no SAP",
+        )
+
+    def cadastrar_cliente_multa_contratual_sap(self, dados):
+        payload = dict(dados or {})
+        payload["tipo"] = "multa_contratual"
+        return self._executar_acao_cliente_sap(
+            payload,
+            criar_cliente_multa_contratual,
+            "Cadastrando cliente de Multa Contratual no SAP",
         )
 
     def adicionar_setores_cliente_sap(self, dados):

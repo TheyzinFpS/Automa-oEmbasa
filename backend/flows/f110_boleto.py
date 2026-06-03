@@ -4,6 +4,10 @@ import time
 import unicodedata
 
 from backend.documentos import formatar_doc
+from backend.flows.multa_contratual import (
+    TIPO_MULTA_CONTRATUAL,
+    montar_nome_pdf_multa_contratual,
+)
 from backend.utils.sap_waits import wait_for_element, wait_until_ready
 
 
@@ -11,6 +15,7 @@ _TIPOS_LABEL = {
     "viabilidade": "Viabilidade",
     "agua": "Projeto Água",
     "esgoto": "Projeto Esgoto",
+    TIPO_MULTA_CONTRATUAL: "Multa Contratual",
 }
 
 _CELL_ID_RE = re.compile(r"/(?P<tipo>lbl|txt|chk)\[(?P<x>\d+),(?P<y>\d+)\]$")
@@ -143,6 +148,7 @@ def _parece_nome_cliente_valido(valor):
         "VIABILIDADE",
         "PROJETO AGUA",
         "PROJETO ESGOTO",
+        "MULTA CONTRATUAL",
     )
 
     return not any(item in texto for item in bloqueios)
@@ -153,6 +159,13 @@ def montar_nome_pdf_sugerido(numero_boleto, dados=None, cliente=None):
     dados = dados or {}
     endereco = dados.get("endereco") or {}
     tipo = str(dados.get("tipo") or "").strip().lower()
+
+    if tipo == TIPO_MULTA_CONTRATUAL:
+        return montar_nome_pdf_multa_contratual(
+            numero_boleto,
+            dados=dados,
+            cliente=cliente,
+        )
 
     # O nome pode vir de lugares diferentes conforme o fluxo:
     # boleto direto, cliente recém-criado, cliente em cache, cadastro, dados_cliente etc.

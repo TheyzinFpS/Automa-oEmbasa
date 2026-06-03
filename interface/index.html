@@ -50,6 +50,16 @@
         <span class="sidebar-label">Criar cliente</span>
       </button>
 
+      <button
+        id="navMulta"
+        class="sidebar-nav-item"
+        type="button"
+        onclick="showMultaContratualWorkspace()"
+      >
+        <span class="sidebar-icon">MC</span>
+        <span class="sidebar-label">Multa Contratual</span>
+      </button>
+
     </nav>
 
     <div class="sidebar-footer" aria-label="Utilit&aacute;rios">
@@ -105,7 +115,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.4.30</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.4.31</span>
           </div>
         </div>
       </div>
@@ -414,6 +424,94 @@
           </button>
         </div>
 
+      </section>
+
+      <section id="multaContratualPanel" class="panel multa-contratual-panel hidden">
+        <div class="panel-head compact">
+          <div>
+            <p class="section-kicker">Boleto SAP</p>
+            <h2>Boleto de Multa Contratual</h2>
+          </div>
+          <div id="multaDocBadge" class="doc-badge neutral">CPF/CNPJ</div>
+        </div>
+
+        <div class="client-registration-summary multa-summary">
+          <div>
+            <span>Tipo de ordem</span>
+            <strong>ZMTC</strong>
+          </div>
+          <div>
+            <span>Canal / Setor</span>
+            <strong>MC / MC</strong>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>Cliente</span>
+          <input
+            id="multaDoc"
+            type="text"
+            inputmode="numeric"
+            maxlength="18"
+            placeholder="Digite CPF ou CNPJ"
+            oninput="formatarDocMulta(this)"
+          />
+        </label>
+
+        <div class="doc-meta">
+          <p id="multaDocHint">Digite 11 d&iacute;gitos para CPF ou 14 para CNPJ.</p>
+          <p id="multaDigitCounter">0 de 11 d&iacute;gitos</p>
+        </div>
+        <p id="multaDocError" class="field-message hidden"></p>
+
+        <div class="address-grid multa-grid">
+          <label class="field">
+            <span>Valor do boleto</span>
+            <input
+              id="multaValor"
+              type="text"
+              inputmode="numeric"
+              placeholder="R$ 0,00"
+              oninput="formatarValorMulta(this)"
+            />
+            <small class="field-hint">Sem limite m&aacute;ximo artificial.</small>
+          </label>
+
+          <label class="field">
+            <span>N&uacute;mero do contrato</span>
+            <input
+              id="multaContrato"
+              type="text"
+              inputmode="numeric"
+              maxlength="9"
+              placeholder="Ex.: 460018395"
+              oninput="formatarContratoMulta(this)"
+            />
+            <small class="field-hint">Somente n&uacute;meros, at&eacute; 9 d&iacute;gitos.</small>
+          </label>
+        </div>
+
+        <p id="multaFormError" class="field-message hidden"></p>
+
+        <div class="flow-actions">
+          <button
+            id="multaSubmitButton"
+            class="primary-action"
+            type="button"
+            onclick="gerarBoletoMultaContratual()"
+          >
+            Gerar Multa Contratual
+          </button>
+          <button
+            id="multaCancelFlowButton"
+            class="danger-action"
+            type="button"
+            onclick="openCancelFlowModal()"
+            disabled
+          >
+            Cancelar criaÃ§Ã£o
+          </button>
+        </div>
       </section>
 
       <section id="clientRegistrationPanel" class="panel client-registration-panel hidden">

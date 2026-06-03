@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from backend.documentos import formatar_doc, limpar_doc
+from backend.flows.multa_contratual import (
+    TIPO_MULTA_CONTRATUAL,
+    montar_texto_multa_contratual,
+)
 from backend.settings import get_project_root, get_runtime_root, get_setting
 
 
@@ -22,12 +26,14 @@ TIPOS_DESCRICAO = {
         "APROVAÇÃO DE PROJETOS DE ABASTECIMENTO DE ÁGUA "
         "E ESGOTAMENTO SANITÁRIO"
     ),
+    TIPO_MULTA_CONTRATUAL: "MULTA CONTRATUAL",
 }
 
 TIPOS_LABEL = {
     "viabilidade": "Viabilidade",
     "agua": "Projeto Água",
     "esgoto": "Projeto Esgoto",
+    TIPO_MULTA_CONTRATUAL: "Multa Contratual",
     "agua_esgoto": "Projeto Água + Esgoto",
 }
 
@@ -198,6 +204,18 @@ def _normalizar_endereco(endereco: dict[str, Any] | None) -> dict[str, str]:
 
 def montar_texto_padrao(dados: dict[str, Any], resultado: dict[str, Any] | None = None) -> str:
     tipo = _texto(dados.get("tipo") or (resultado or {}).get("tipo")).lower()
+
+    if tipo == TIPO_MULTA_CONTRATUAL:
+        dados_multa = {
+            **(dados or {}),
+            "nome_cliente": (
+                (resultado or {}).get("nome_cliente")
+                or dados.get("nome_cliente")
+                or dados.get("razao_social")
+            ),
+        }
+        return montar_texto_multa_contratual(dados_multa)
+
     endereco = _normalizar_endereco(dados.get("endereco"))
     descricao = TIPOS_DESCRICAO.get(tipo, _texto(tipo, "SOLICITAÇÃO SAP").upper())
     logradouro = f"{endereco['rua']}, {endereco['numero']}".strip(", ")
@@ -322,6 +340,7 @@ def _montar_registro(dados: dict[str, Any], resultado: dict[str, Any]) -> dict[s
         "tipo_solicitacao": tipo,
         "tipo_solicitacao_label": TIPOS_LABEL.get(tipo, _texto(tipo, "Não informado")),
         "valor": _texto(resultado.get("valor") or dados.get("valor")),
+        "contrato": _texto(resultado.get("contrato") or dados.get("contrato")),
         "endereco": endereco,
         "texto_padrao": texto_padrao,
         "origem": "EmbasaPedidosSAP",
@@ -361,6 +380,19 @@ def _conteudo_txt(registro: dict[str, Any]) -> str:
         registro.get("texto_padrao", ""),
         "",
     ]
+    contrato = _texto(registro.get("contrato"))
+
+    if contrato:
+        indice_endereco = next(
+            (
+                indice
+                for indice, linha in enumerate(linhas)
+                if str(linha).startswith("ENDERE")
+            ),
+            len(linhas),
+        )
+        linhas.insert(max(0, indice_endereco - 1), f"Contrato: {contrato}")
+
     return "\n".join(linhas)
 
 
@@ -429,6 +461,7 @@ def _registro_resumo(registro: dict[str, Any]) -> dict[str, Any]:
         "numero_pedido": registro.get("numero_pedido"),
         "doc_fat": registro.get("doc_fat"),
         "numero_bol": registro.get("numero_bol"),
+        "contrato": registro.get("contrato"),
         "tipo_solicitacao_label": registro.get("tipo_solicitacao_label"),
         "empreendimento": (registro.get("endereco") or {}).get("empreendimento"),
     }

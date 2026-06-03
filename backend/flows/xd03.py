@@ -17,12 +17,14 @@ _TIPO_PARA_SETOR = {
     "agua": "AG",
     "esgoto": "EG",
     "agua_esgoto": ("AG", "EG"),
+    "multa_contratual": "MC",
 }
 
 _SETOR_PARA_TIPO = {
     "AE": "viabilidade",
     "AG": "agua",
     "EG": "esgoto",
+    "MC": "multa_contratual",
 }
 
 _TIPO_LABEL = {
@@ -30,6 +32,7 @@ _TIPO_LABEL = {
     "agua": "Água",
     "esgoto": "Esgoto",
     "agua_esgoto": "Água + Esgoto",
+    "multa_contratual": "Multa Contratual",
 }
 
 _CAMPO_CNPJ = (

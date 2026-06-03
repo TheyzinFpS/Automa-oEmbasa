@@ -24,6 +24,7 @@ TIPO_PARA_SETOR = {
     "agua": ("AG",),
     "esgoto": ("EG",),
     "agua_esgoto": ("AG", "EG"),
+    "multa_contratual": ("MC",),
 }
 
 SETOR_CONFIG = {
@@ -42,9 +43,15 @@ SETOR_CONFIG = {
         "grupo": "ME",
         "descricao": "Esgoto",
     },
+    "MC": {
+        "vendas": "1010",
+        "grupo": "CAB",
+        "descricao": "Multa Contratual",
+        "canal": "MC",
+    },
 }
 
-ORDEM_SETORES = ("AE", "AG", "EG")
+ORDEM_SETORES = ("AE", "AG", "EG", "MC")
 SETOR_JA_EXISTENTE_INDICADORES = (
     "ja existe",
     "already exists",
@@ -390,6 +397,7 @@ def _preencher_primeira_tela(
     setor,
     cliente="",
     incluir_empresa=True,
+    canal=VTWEG_PADRAO,
 ):
     if grupo_conta:
         _set_key(
@@ -405,7 +413,7 @@ def _preencher_primeira_tela(
         _set_text(session, "wnd[1]/usr/ctxtRF02D-BUKRS", BUKRS_PADRAO, required=False)
 
     _set_text(session, "wnd[1]/usr/ctxtRF02D-VKORG", VKORG_PADRAO)
-    _set_text(session, "wnd[1]/usr/ctxtRF02D-VTWEG", VTWEG_PADRAO)
+    _set_text(session, "wnd[1]/usr/ctxtRF02D-VTWEG", canal or VTWEG_PADRAO)
     _set_text(session, "wnd[1]/usr/ctxtRF02D-SPART", setor)
     press_and_wait(session, "wnd[1]/tbar[0]/btn[0]")
 
@@ -562,11 +570,22 @@ def _salvar_cliente_ou_setor(session):
     return status_depois or status_antes
 
 
-def criar_cliente(session, dados, logger, progress_callback=None):
+def criar_cliente(
+    session,
+    dados,
+    logger,
+    progress_callback=None,
+    setor_inicial=SETOR_INICIAL_CADASTRO,
+):
     try:
         cadastro = _normalizar_cadastro_cliente(dados)
         setores_requeridos = cadastro["setores"]
-        setor_inicial = SETOR_INICIAL_CADASTRO
+        setor_inicial = str(setor_inicial or SETOR_INICIAL_CADASTRO).strip().upper()
+
+        if setor_inicial not in SETOR_CONFIG:
+            raise ValueError(f"Setor inicial nao mapeado: {setor_inicial}")
+
+        canal_inicial = SETOR_CONFIG.get(setor_inicial, {}).get("canal", VTWEG_PADRAO)
 
         logger.add(0, "Iniciando criacao de cliente no SAP.", publico=True)
         notificar_progresso(
@@ -583,6 +602,7 @@ def criar_cliente(session, dados, logger, progress_callback=None):
             cadastro["grupo_conta"],
             setor_inicial,
             incluir_empresa=True,
+            canal=canal_inicial,
         )
 
         notificar_progresso(
@@ -661,6 +681,20 @@ def criar_cliente(session, dados, logger, progress_callback=None):
         )
 
 
+def criar_cliente_multa_contratual(session, dados, logger, progress_callback=None):
+    payload = dict(dados or {})
+    payload["tipo"] = "multa_contratual"
+    payload["setores"] = ("MC",)
+
+    return criar_cliente(
+        session,
+        payload,
+        logger,
+        progress_callback=progress_callback,
+        setor_inicial="MC",
+    )
+
+
 def adicionar_setores_cliente(
     session,
     dados,
@@ -717,6 +751,7 @@ def adicionar_setores_cliente(
                     setor,
                     cliente=cliente,
                     incluir_empresa=False,
+                    canal=SETOR_CONFIG.get(setor, {}).get("canal", VTWEG_PADRAO),
                 )
                 _preencher_dados_vendas(session, setor, incluir_imposto=False)
                 _salvar_cliente_ou_setor(session)

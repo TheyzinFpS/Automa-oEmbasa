@@ -1,5 +1,5 @@
 from backend.documentos import limpar_doc, tipo_documento
-from backend.valores import analisar_valor
+from backend.valores import analisar_valor, analisar_valor_sem_limite
 
 
 # Verifica se o campo textual tem algum conteúdo útil.
@@ -64,5 +64,29 @@ def validar_dados(dados):
         erros.append("Cidade do empreendimento obrigatória")
     elif _texto_tem_digitos(endereco.get("cidade")):
         erros.append("Cidade do empreendimento deve conter apenas letras")
+
+    return erros
+
+
+def validar_dados_multa_contratual(dados):
+    erros = []
+    doc = limpar_doc(dados.get("doc", ""))
+
+    try:
+        tipo_documento(doc)
+    except ValueError:
+        erros.append("CPF/CNPJ inválido")
+
+    try:
+        analisar_valor_sem_limite(dados.get("valor", ""))
+    except ValueError as exc:
+        erros.append(str(exc))
+
+    contrato = "".join(filter(str.isdigit, str(dados.get("contrato", ""))))
+
+    if not contrato:
+        erros.append("Número do contrato obrigatório")
+    elif len(contrato) > 9:
+        erros.append("Número do contrato deve ter no máximo 9 dígitos")
 
     return erros

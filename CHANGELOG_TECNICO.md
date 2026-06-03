@@ -1,5 +1,30 @@
 # Registro técnico de alterações
 
+## Quarta-feira, 03/06/2026 - Versao 1.4.31
+
+**Ajuste aplicado**
+
+- Adicionada a nova modalidade `Multa Contratual`, isolada dos boletos comuns de Viabilidade, Agua, Esgoto e Agua + Esgoto.
+- Criada tela propria `Boleto de Multa Contratual` na sidebar, com validacao de CPF/CNPJ, valor sem limite maximo artificial e contrato numerico limitado a 9 digitos.
+- Incluida API pywebview especifica `gerar_boleto_multa_contratual`, com validacao backend dedicada e retorno no mesmo padrao `{ok, etapa, mensagem, dados, erro_tecnico}`.
+- Adicionado cadastro de cliente especifico para multa com canal/setor `MC`, escritorio `1010` e equipe `CAB`, preservando o cadastro normal dos boletos comuns.
+- O XD03 passa a validar tambem o setor `MC`; quando ausente, o fluxo cria o setor necessario e retoma a multa pela entrada correta.
+- A VA01 passou a ler canal, centro e condicao de pagamento por configuracao de tipo, permitindo a ordem `ZMTC`, canal/setor `MC`, condicao `C030`, material `900000000052` e centro de lucro `030002010L`.
+- O texto padrao da Multa Contratual agora e montado dinamicamente com valor, valor por extenso, nome do cliente e CPF/CNPJ.
+- O nome sugerido do PDF da multa segue o padrao `doc.fat - nome cliente - MULTA CONTRATUAL - contrato - valor.pdf`.
+- O historico passou a registrar `Multa Contratual`, contrato e texto VA01 especifico, sem alterar os registros dos boletos comuns.
+- Atualizada a versao do projeto de `1.4.30` para `1.4.31`.
+
+**Validacao realizada**
+
+- `python -m py_compile interface.py main.py backend\settings.py backend\controller.py backend\validators.py backend\valores.py backend\history.py backend\flows\cliente_cadastro.py backend\flows\xd03.py backend\flows\va01.py backend\flows\f110_boleto.py backend\flows\multa_contratual.py`
+- `node --check interface\app.js`
+- Checagem de handlers declarados no HTML contra `interface\app.js`.
+- `git diff --check`
+- Renderizacao local em `http://127.0.0.1:8766`, validando abertura da tela `Multa Contratual`, mascara de CNPJ, valor alto `R$ 16.510,03`, contrato numerico `460018395` e validacao local de contrato obrigatorio.
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.31` confirmada no pacote.
+- Smoke test do executavel empacotado: processo iniciado, permaneceu responsivo e encerrou normalmente apos a verificacao.
+
 ## Terça-feira, 02/06/2026 - Versao 1.4.30
 
 **Ajuste aplicado**

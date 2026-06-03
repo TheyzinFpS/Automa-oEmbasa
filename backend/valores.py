@@ -10,7 +10,7 @@ def limpar_valor(valor):
 
 
 # Converte a entrada monetaria para centavos e aplica limite maximo.
-def valor_para_centavos(valor):
+def valor_para_centavos(valor, limite_centavos=MAX_VALOR_CENTAVOS):
     digitos = limpar_valor(valor)
 
     if not digitos:
@@ -21,8 +21,10 @@ def valor_para_centavos(valor):
     if centavos <= 0:
         raise ValueError("Valor deve ser maior que zero")
 
-    if centavos > MAX_VALOR_CENTAVOS:
-        raise ValueError("Valor não pode ultrapassar R$ 10.000,00")
+    if limite_centavos is not None and centavos > limite_centavos:
+        raise ValueError(
+            f"Valor não pode ultrapassar {formatar_centavos(limite_centavos)}"
+        )
 
     return centavos
 
@@ -48,4 +50,15 @@ def analisar_valor(valor):
         "formatado": formatar_centavos(centavos, com_simbolo=True),
         "sap": formatar_centavos(centavos, com_simbolo=False),
         "limite": formatar_centavos(MAX_VALOR_CENTAVOS, com_simbolo=True),
+    }
+
+
+def analisar_valor_sem_limite(valor):
+    centavos = valor_para_centavos(valor, limite_centavos=None)
+
+    return {
+        "centavos": centavos,
+        "formatado": formatar_centavos(centavos, com_simbolo=True),
+        "sap": formatar_centavos(centavos, com_simbolo=False),
+        "limite": None,
     }

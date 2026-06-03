@@ -11,6 +11,14 @@ const MONITOR_STAGES = {
   cliente: [
     { id: "XD01", codigo: "XD01", titulo: "Criar cliente" }
   ],
+  multa: [
+    { id: "XD03", codigo: "XD03", titulo: "Buscar cliente" },
+    { id: "VA01", codigo: "VA01", titulo: "Criar pedido" },
+    { id: "VF01", codigo: "VF01", titulo: "Criar doc.fat." },
+    { id: "FB03", codigo: "FB03", titulo: "Ajustar contabil" },
+    { id: "VF02_RESALVAR", codigo: "VF02", titulo: "Salvar faturamento" },
+    { id: "F110", codigo: "F110", titulo: "Gerar pagamento" }
+  ],
   setor: [
     { id: "XD01", codigo: "XD01", titulo: "Criar setor" }
   ]
@@ -32,6 +40,7 @@ const TIPOS_SOLICITACAO = {
   viabilidade: "Viabilidade",
   agua: "Água",
   esgoto: "Esgoto",
+  multa_contratual: "Multa Contratual",
   agua_esgoto: "Água + Esgoto"
 };
 
@@ -45,7 +54,8 @@ const TRATAMENTOS_CADASTRO = {
 const SETOR_MODELOS = {
   AE: { titulo: "Viabilidade", vendas: "1055", grupo: "DM" },
   AG: { titulo: "Água", vendas: "1055", grupo: "DM" },
-  EG: { titulo: "Esgoto", vendas: "1070", grupo: "ME" }
+  EG: { titulo: "Esgoto", vendas: "1070", grupo: "ME" },
+  MC: { titulo: "Multa Contratual", vendas: "1010", grupo: "CAB" }
 };
 
 // Status operacional exibido no card de status da base.
@@ -64,7 +74,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.30";
+const APP_VERSION = "1.4.31";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -199,7 +209,10 @@ const VALIDATION_FIELDS = {
   enderecoNumero: { messageId: "enderecoNumeroError", accordion: true },
   enderecoCep: { messageId: "enderecoCepError", accordion: true },
   enderecoBairro: { messageId: "enderecoBairroError", accordion: true },
-  enderecoCidade: { messageId: "enderecoCidadeError", accordion: true }
+  enderecoCidade: { messageId: "enderecoCidadeError", accordion: true },
+  multaDoc: { messageId: "multaDocError" },
+  multaValor: { messageId: "multaFormError" },
+  multaContrato: { messageId: "multaFormError" }
 };
 
 // Normaliza percentuais enviados pelo backend para o intervalo 0-100.
@@ -497,6 +510,16 @@ function formatarValorDigitado(valor) {
 
   const centavos = Math.min(Number(digitos), MAX_VALOR_CENTAVOS);
   return formatarCentavosParaMoeda(centavos);
+}
+
+function formatarValorDigitadoSemLimite(valor) {
+  const digitos = limparValor(valor);
+
+  if (!digitos) {
+    return "";
+  }
+
+  return formatarCentavosParaMoeda(Number(digitos));
 }
 
 // Recupera tema salvo no navegador embutido do pywebview.
@@ -1355,7 +1378,8 @@ function lockSidebarCollapsed(locked) {
 function setSidebarActive(view) {
   const mapa = {
     boletos: "navBoleto",
-    cliente: "navCliente"
+    cliente: "navCliente",
+    multa: "navMulta"
   };
 
   Object.values(mapa).forEach((id) => {
@@ -1391,7 +1415,8 @@ function setMonitorMode(mode) {
 function mostrarPainelWorkspace(view) {
   const panels = {
     boletos: el("mainFormPanel"),
-    cliente: el("clientRegistrationPanel")
+    cliente: el("clientRegistrationPanel"),
+    multa: el("multaContratualPanel")
   };
 
   Object.entries(panels).forEach(([key, node]) => {
@@ -1414,6 +1439,24 @@ function showBoletoWorkspace(options = {}) {
   if (options.status !== false && !state.flowRunning) {
     setStatus("Aguardando", "idle");
   }
+}
+
+function showMultaContratualWorkspace(options = {}) {
+  if (state.flowRunning) {
+    showSimpleOperationalToast("Aguarde a conclusÃ£o da aÃ§Ã£o SAP atual.");
+    return;
+  }
+
+  setMonitorMode("multa");
+  mostrarPainelWorkspace("multa");
+  hideCadastroClienteFeedback();
+  setSidebarExpanded(false);
+
+  if (options.status !== false) {
+    setStatus("Multa Contratual", "idle");
+  }
+
+  window.setTimeout(() => el("multaDoc")?.focus(), 180);
 }
 
 function showClienteRegistrationWorkspace() {
@@ -1500,6 +1543,46 @@ function formatarDoc(elm) {
 function formatarDocCadastro(elm) {
   elm.value = formatarDocumento(elm.value);
   atualizarResumoCadastroCliente();
+}
+
+function atualizarDocumentoMultaUI(valorAtual) {
+  const input = el("multaDoc");
+  const badge = el("multaDocBadge");
+  const hint = el("multaDocHint");
+  const counter = el("multaDigitCounter");
+  const info = analisarDocumento(valorAtual);
+
+  if (input) {
+    input.value = info.formatado;
+  }
+
+  if (badge) {
+    badge.textContent = info.badge;
+    badge.className = `doc-badge ${info.classe}`;
+  }
+
+  if (hint) {
+    hint.textContent = info.hint;
+  }
+
+  if (counter) {
+    counter.textContent = info.contador;
+  }
+}
+
+function formatarDocMulta(elm) {
+  limparMensagemCampo("multaDoc");
+  atualizarDocumentoMultaUI(elm.value);
+}
+
+function formatarValorMulta(elm) {
+  limparMensagemCampo("multaValor");
+  elm.value = formatarValorDigitadoSemLimite(elm.value);
+}
+
+function formatarContratoMulta(elm) {
+  limparMensagemCampo("multaContrato");
+  elm.value = String(elm.value || "").replace(/\D/g, "").slice(0, 9);
 }
 
 // Atualiza tipo de solicitação e reseta valor customizado quando necessário.
@@ -2791,8 +2874,9 @@ function openSapActionModal(acao, payload) {
   confirmButton.disabled = false;
 
   if (tipoAcao === "cliente_nao_cadastrado") {
+    const isMulta = payload?.modalidade === "multa_contratual" || payload?.tipo === "multa_contratual";
     kicker.textContent = "Cliente não cadastrado";
-    title.textContent = "Criar cliente no SAP?";
+    title.textContent = isMulta ? "Criar cliente para Multa Contratual?" : "Criar cliente no SAP?";
     message.textContent = "O CPF/CNPJ informado não foi localizado. Para continuar, cadastre o cliente e depois o fluxo será retomado automaticamente.";
     confirmButton.textContent = "Criar cliente";
     details.innerHTML = `
@@ -2844,6 +2928,7 @@ function cancelarAcaoSapPendente() {
 function preencherCadastroClienteComPayload(payload = {}, options = {}) {
   const { travarOrigem = true } = options;
   const docInfo = analisarDocumento(payload.doc || "");
+  const isMulta = payload.modalidade === "multa_contratual" || payload.tipo === "multa_contratual";
   const nomeCliente = String(
     payload.nome_cliente
     || payload.cliente_nome
@@ -2852,13 +2937,17 @@ function preencherCadastroClienteComPayload(payload = {}, options = {}) {
     || ""
   ).trim();
 
-  el("clientRegistrationKicker").textContent = "Cadastro SAP";
-  el("clientRegistrationTitle").textContent = "Criar cliente";
+  el("clientRegistrationKicker").textContent = isMulta ? "Cadastro MC" : "Cadastro SAP";
+  el("clientRegistrationTitle").textContent = isMulta
+    ? "Criar cliente - Multa Contratual"
+    : "Criar cliente";
   el("clientRegistrationDoc").textContent = docInfo.formatado || payload.doc || "--";
   el("clientRegistrationTipo").textContent = TIPOS_SOLICITACAO[payload.tipo] || payload.tipo || "--";
   el("clientRegistrationDocBadge").textContent = docInfo.badge || "CPF/CNPJ";
   el("clientRegistrationDocBadge").className = `doc-badge ${docInfo.classe || "neutral"}`;
-  el("clientRegistrationSubmit").textContent = "Criar cliente e continuar";
+  el("clientRegistrationSubmit").textContent = isMulta
+    ? "Criar cliente e continuar multa"
+    : "Criar cliente e continuar";
 
   el("clienteCadastroNome1").value = nomeCliente;
   el("clienteCadastroDoc").value = docInfo.formatado || formatarDocumento(payload.doc || "");
@@ -2877,7 +2966,7 @@ function preencherCadastroClienteComPayload(payload = {}, options = {}) {
   el("clienteCadastroInscricao").value = "ISENTO";
   el("clienteCadastroTelefone").value = "";
   el("clienteCadastroEmail").value = "";
-  state.clientRegistrationSource = travarOrigem ? "boleto" : "manual";
+  state.clientRegistrationSource = isMulta ? "multa" : (travarOrigem ? "boleto" : "manual");
   atualizarTratamentoCadastroPorDocumento();
   hideCadastroClienteFeedback();
 }
@@ -2951,18 +3040,26 @@ function fecharAbaCadastroCliente(options = {}) {
   hideCadastroClienteFeedback();
 
   if (options.mostrarBoleto !== false) {
-    showBoletoWorkspace({ status: options.status !== false });
+    const destino = options.destino || state.clientRegistrationSource;
+
+    if (destino === "multa") {
+      showMultaContratualWorkspace({ status: options.status !== false });
+    } else {
+      showBoletoWorkspace({ status: options.status !== false });
+    }
   }
 }
 
 function cancelarCadastroCliente() {
-  if (state.clientRegistrationSource === "manual") {
+  const origem = state.clientRegistrationSource;
+
+  if (origem === "manual" || origem === "multa") {
     state.pendingSapAction = null;
     state.pendingSapPayload = null;
   }
 
   state.clientRegistrationSource = "";
-  fecharAbaCadastroCliente();
+  fecharAbaCadastroCliente({ destino: origem });
   setStatus("Aguardando", "idle");
 }
 
@@ -3108,6 +3205,20 @@ function preencherBoletoAposCadastroCliente(cadastro = {}) {
   atualizarTipo();
 }
 
+function preencherMultaAposCadastroCliente(cadastro = {}, payloadOriginal = {}) {
+  atualizarDocumentoMultaUI(cadastro.doc || payloadOriginal.doc || "");
+
+  if (el("multaValor")) {
+    el("multaValor").value = payloadOriginal.valor || el("multaValor").value || "";
+  }
+
+  if (el("multaContrato")) {
+    el("multaContrato").value = String(
+      payloadOriginal.contrato || el("multaContrato").value || ""
+    ).replace(/\D/g, "").slice(0, 9);
+  }
+}
+
 async function submitCadastroCliente() {
   const cadastro = coletarCadastroCliente();
 
@@ -3126,7 +3237,10 @@ async function submitCadastroCliente() {
     hideCadastroClienteFeedback();
     setStatus("Cadastrando cliente", "running");
 
-    const resposta = await window.pywebview.api.cadastrar_cliente_sap(cadastro);
+    const apiCadastro = origem === "multa"
+      ? window.pywebview.api.cadastrar_cliente_multa_contratual_sap
+      : window.pywebview.api.cadastrar_cliente_sap;
+    const resposta = await apiCadastro(cadastro);
 
     if (!resposta?.ok) {
       showCadastroClienteFeedback(resposta?.msg || "Não foi possível criar o cliente.");
@@ -3135,12 +3249,20 @@ async function submitCadastroCliente() {
       return;
     }
 
-    preencherBoletoAposCadastroCliente(cadastro);
+    if (origem === "multa") {
+      preencherMultaAposCadastroCliente(cadastro, payloadOriginal);
+    } else {
+      preencherBoletoAposCadastroCliente(cadastro);
+    }
     state.pendingSapAction = null;
     state.pendingSapPayload = null;
     state.clientRegistrationSource = "";
     fecharAbaCadastroCliente({ mostrarBoleto: false });
-    showBoletoWorkspace({ status: false });
+    if (origem === "multa") {
+      showMultaContratualWorkspace({ status: false });
+    } else {
+      showBoletoWorkspace({ status: false });
+    }
 
     if (origem === "manual") {
       showSimpleOperationalToast("Cliente criado. Complete os dados do boleto para continuar.");
@@ -3153,6 +3275,14 @@ async function submitCadastroCliente() {
     showSimpleOperationalToast("Cliente criado. Localizando código no XD03.");
     log("Cliente criado no SAP. Retomando fluxo pelo XD03 para localizar o código.");
     setStatus("Retomando pelo XD03", "running");
+    if (origem === "multa") {
+      showSimpleOperationalToast("Cliente criado. Retomando Multa Contratual.");
+      log("Cliente criado no SAP. Retomando fluxo de Multa Contratual pelo XD03.");
+      setStatus("Retomando Multa Contratual", "running");
+      await gerarBoletoMultaContratual();
+      return;
+    }
+
     await gerarBoleto();
   } catch (error) {
     showCadastroClienteFeedback(`Falha ao criar cliente: ${error}`);
@@ -3160,7 +3290,9 @@ async function submitCadastroCliente() {
     openLogsPopover();
   } finally {
     button.disabled = false;
-    button.textContent = "Criar cliente e continuar";
+    button.textContent = origem === "multa"
+      ? "Criar cliente e continuar multa"
+      : "Criar cliente e continuar";
   }
 }
 
@@ -3210,7 +3342,11 @@ async function executarCriacaoSetoresPendentes() {
     showSimpleOperationalToast("Setores criados. Retomando fluxo padrão.");
     log(`Setores criados para o cliente ${acao.cliente || "--"}. Retomando fluxo padrão.`);
     state.pendingSapAction = null;
-    await executarFluxo(payload, { resume: false });
+    if (payload.modalidade === "multa_contratual" || payload.tipo === "multa_contratual") {
+      await executarFluxoMultaContratual(payload, { resume: false });
+    } else {
+      await executarFluxo(payload, { resume: false });
+    }
   } catch (error) {
     if (el("sapActionMessage")) {
       el("sapActionMessage").textContent = `Falha ao criar setores: ${error}`;
@@ -3699,10 +3835,16 @@ function limparPainel() {
   state.pendingSapAction = null;
   state.pendingSapPayload = null;
   state.clientRegistrationSource = "";
+  const workspaceAtual = state.currentWorkspace;
   closePdfNameModal();
   closeSapActionModal();
   fecharAbaCadastroCliente({ mostrarBoleto: false });
-  showBoletoWorkspace({ status: false });
+  if (workspaceAtual === "multa") {
+    limparFormularioMultaContratual();
+    showMultaContratualWorkspace({ status: false });
+  } else {
+    showBoletoWorkspace({ status: false });
+  }
   limparMensagensValidacao();
   setStatus("Aguardando", "idle");
   closeLogsPopover();
@@ -3787,8 +3929,10 @@ function montarPayloadsLoteAtual() {
 // Bloqueia botões enquanto o fluxo SAP está executando.
 function setFlowButtonsBusy(isBusy, mode = "start") {
   const submitButton = el("submitButton");
+  const multaSubmitButton = el("multaSubmitButton");
   const resumeButton = el("resumeButton");
   const cancelButton = el("cancelFlowButton");
+  const multaCancelButton = el("multaCancelFlowButton");
 
   state.flowRunning = Boolean(isBusy);
 
@@ -3801,9 +3945,21 @@ function setFlowButtonsBusy(isBusy, mode = "start") {
     ? (mode === "batch" ? "Gerando lote..." : "Gerando...")
     : "Gerar Boleto";
 
+  if (multaSubmitButton) {
+    multaSubmitButton.disabled = isBusy;
+    multaSubmitButton.textContent = isBusy
+      ? (mode === "resume-multa" ? "Retomando multa..." : "Gerando multa...")
+      : "Gerar Multa Contratual";
+  }
+
   if (cancelButton) {
     cancelButton.disabled = !isBusy || state.cancelRequested;
     cancelButton.textContent = state.cancelRequested ? "Cancelando..." : "Cancelar criação";
+  }
+
+  if (multaCancelButton) {
+    multaCancelButton.disabled = !isBusy || state.cancelRequested;
+    multaCancelButton.textContent = state.cancelRequested ? "Cancelando..." : "Cancelar criaÃ§Ã£o";
   }
 
   if (resumeButton) {
@@ -3990,6 +4146,189 @@ async function executarLoteEmpreendimentos(payloads) {
   }
 }
 
+function limparFormularioMultaContratual() {
+  atualizarDocumentoMultaUI("");
+
+  if (el("multaValor")) {
+    el("multaValor").value = "";
+  }
+
+  if (el("multaContrato")) {
+    el("multaContrato").value = "";
+  }
+
+  limparMensagemCampo("multaDoc");
+  limparMensagemCampo("multaValor");
+  limparMensagemCampo("multaContrato");
+}
+
+function montarPayloadMultaContratual() {
+  const docInfo = analisarDocumento(el("multaDoc")?.value || "");
+  const valor = el("multaValor")?.value || "";
+  const contrato = String(el("multaContrato")?.value || "").replace(/\D/g, "").slice(0, 9);
+
+  limparMensagemCampo("multaDoc");
+  limparMensagemCampo("multaValor");
+  limparMensagemCampo("multaContrato");
+
+  if (![11, 14].includes(docInfo.digitos.length)) {
+    mostrarErroCampo("multaDoc", "Informe CPF ou CNPJ completo para gerar a multa contratual.");
+    return null;
+  }
+
+  if (!limparValor(valor) || Number(limparValor(valor)) <= 0) {
+    mostrarErroCampo("multaValor", "Informe o valor da Multa Contratual.");
+    return null;
+  }
+
+  if (!contrato) {
+    mostrarErroCampo("multaContrato", "Informe o nÃºmero do contrato.");
+    return null;
+  }
+
+  return {
+    doc: docInfo.digitos,
+    tipo: "multa_contratual",
+    modalidade: "multa_contratual",
+    valor,
+    contrato
+  };
+}
+
+async function executarFluxoMultaContratual(payload, options = {}) {
+  const {
+    resume = false,
+    checkpoint = null,
+    manageButtons = true,
+    resetProgress = true,
+    clearFormOnSuccess = true
+  } = options;
+  const resumeCheckpoint = resume
+    ? cloneCheckpoint(checkpoint || state.resumeCheckpoint)
+    : null;
+
+  setMonitorMode("multa");
+
+  if (!resume) {
+    hideResumeBox();
+    if (resetProgress) {
+      window.resetarProgresso();
+    }
+    setStatus("Processando Multa Contratual", "running");
+  } else {
+    if (!resumeCheckpoint || !resumeCheckpoint.resume_from) {
+      log("NÃ£o foi possÃ­vel retomar: checkpoint ausente ou invÃ¡lido.", "error");
+      setStatus("Falha no processamento", "error");
+      openLogsPopover();
+      return { ok: false, msg: "Checkpoint ausente ou invÃ¡lido." };
+    }
+
+    hideResumeBox(false);
+    setStatus("Retomando Multa Contratual", "running");
+    log(`Retomando Multa Contratual a partir de ${resumeCheckpoint.resume_from}.`);
+  }
+
+  if (manageButtons) {
+    setFlowButtonsBusy(true, resume ? "resume-multa" : "multa");
+  }
+
+  try {
+    const dados = {
+      ...payload,
+      tipo: "multa_contratual",
+      modalidade: "multa_contratual",
+      _resume_checkpoint: resumeCheckpoint
+    };
+
+    const res = await window.pywebview.api.gerar_boleto_multa_contratual(dados);
+    const tempoReal = Boolean(res && res.tempo_real);
+
+    if (!res.ok) {
+      if (res.cancelado) {
+        registrarResumoCancelamento(res);
+        preencherResultado(res.resultado || {});
+        showResumeBox(
+          res.checkpoint,
+          "Processo cancelado. Confira a tela do SAP e continue somente se estiver seguro retomar deste ponto."
+        );
+        setStatus("Cancelado", "error");
+        openLogsPopover();
+        return res;
+      }
+
+      if (!tempoReal) {
+        await reproduzirFluxo(res.logs || [], { finalStatus: "error" });
+      }
+
+      if (res.resultado) {
+        preencherResultado(res.resultado);
+      }
+
+      if (res.msg && !(Array.isArray(res.logs) && res.logs.length)) {
+        log(res.msg, "error");
+      }
+
+      if (res.acao_pendente?.tipo === "setor_ausente") {
+        setPendingSapAction(res.acao_pendente, dados);
+        hideResumeBox();
+        log("Setor MC ausente identificado. Criando setor automaticamente para Multa Contratual.");
+        await executarCriacaoSetoresPendentes();
+        return res;
+      }
+
+      if (res.acao_pendente && openSapActionModal(res.acao_pendente, dados)) {
+        hideResumeBox();
+        setStatus("Aguardando cadastro MC", "idle");
+        openLogsPopover();
+        return res;
+      }
+
+      showResumeBox(
+        res.checkpoint,
+        "Confira o SAP, corrija o problema nesta etapa e continue do mesmo ponto."
+      );
+      setStatus("Falha no processamento", "error");
+      openLogsPopover();
+      return res;
+    }
+
+    hideResumeBox();
+
+    if (!tempoReal) {
+      await reproduzirFluxo(res.logs || [], { finalStatus: "done" });
+    }
+
+    preencherResultado(res.resultado || {});
+    setStatus("ConcluÃ­do", "success");
+
+    if (clearFormOnSuccess) {
+      limparFormularioMultaContratual();
+    }
+
+    return res;
+  } catch (error) {
+    setStatus("Falha no processamento", "error");
+    log(`Falha ao comunicar com o backend: ${error}`, "error");
+    openLogsPopover();
+    return { ok: false, msg: String(error) };
+  } finally {
+    if (manageButtons) {
+      setFlowButtonsBusy(false);
+    }
+    closeCancelFlowModal();
+  }
+}
+
+async function gerarBoletoMultaContratual() {
+  const payload = montarPayloadMultaContratual();
+
+  if (!payload) {
+    return;
+  }
+
+  await executarFluxoMultaContratual(payload, { resume: false });
+}
+
 // Chama a API Python para iniciar ou retomar o fluxo SAP.
 async function executarFluxo(payload, options = {}) {
   const {
@@ -4137,13 +4476,21 @@ async function retomarFluxo() {
     return;
   }
 
-  const payload = montarPayloadAtual();
+  const isMulta = state.currentWorkspace === "multa"
+    || checkpoint?.contexto?.tipo === "multa_contratual";
+  const payload = isMulta
+    ? montarPayloadMultaContratual()
+    : montarPayloadAtual();
 
   if (!payload) {
     return;
   }
 
-  await executarFluxo(payload, { resume: true, checkpoint });
+  if (isMulta) {
+    await executarFluxoMultaContratual(payload, { resume: true, checkpoint });
+  } else {
+    await executarFluxo(payload, { resume: true, checkpoint });
+  }
 }
 
 document.addEventListener("click", (event) => {
@@ -4267,6 +4614,7 @@ atualizarEscalaLogo();
 setBaseStatus("active");
 construirEtapas();
 atualizarDocumentoUI("");
+atualizarDocumentoMultaUI("");
 atualizarTipo();
 atualizarModoValorUI();
 registrarValidacaoInterativa();

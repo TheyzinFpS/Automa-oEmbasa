@@ -642,11 +642,13 @@ video {
 
 .form-panel.hidden,
 .client-registration-panel.hidden,
+.multa-contratual-panel.hidden,
 .sector-registration-panel.hidden {
   display: none;
 }
 
 .client-registration-panel,
+.multa-contratual-panel,
 .sector-registration-panel {
   align-self: start;
 }

@@ -1,6 +1,10 @@
 import time
 from datetime import datetime
 
+from backend.flows.multa_contratual import (
+    TIPO_MULTA_CONTRATUAL,
+    montar_texto_multa_contratual,
+)
 from backend.utils.sap_waits import wait_for_element
 
 
@@ -82,30 +86,51 @@ _STATUS_BAR = "wnd[0]/sbar"
 _TIPOS_VA01 = {
     "viabilidade": {
         "tipo_ordem": "ZEST",
+        "canal": "PO",
         "setor": "AE",
         "escritorio": "1055",
         "equipe": "DM",
+        "centro": "CAB",
+        "condicao_pagamento": "C060",
         "material": "900000000032",
         "centro_lucro": "030002010L",
         "descricao": "ANÁLISE DE VIABILIDADE TÉCNICA",
     },
     "agua": {
         "tipo_ordem": "ZPRO",
+        "canal": "PO",
         "setor": "AG",
         "escritorio": "1055",
         "equipe": "DM",
+        "centro": "CAB",
+        "condicao_pagamento": "C060",
         "material": "900000000017",
         "centro_lucro": "030002010L",
         "descricao": "APROVAÇÃO DE PROJETO DE ABASTECIMENTO DE ÁGUA",
     },
     "esgoto": {
         "tipo_ordem": "ZPRO",
+        "canal": "PO",
         "setor": "EG",
         "escritorio": "1070",
         "equipe": "ME",
+        "centro": "CAB",
+        "condicao_pagamento": "C060",
         "material": "900000000018",
         "centro_lucro": "072002000L",
         "descricao": "APROVAÇÃO DE PROJETO DE ESGOTAMENTO SANITÁRIO",
+    },
+    TIPO_MULTA_CONTRATUAL: {
+        "tipo_ordem": "ZMTC",
+        "canal": "MC",
+        "setor": "MC",
+        "escritorio": "1010",
+        "equipe": "CAB",
+        "centro": "CAB",
+        "condicao_pagamento": "C030",
+        "material": "900000000052",
+        "centro_lucro": "030002010L",
+        "descricao": "MULTA CONTRATUAL",
     },
 }
 
@@ -162,7 +187,10 @@ def _normalizar_endereco(dados):
     }
 
 
-def _montar_texto(tipo, endereco):
+def _montar_texto(tipo, endereco, dados=None):
+    if tipo == TIPO_MULTA_CONTRATUAL:
+        return montar_texto_multa_contratual(dados or {})
+
     configuracao = _TIPOS_VA01[tipo]
     logradouro = f"{endereco['rua']}, {endereco['numero']}"
 
@@ -248,7 +276,7 @@ def _abrir_va01(session, configuracao):
 
     wait_for_element(session, _CAMPO_TIPO_ORDEM, timeout=10).text = configuracao["tipo_ordem"]
     wait_for_element(session, _CAMPO_ORG_VENDAS, timeout=10).text = "EMBA"
-    wait_for_element(session, _CAMPO_CANAL, timeout=10).text = "PO"
+    wait_for_element(session, _CAMPO_CANAL, timeout=10).text = configuracao.get("canal", "PO")
     wait_for_element(session, _CAMPO_SETOR, timeout=10).text = configuracao["setor"]
     wait_for_element(session, _CAMPO_ESCRITORIO, timeout=10).text = configuracao["escritorio"]
 
@@ -274,10 +302,10 @@ def _preencher_item_principal(session, configuracao):
     wait_for_element(session, _ABA_OVERVIEW, timeout=10).select()
 
     campo_centro = wait_for_element(session, _CAMPO_CENTRO, timeout=10)
-    campo_centro.text = "CAB"
+    campo_centro.text = configuracao.get("centro", "CAB")
 
     campo_pagamento = wait_for_element(session, _CAMPO_CONDICAO_PAGAMENTO, timeout=10)
-    campo_pagamento.text = "C060"
+    campo_pagamento.text = configuracao.get("condicao_pagamento", "C060")
 
     campo_material = wait_for_element(session, _CAMPO_MATERIAL, timeout=10)
     campo_material.text = configuracao["material"]
@@ -356,7 +384,7 @@ def criar_pedido(session, dados, codigo_cliente, logger, progress_callback=None)
             or str(dados.get("valor", "")).replace("R$", "").strip()
         )
 
-        texto_item = _montar_texto(tipo, endereco)
+        texto_item = _montar_texto(tipo, endereco, dados=dados)
 
         logger.add(1, "Criando ordem na VA01...", publico=True)
         logger.add(1, f"Tipo VA01 selecionado: {tipo}")
@@ -394,7 +422,7 @@ def criar_pedido(session, dados, codigo_cliente, logger, progress_callback=None)
         _notificar(
             progress_callback,
             "processando",
-            "Inserindo texto do empreendimento...",
+            "Inserindo texto do pedido...",
             progresso_atual,
         )
         _preencher_texto_item(session, texto_item)

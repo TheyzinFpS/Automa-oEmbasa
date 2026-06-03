@@ -4,6 +4,7 @@ from datetime import datetime
 
 from backend.flows.f110 import f110
 from backend.flows.f110_boleto import selecionar_boletos_sp02
+from backend.flows.multa_contratual import TIPO_MULTA_CONTRATUAL
 from backend.flows.va01 import criar_pedido
 from backend.flows.vf01 import criar_doc_faturamento
 from backend.flows.vf02 import pos_faturamento
@@ -41,6 +42,7 @@ TIPOS_AGUA_ESGOTO = ("agua", "esgoto")
 TIPO_LABEL = {
     "agua": "Água",
     "esgoto": "Esgoto",
+    TIPO_MULTA_CONTRATUAL: "Multa Contratual",
     "agua_esgoto": "Água + Esgoto",
 }
 
@@ -271,10 +273,13 @@ class SAPController:
             "nomes_arquivo_meio_pagamento": contexto.get("nomes_arquivo_meio_pagamento"),
             "agua_esgoto": contexto.get("agua_esgoto"),
             "nomes_pdf_sugeridos": contexto.get("nomes_pdf_sugeridos"),
+            "nome_pdf_sugerido": contexto.get("nome_pdf_sugerido"),
             "spools_boletos": contexto.get("spools_boletos"),
             "documento": dados["doc"],
             "tipo_documento": dados["doc_info"]["rotulo"],
             "tipo": dados.get("tipo"),
+            "modalidade": dados.get("modalidade"),
+            "contrato": dados.get("contrato"),
             "valor": dados["valor_info"]["formatado"],
             "endereco": dados.get("endereco") or {},
         }
@@ -717,9 +722,14 @@ class SAPController:
         if cancelado:
             return cancelado, None
 
+        dados_va01 = {
+            **dados_tipo,
+            "nome_cliente": contexto.get("nome_cliente"),
+        }
+
         resultado_va01 = criar_pedido(
             session,
-            dados_tipo,
+            dados_va01,
             contexto["cliente"],
             self.logger,
             progress_callback=progress_tipo,
@@ -730,7 +740,7 @@ class SAPController:
                 etapa="VA01",
                 mensagem=resultado_va01["mensagem"],
                 erro_tecnico=resultado_va01.get("erro_tecnico"),
-                dados=dados_tipo,
+                dados=dados_va01,
                 contexto=contexto,
                 resume_from="VA01",
                 session=session,
@@ -1124,6 +1134,32 @@ class SAPController:
                 session=session,
             )
 
+    def executar_fluxo_multa_contratual(
+        self,
+        dados,
+        progress_callback=None,
+        notice_callback=None,
+        resume_checkpoint=None,
+        cancel_event=None,
+    ):
+        dados_multa = dict(dados or {})
+        dados_multa["tipo"] = TIPO_MULTA_CONTRATUAL
+        dados_multa["modalidade"] = TIPO_MULTA_CONTRATUAL
+
+        self.logger.add(-1, "Fluxo selecionado: Multa Contratual.", publico=True)
+        progress_multa = self._progress_callback_tipo(
+            progress_callback,
+            "Multa Contratual",
+        )
+
+        return self.executar_fluxo(
+            dados_multa,
+            progress_callback=progress_multa,
+            notice_callback=notice_callback,
+            resume_checkpoint=resume_checkpoint,
+            cancel_event=cancel_event,
+        )
+
     # Executa o fluxo SAP real: conexao, XD03, VA01, VF01, FB03/VF02 e F110.
     def executar_fluxo(
         self,
@@ -1147,6 +1183,8 @@ class SAPController:
             "boleto": contexto_checkpoint.get("boleto"),
             "identificacao_pagamento": contexto_checkpoint.get("identificacao_pagamento"),
             "identificacoes_pagamento": contexto_checkpoint.get("identificacoes_pagamento"),
+            "nome_arquivo_meio_pagamento": contexto_checkpoint.get("nome_arquivo_meio_pagamento"),
+            "nome_pdf_sugerido": contexto_checkpoint.get("nome_pdf_sugerido"),
             "agua_esgoto": contexto_checkpoint.get("agua_esgoto"),
         }
 
@@ -1291,9 +1329,14 @@ class SAPController:
             if cancelado:
                 return cancelado
 
+            dados_va01 = {
+                **dados,
+                "nome_cliente": contexto.get("nome_cliente"),
+            }
+
             resultado_va01 = criar_pedido(
                 session,
-                dados,
+                dados_va01,
                 contexto["cliente"],
                 self.logger,
                 progress_callback=progress_callback,
@@ -1305,7 +1348,7 @@ class SAPController:
                     etapa="VA01",
                     mensagem=resultado_va01["mensagem"],
                     erro_tecnico=resultado_va01.get("erro_tecnico"),
-                    dados=dados,
+                    dados=dados_va01,
                     contexto=contexto,
                     resume_from="VA01",
                     session=session,
@@ -1509,6 +1552,10 @@ class SAPController:
                     (resultado_f110.get("dados") or {}).get("nome_arquivo_meio_pagamento")
                     or contexto.get("nome_arquivo_meio_pagamento")
                 )
+                contexto["nome_pdf_sugerido"] = (
+                    (resultado_f110.get("dados") or {}).get("nome_pdf_sugerido")
+                    or contexto.get("nome_pdf_sugerido")
+                )
 
                 return self._falha(
                     etapa="F110",
@@ -1526,6 +1573,9 @@ class SAPController:
             )
             contexto["nome_arquivo_meio_pagamento"] = (
                 (resultado_f110.get("dados") or {}).get("nome_arquivo_meio_pagamento")
+            )
+            contexto["nome_pdf_sugerido"] = (
+                (resultado_f110.get("dados") or {}).get("nome_pdf_sugerido")
             )
             self._garantir_janela_unica_sap(session, origem="F110")
 
