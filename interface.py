@@ -15,6 +15,12 @@ from backend.flows.cliente_cadastro import (
     criar_cliente,
     criar_cliente_multa_contratual,
 )
+from backend.drafts import (
+    diagnostico_rascunhos,
+    excluir_rascunho_cliente,
+    listar_rascunhos_clientes,
+    salvar_rascunho_cliente,
+)
 from backend.history import (
     diagnostico_historico,
     listar_historico_pedidos,
@@ -836,6 +842,7 @@ class API:
                 "runtime": SETTINGS.get("_meta", {}),
                 "cache": cache_cliente.stats(),
                 "history": diagnostico_historico(),
+                "drafts": diagnostico_rascunhos(),
                 "log_file": self._logger.log_file_path,
             }
         )
@@ -878,3 +885,53 @@ class API:
                 "registro": registro,
             }
         )
+
+    # Lista rascunhos de clientes salvos para completar depois.
+    def listar_rascunhos_clientes(self, filtro="", limite=None):
+        try:
+            return _serializar_para_front(
+                {
+                    "ok": True,
+                    "itens": listar_rascunhos_clientes(filtro=filtro, limite=limite),
+                }
+            )
+        except Exception as exc:
+            return {
+                "ok": False,
+                "msg": f"Falha ao carregar rascunhos: {exc}",
+                "itens": [],
+            }
+
+    # Cria ou atualiza um rascunho de cliente.
+    def salvar_rascunho_cliente(self, payload):
+        try:
+            item = salvar_rascunho_cliente(payload if isinstance(payload, dict) else {})
+            return _serializar_para_front(
+                {
+                    "ok": True,
+                    "item": item,
+                    "itens": listar_rascunhos_clientes(),
+                }
+            )
+        except Exception as exc:
+            return {
+                "ok": False,
+                "msg": f"Falha ao salvar rascunho: {exc}",
+            }
+
+    # Remove um rascunho de cliente.
+    def excluir_rascunho_cliente(self, rascunho_id):
+        try:
+            removido = excluir_rascunho_cliente(rascunho_id)
+            return _serializar_para_front(
+                {
+                    "ok": True,
+                    "removido": removido,
+                    "itens": listar_rascunhos_clientes(),
+                }
+            )
+        except Exception as exc:
+            return {
+                "ok": False,
+                "msg": f"Falha ao excluir rascunho: {exc}",
+            }

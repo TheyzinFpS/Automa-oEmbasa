@@ -74,13 +74,14 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.31";
+const APP_VERSION = "1.4.32";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
 const SUPPORTED_CONTACT_EXTENSIONS = new Set([".jpg", ".jpeg", ".png"]);
 const SUPPORTED_CONTACT_MIME_TYPES = new Set(["image/jpeg", "image/png"]);
 const THEME_STORAGE_KEY = "embasa-theme";
+const CLIENT_DRAFT_STORAGE_KEY = "embasa-client-drafts";
 const STATUS_ATIVOS = new Set([
   "processando", "processing", "running", "ativo", "active", "iniciando", "iniciado"
 ]);
@@ -137,6 +138,11 @@ const state = {
   footerTimeText: "",
   statusSnapshot: "",
   empreendimentosFila: [],
+  clientesFila: [],
+  rascunhosClientes: [],
+  rascunhoClienteEditando: "",
+  rascunhosClientesCarregados: false,
+  rascunhosBackendSincronizado: false,
   batchRunning: false,
   flowRunning: false,
   cancelRequested: false,
@@ -722,6 +728,22 @@ function cloneEndereco(endereco) {
   };
 }
 
+function cloneEnderecoParcial(endereco = {}) {
+  const semCep = Boolean(endereco.sem_cep) || String(endereco.cep || "").trim().toUpperCase() === "SEM CEP";
+
+  return {
+    empreendimento: String(endereco.empreendimento || "").trim(),
+    rua: String(endereco.rua || "").trim(),
+    numero: String(endereco.numero || "").trim(),
+    cep: semCep ? "SEM CEP" : formatarCepValue(endereco.cep || ""),
+    sem_cep: semCep,
+    bairro: String(endereco.bairro || "").trim(),
+    complemento: String(endereco.complemento || "").trim(),
+    cidade: sanitizarCidade(endereco.cidade || "").trim(),
+    estado: String(endereco.estado || "BA").trim().toUpperCase() || "BA"
+  };
+}
+
 function formatarEnderecoResumo(endereco) {
   const cepResumo = endereco.sem_cep
     ? "SEM CEP"
@@ -753,6 +775,33 @@ function limparCamposEndereco() {
   limparMensagensValidacao();
 }
 
+function preencherCamposEndereco(endereco = {}) {
+  const dados = cloneEnderecoParcial(endereco || {});
+  const numero = String(dados.numero || "").trim();
+  const semNumero = numero.toUpperCase() === "S/N";
+  const semCep = Boolean(dados.sem_cep) || String(dados.cep || "").trim().toUpperCase() === "SEM CEP";
+
+  cancelarConsultaCepPendente();
+  setCepLookupStatus("", null, "");
+  resetarEnderecoAutoCep();
+
+  el("enderecoEmpreendimento").value = dados.empreendimento || "";
+  el("enderecoRua").value = dados.rua || "";
+  setSemNumero(semNumero);
+  if (!semNumero) {
+    el("enderecoNumero").value = numero;
+  }
+  setSemCep(semCep);
+  if (!semCep) {
+    el("enderecoCep").value = formatarCepValue(dados.cep || "");
+  }
+  el("enderecoBairro").value = dados.bairro || "";
+  el("enderecoComplemento").value = dados.complemento || "";
+  el("enderecoCidade").value = dados.cidade || "";
+  el("enderecoEstado").value = dados.estado || "BA";
+  limparMensagensValidacao();
+}
+
 function limparFormularioCriacaoBoleto() {
   atualizarDocumentoUI("");
   el("tipo").value = "";
@@ -762,6 +811,7 @@ function limparFormularioCriacaoBoleto() {
   atualizarModoValorUI();
   limparCamposEndereco();
   limparFilaEmpreendimentos();
+  state.rascunhoClienteEditando = "";
   setEmpreendimentoAberto(false);
   fecharMenuTipo();
   fecharMenuValor();
@@ -824,6 +874,396 @@ function removerEmpreendimentoDaFila(index) {
 function limparFilaEmpreendimentos() {
   state.empreendimentosFila = [];
   renderizarFilaEmpreendimentos();
+}
+
+function getTipoSolicitacaoLabel(tipo) {
+  return TIPOS_SOLICITACAO[tipo] || tipo || "Nao informado";
+}
+
+function coletarEnderecosParaExecucao() {
+  const enderecoAtual = coletarEndereco();
+  const enderecos = [];
+
+  for (let index = 0; index < state.empreendimentosFila.length; index += 1) {
+    const enderecoFila = cloneEnderecoParcial(state.empreendimentosFila[index]);
+
+    if (!validarEnderecoAntesDoFluxo(enderecoFila)) {
+      state.empreendimentosFila.splice(index, 1);
+      preencherCamposEndereco(enderecoFila);
+      renderizarFilaEmpreendimentos();
+      setEmpreendimentoAberto(true);
+      validarEnderecoAntesDoFluxo(enderecoFila);
+      setStatus("Revise o empreendimento", "error");
+      return null;
+    }
+
+    enderecos.push(cloneEndereco(enderecoFila));
+  }
+
+  if (!enderecos.length || enderecoTemConteudo(enderecoAtual)) {
+    if (!validarEnderecoAntesDoFluxo(enderecoAtual)) {
+      return null;
+    }
+
+    enderecos.push(cloneEndereco(enderecoAtual));
+  }
+
+  if (!enderecos.length) {
+    mostrarErroCampo("enderecoEmpreendimento", "Adicione ao menos um empreendimento para gerar o boleto.");
+    return null;
+  }
+
+  return enderecos;
+}
+
+function coletarEnderecosParciaisCliente() {
+  const enderecos = state.empreendimentosFila.map(cloneEnderecoParcial);
+  const atual = cloneEnderecoParcial(coletarEndereco());
+
+  if (enderecoTemConteudo(atual) || !enderecos.length) {
+    enderecos.push(atual);
+  }
+
+  return enderecos.filter(enderecoTemConteudo);
+}
+
+function resumoClienteFila(item = {}) {
+  const enderecos = Array.isArray(item.enderecos) ? item.enderecos : [];
+  const primeiro = enderecos[0] || {};
+  const total = enderecos.length;
+  const tipoLabel = item.tipo_label || getTipoSolicitacaoLabel(item.tipo);
+  const titulo = primeiro.empreendimento || (total > 1 ? `${total} empreendimentos` : "Sem empreendimento");
+
+  return {
+    doc: item.doc_formatado || formatarDocumentoResumo(item.doc),
+    tipoLabel,
+    titulo,
+    detalhe: `${tipoLabel} | ${total || 0} empreendimento${total === 1 ? "" : "s"}`,
+    endereco: primeiro ? formatarEnderecoResumo(primeiro) : ""
+  };
+}
+
+function montarClienteAtualParaFila() {
+  const base = validarBaseAntesDoFluxo();
+
+  if (!base) {
+    return null;
+  }
+
+  const enderecos = coletarEnderecosParaExecucao();
+
+  if (!enderecos) {
+    return null;
+  }
+
+  limparMensagensValidacao();
+
+  return {
+    id: `fila_${Date.now()}_${base.docInfo.digitos.slice(-6)}`,
+    doc: base.docInfo.digitos,
+    doc_formatado: base.docInfo.formatado,
+    tipo: base.tipo,
+    tipo_label: getTipoSolicitacaoLabel(base.tipo),
+    valor: el("valor").value,
+    modo_valor: state.valueMode,
+    enderecos,
+    status: "pronto",
+    criado_em: new Date().toISOString()
+  };
+}
+
+function montarRascunhoClienteAtual() {
+  const docInfo = analisarDocumento(el("doc").value);
+
+  if (![11, 14].includes(docInfo.digitos.length)) {
+    mostrarErroCampo("doc", "Informe CPF ou CNPJ completo para salvar o rascunho.");
+    return null;
+  }
+
+  limparMensagemCampo("doc");
+
+  return {
+    id: state.rascunhoClienteEditando || "",
+    doc: docInfo.digitos,
+    doc_formatado: docInfo.formatado,
+    tipo: el("tipo").value,
+    tipo_label: getTipoSolicitacaoLabel(el("tipo").value),
+    valor: el("valor").value,
+    modo_valor: state.valueMode,
+    enderecos: coletarEnderecosParciaisCliente(),
+    status: "rascunho"
+  };
+}
+
+function renderizarFilaClientes() {
+  const queue = el("clienteQueue");
+
+  if (!queue) {
+    return;
+  }
+
+  const fila = state.clientesFila || [];
+  const rascunhos = state.rascunhosClientes || [];
+
+  if (!fila.length && !rascunhos.length) {
+    queue.className = "client-queue empty";
+    queue.textContent = "Nenhum CPF/CNPJ na fila e nenhum rascunho salvo.";
+    return;
+  }
+
+  const filaHtml = fila.map((item, index) => {
+    const resumo = resumoClienteFila(item);
+
+    return `
+      <div class="client-queue-item ready">
+        <div>
+          <span class="client-queue-badge">Fila ${index + 1}</span>
+          <strong>${escapeHtml(resumo.doc)} - ${escapeHtml(resumo.titulo)}</strong>
+          <small>${escapeHtml(resumo.detalhe)}</small>
+          <small>${escapeHtml(resumo.endereco)}</small>
+        </div>
+        <div class="client-queue-actions">
+          <button type="button" onclick="editarClienteFila(${index})">Editar</button>
+          <button type="button" onclick="removerClienteDaFila(${index})">Remover</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  const rascunhosHtml = rascunhos.map((item) => {
+    const resumo = resumoClienteFila(item);
+
+    return `
+      <div class="client-queue-item draft">
+        <div>
+          <span class="client-queue-badge">Rascunho</span>
+          <strong>${escapeHtml(resumo.doc)} - ${escapeHtml(resumo.titulo)}</strong>
+          <small>${escapeHtml(resumo.detalhe)}</small>
+          <small>${escapeHtml(resumo.endereco || "Dados incompletos salvos.")}</small>
+        </div>
+        <div class="client-queue-actions">
+          <button type="button" onclick="carregarRascunhoCliente(${htmlJsArg(item.id)})">Editar</button>
+          <button type="button" onclick="excluirRascunhoCliente(${htmlJsArg(item.id)})">Excluir</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  queue.className = "client-queue";
+  queue.innerHTML = `
+    ${filaHtml ? `<div class="client-queue-section"><span>Clientes prontos</span>${filaHtml}</div>` : ""}
+    ${rascunhosHtml ? `<div class="client-queue-section"><span>Rascunhos salvos</span>${rascunhosHtml}</div>` : ""}
+  `;
+}
+
+async function adicionarClienteNaFila() {
+  const cliente = montarClienteAtualParaFila();
+
+  if (!cliente) {
+    return;
+  }
+
+  const draftId = state.rascunhoClienteEditando;
+  state.clientesFila.push(cliente);
+  state.rascunhoClienteEditando = "";
+  renderizarFilaClientes();
+  log(`Cliente adicionado a fila: ${cliente.doc_formatado || cliente.doc} - ${cliente.tipo_label}.`);
+  setStatus("Cliente adicionado", "success");
+  limparFormularioCriacaoBoleto();
+  setEmpreendimentoAberto(true);
+
+  if (draftId) {
+    await excluirRascunhoCliente(draftId, { silent: true });
+  }
+}
+
+function removerClienteDaFila(index) {
+  if (index < 0 || index >= state.clientesFila.length) {
+    return;
+  }
+
+  const [removido] = state.clientesFila.splice(index, 1);
+  renderizarFilaClientes();
+  log(`Cliente removido da fila: ${removido?.doc_formatado || removido?.doc || "--"}.`);
+}
+
+function limparFilaClientes() {
+  state.clientesFila = [];
+  renderizarFilaClientes();
+}
+
+function carregarClienteNoFormulario(item = {}, options = {}) {
+  const enderecos = Array.isArray(item.enderecos)
+    ? item.enderecos.map(cloneEnderecoParcial)
+    : [];
+
+  atualizarDocumentoUI(item.doc || "");
+  el("tipo").value = item.tipo || "";
+  state.valueMode = item.modo_valor || "auto";
+  atualizarModoValorUI();
+  atualizarTipo();
+
+  if (item.valor) {
+    el("valor").value = item.valor;
+  }
+
+  if (enderecos.length) {
+    preencherCamposEndereco(enderecos[0]);
+  state.empreendimentosFila = enderecos.slice(1).map(cloneEnderecoParcial);
+  } else {
+    limparCamposEndereco();
+    state.empreendimentosFila = [];
+  }
+
+  renderizarFilaEmpreendimentos();
+  state.rascunhoClienteEditando = options.rascunho ? String(item.id || "") : "";
+  setEmpreendimentoAberto(true);
+  showBoletoWorkspace({ status: false });
+  setStatus(options.rascunho ? "Rascunho carregado" : "Cliente carregado", "idle");
+  window.setTimeout(() => el("enderecoEmpreendimento")?.focus(), 180);
+}
+
+function editarClienteFila(index) {
+  if (index < 0 || index >= state.clientesFila.length) {
+    return;
+  }
+
+  const [item] = state.clientesFila.splice(index, 1);
+  renderizarFilaClientes();
+  carregarClienteNoFormulario(item);
+}
+
+function carregarRascunhosLocal() {
+  try {
+    return JSON.parse(localStorage.getItem(CLIENT_DRAFT_STORAGE_KEY) || "[]");
+  } catch (error) {
+    return [];
+  }
+}
+
+function salvarRascunhosLocal(itens) {
+  try {
+    localStorage.setItem(CLIENT_DRAFT_STORAGE_KEY, JSON.stringify(itens || []));
+  } catch (error) {
+    // ignora falhas de armazenamento local
+  }
+}
+
+async function carregarRascunhosClientes() {
+  try {
+    if (window.pywebview?.api?.listar_rascunhos_clientes) {
+      const resposta = await window.pywebview.api.listar_rascunhos_clientes();
+
+      if (resposta?.ok) {
+        state.rascunhosClientes = resposta.itens || [];
+        state.rascunhosClientesCarregados = true;
+        state.rascunhosBackendSincronizado = true;
+        renderizarFilaClientes();
+        return;
+      }
+    }
+  } catch (error) {
+    log(`Nao foi possivel carregar rascunhos: ${error}`, "error");
+  }
+
+  state.rascunhosClientes = carregarRascunhosLocal();
+  state.rascunhosClientesCarregados = true;
+  renderizarFilaClientes();
+
+  window.setTimeout(() => {
+    if (!state.rascunhosBackendSincronizado && window.pywebview?.api?.listar_rascunhos_clientes) {
+      carregarRascunhosClientes();
+    }
+  }, 900);
+}
+
+async function salvarRascunhoCliente() {
+  const rascunho = montarRascunhoClienteAtual();
+
+  if (!rascunho) {
+    return;
+  }
+
+  try {
+    if (window.pywebview?.api?.salvar_rascunho_cliente) {
+      const resposta = await window.pywebview.api.salvar_rascunho_cliente(rascunho);
+
+      if (!resposta?.ok) {
+        throw new Error(resposta?.msg || "Falha ao salvar rascunho.");
+      }
+
+      state.rascunhosClientes = resposta.itens || [];
+      state.rascunhoClienteEditando = resposta.item?.id || rascunho.id || "";
+    } else {
+      const itens = carregarRascunhosLocal();
+      const id = rascunho.id || `local_${Date.now()}_${rascunho.doc.slice(-6)}`;
+      const item = {
+        ...rascunho,
+        id,
+        atualizado_em: new Date().toISOString(),
+        criado_em: rascunho.criado_em || new Date().toISOString()
+      };
+      const filtrados = itens.filter((draft) => draft.id !== id);
+      state.rascunhosClientes = [item, ...filtrados];
+      salvarRascunhosLocal(state.rascunhosClientes);
+      state.rascunhoClienteEditando = id;
+    }
+
+    renderizarFilaClientes();
+    showSimpleOperationalToast("Rascunho salvo.");
+    setStatus("Rascunho salvo", "success");
+  } catch (error) {
+    log(`Falha ao salvar rascunho: ${error}`, "error");
+    openLogsPopover();
+    setStatus("Falha ao salvar", "error");
+  }
+}
+
+async function excluirRascunhoCliente(rascunhoId, options = {}) {
+  const id = String(rascunhoId || "");
+
+  if (!id) {
+    return;
+  }
+
+  try {
+    if (window.pywebview?.api?.excluir_rascunho_cliente) {
+      const resposta = await window.pywebview.api.excluir_rascunho_cliente(id);
+
+      if (!resposta?.ok) {
+        throw new Error(resposta?.msg || "Falha ao excluir rascunho.");
+      }
+
+      state.rascunhosClientes = resposta.itens || [];
+    } else {
+      state.rascunhosClientes = carregarRascunhosLocal().filter((item) => item.id !== id);
+      salvarRascunhosLocal(state.rascunhosClientes);
+    }
+
+    if (state.rascunhoClienteEditando === id) {
+      state.rascunhoClienteEditando = "";
+    }
+
+    renderizarFilaClientes();
+
+    if (!options.silent) {
+      showSimpleOperationalToast("Rascunho excluido.");
+    }
+  } catch (error) {
+    log(`Falha ao excluir rascunho: ${error}`, "error");
+    openLogsPopover();
+  }
+}
+
+function carregarRascunhoCliente(rascunhoId) {
+  const item = state.rascunhosClientes.find((draft) => String(draft.id || "") === String(rascunhoId || ""));
+
+  if (!item) {
+    showSimpleOperationalToast("Rascunho nao encontrado.");
+    return;
+  }
+
+  carregarClienteNoFormulario(item, { rascunho: true });
 }
 
 function limparMensagemCampo(fieldId) {
@@ -2731,6 +3171,10 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function htmlJsArg(value) {
+  return escapeHtml(JSON.stringify(String(value || "")));
+}
+
 // Preenche o card de resultado com os dados essenciais do processo.
 function preencherResultado(resultado = {}) {
   const box = el("resultBox");
@@ -3894,19 +4338,9 @@ function montarPayloadsLoteAtual() {
     return null;
   }
 
-  const enderecoAtual = coletarEndereco();
-  const enderecos = state.empreendimentosFila.map(cloneEndereco);
+  const enderecos = coletarEnderecosParaExecucao();
 
-  if (!enderecos.length || enderecoTemConteudo(enderecoAtual)) {
-    if (!validarEnderecoAntesDoFluxo(enderecoAtual)) {
-      return null;
-    }
-
-    enderecos.push(cloneEndereco(enderecoAtual));
-  }
-
-  if (!enderecos.length) {
-    mostrarErroCampo("enderecoEmpreendimento", "Adicione ao menos um empreendimento para gerar o boleto.");
+  if (!enderecos) {
     return null;
   }
 
@@ -3959,7 +4393,7 @@ function setFlowButtonsBusy(isBusy, mode = "start") {
 
   if (multaCancelButton) {
     multaCancelButton.disabled = !isBusy || state.cancelRequested;
-    multaCancelButton.textContent = state.cancelRequested ? "Cancelando..." : "Cancelar criaÃ§Ã£o";
+    multaCancelButton.textContent = state.cancelRequested ? "Cancelando..." : "Cancelar criação";
   }
 
   if (resumeButton) {
@@ -4140,6 +4574,201 @@ async function executarLoteEmpreendimentos(payloads) {
     limparFormularioCriacaoBoleto();
     setStatus("Lote concluído", "success");
     log("Todos os empreendimentos do lote foram processados.");
+  } finally {
+    state.batchRunning = false;
+    setFlowButtonsBusy(false);
+  }
+}
+
+function clienteFilaValido(cliente = {}) {
+  const doc = limparDocumento(cliente.doc || "");
+  const enderecos = Array.isArray(cliente.enderecos) ? cliente.enderecos : [];
+
+  if (![11, 14].includes(doc.length)) {
+    return { ok: false, msg: "CPF/CNPJ incompleto na fila de clientes." };
+  }
+
+  if (!cliente.tipo) {
+    return { ok: false, msg: `Tipo de solicitacao ausente para ${formatarDocumentoResumo(doc)}.` };
+  }
+
+  if (!cliente.valor || !limparValor(cliente.valor)) {
+    return { ok: false, msg: `Valor ausente para ${formatarDocumentoResumo(doc)}.` };
+  }
+
+  if (!enderecos.length) {
+    return { ok: false, msg: `Nenhum empreendimento informado para ${formatarDocumentoResumo(doc)}.` };
+  }
+
+  return { ok: true };
+}
+
+function montarPayloadsClienteFila(cliente = {}, clienteIndex = 0, totalClientes = 1) {
+  const enderecos = Array.isArray(cliente.enderecos) ? cliente.enderecos.map(cloneEndereco) : [];
+
+  return enderecos.map((endereco, index) => ({
+    doc: limparDocumento(cliente.doc || ""),
+    tipo: cliente.tipo,
+    valor: cliente.valor,
+    modo_valor: cliente.modo_valor || "auto",
+    endereco,
+    _batch: {
+      index: index + 1,
+      total: enderecos.length,
+      empreendimento: endereco.empreendimento
+    },
+    _clientBatch: {
+      index: clienteIndex + 1,
+      total: totalClientes,
+      doc_formatado: cliente.doc_formatado || formatarDocumentoResumo(cliente.doc),
+      tipo_label: cliente.tipo_label || getTipoSolicitacaoLabel(cliente.tipo)
+    }
+  }));
+}
+
+function obterProximoItemFilaClientes(planos, clienteIndex, payloadIndex) {
+  const clienteAtual = planos[clienteIndex];
+
+  if (clienteAtual && payloadIndex + 1 < clienteAtual.payloads.length) {
+    return {
+      cliente: clienteAtual.cliente,
+      payload: clienteAtual.payloads[payloadIndex + 1],
+      clienteIndex,
+      payloadIndex: payloadIndex + 1
+    };
+  }
+
+  if (clienteIndex + 1 < planos.length) {
+    const proximoCliente = planos[clienteIndex + 1];
+    return {
+      cliente: proximoCliente.cliente,
+      payload: proximoCliente.payloads[0],
+      clienteIndex: clienteIndex + 1,
+      payloadIndex: 0
+    };
+  }
+
+  return null;
+}
+
+function aguardarConfirmacaoFilaClientes(payload, resultado, proximo, atual, total) {
+  return new Promise((resolve) => {
+    const message = el("batchConfirmMessage");
+    const continueButton = el("batchConfirmContinue");
+    const pauseButton = el("batchConfirmPause");
+    const nome = payload.endereco?.empreendimento || `boleto ${atual}`;
+    const proximoNome = proximo?.payload?.endereco?.empreendimento || `boleto ${atual + 1}`;
+    const proximoDoc = proximo?.cliente?.doc_formatado || formatarDocumentoResumo(proximo?.cliente?.doc);
+    const docFat = resultado?.resultado?.doc_fat || resultado?.resultado?.faturamento || "--";
+
+    message.textContent =
+      `Boleto de "${nome}" finalizado. Doc. fat: ${docFat}. ` +
+      `Confirme para seguir para ${proximoDoc} - "${proximoNome}" (${atual + 1} de ${total}).`;
+
+    const finalizar = (continuar) => {
+      closeModal("batchConfirmModal");
+      continueButton.onclick = null;
+      pauseButton.onclick = null;
+      resolve(continuar);
+    };
+
+    continueButton.onclick = () => finalizar(true);
+    pauseButton.onclick = () => finalizar(false);
+    openModal("batchConfirmModal");
+  });
+}
+
+async function executarFilaClientes(clientes) {
+  const planos = clientes.map((cliente, index) => ({
+    cliente,
+    payloads: montarPayloadsClienteFila(cliente, index, clientes.length)
+  }));
+  const totalBoletos = planos.reduce((total, item) => total + item.payloads.length, 0);
+  let boletosConcluidos = 0;
+
+  state.batchRunning = true;
+  setFlowButtonsBusy(true, "batch");
+  hideResumeBox();
+
+  try {
+    for (let clienteIndex = 0; clienteIndex < planos.length; clienteIndex += 1) {
+      const plano = planos[clienteIndex];
+      let checkpointCliente = null;
+
+      log(`Iniciando cliente ${clienteIndex + 1}/${planos.length}: ${plano.cliente.doc_formatado || formatarDocumentoResumo(plano.cliente.doc)}.`);
+
+      for (let payloadIndex = 0; payloadIndex < plano.payloads.length; payloadIndex += 1) {
+        const payload = plano.payloads[payloadIndex];
+        const nome = payload.endereco?.empreendimento || `Empreendimento ${payloadIndex + 1}`;
+        const resume = Boolean(payloadIndex > 0 && checkpointCliente);
+        const resumoEndereco = formatarEnderecoResumo(payload.endereco || {});
+        const posicao = boletosConcluidos + 1;
+
+        window.resetarProgresso();
+        log(`Fila CPF/CNPJ ${posicao}/${totalBoletos}: ${nome}.`);
+        log(`Documento ${payload._clientBatch.doc_formatado} | ${payload._clientBatch.tipo_label}.`);
+        log(`Endereco do empreendimento: ${resumoEndereco}.`);
+        setStatus(`Fila ${posicao}/${totalBoletos}`, "running");
+        processarEtapaTempoReal(
+          "XD03",
+          resume ? "concluido" : "processando",
+          resume
+            ? `Cliente ja validado. Seguindo com ${nome}.`
+            : `Validando cliente ${payload._clientBatch.doc_formatado}.`,
+          resume ? 100 : 8
+        );
+
+        const resultado = await executarFluxo(payload, {
+          resume,
+          checkpoint: checkpointCliente,
+          manageButtons: false,
+          resetProgress: false,
+          clearFormOnSuccess: false
+        });
+
+        if (!resultado || !resultado.ok) {
+          if (resultado?.cancelado) {
+            log(`Fila cancelada em ${payload._clientBatch.doc_formatado} - ${nome}.`, "error");
+            setStatus("Cancelado", "error");
+          } else {
+            log(`Fila pausada em ${payload._clientBatch.doc_formatado} - ${nome}.`, "error");
+            setStatus("Falha no processamento", "error");
+          }
+          return;
+        }
+
+        boletosConcluidos += 1;
+        checkpointCliente = montarCheckpointClienteParaProximo(payload, resultado) || checkpointCliente;
+        log(`Concluido ${boletosConcluidos}/${totalBoletos}: ${payload._clientBatch.doc_formatado} - ${nome}.`);
+
+        const proximo = obterProximoItemFilaClientes(planos, clienteIndex, payloadIndex);
+
+        if (proximo) {
+          setStatus(`Aguardando confirmacao ${boletosConcluidos}/${totalBoletos}`, "idle");
+          log(`Aguardando confirmacao para seguir para ${proximo.cliente.doc_formatado || formatarDocumentoResumo(proximo.cliente.doc)}.`);
+
+          const continuar = await aguardarConfirmacaoFilaClientes(
+            payload,
+            resultado,
+            proximo,
+            boletosConcluidos,
+            totalBoletos
+          );
+
+          if (!continuar) {
+            log("Fila de CPF/CNPJ pausada pelo usuario.");
+            setStatus("Fila pausada", "idle");
+            return;
+          }
+        }
+      }
+    }
+
+    limparFilaClientes();
+    limparFilaEmpreendimentos();
+    limparFormularioCriacaoBoleto();
+    setStatus("Fila concluida", "success");
+    log("Todos os CPF/CNPJ da fila foram processados.");
   } finally {
     state.batchRunning = false;
     setFlowButtonsBusy(false);
@@ -4452,6 +5081,22 @@ async function executarFluxo(payload, options = {}) {
 
 // Handler principal do botao Gerar Boleto.
 async function gerarBoleto() {
+  if (state.clientesFila.length) {
+    const invalido = state.clientesFila
+      .map((cliente) => clienteFilaValido(cliente))
+      .find((resultado) => !resultado.ok);
+
+    if (invalido) {
+      setStatus("Revise a fila", "error");
+      log(invalido.msg, "error");
+      openLogsPopover();
+      return;
+    }
+
+    await executarFilaClientes(state.clientesFila.map(clonePlain));
+    return;
+  }
+
   const payloads = montarPayloadsLoteAtual();
 
   if (!payloads) {
@@ -4625,6 +5270,8 @@ setEmpreendimentoAberto(false);
 setSemNumero(false);
 setSemCep(false);
 renderizarFilaEmpreendimentos();
+renderizarFilaClientes();
+carregarRascunhosClientes();
 limparPainel();
 atualizarRodapeInfo();
 window.setInterval(atualizarRodapeInfo, 1000);

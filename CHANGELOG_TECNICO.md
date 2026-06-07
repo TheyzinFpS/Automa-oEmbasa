@@ -1,5 +1,29 @@
 # Registro técnico de alterações
 
+## Domingo, 07/06/2026 - Versao 1.4.32
+
+**Ajuste aplicado**
+
+- Adicionada fila de CPF/CNPJ para processar varios clientes em sequencia, cada um com seu proprio tipo, valor e lista de empreendimentos.
+- A fila de empreendimentos existente foi preservada dentro de cada cliente, reaproveitando o checkpoint apenas enquanto o fluxo continua no mesmo CPF/CNPJ.
+- Criado recurso de rascunhos de clientes para salvar dados incompletos e completar depois, com persistencia em `dados_compartilhados/rascunhos/rascunhos_clientes.json` e fallback local.
+- Incluidos botoes `Adicionar cliente`, `Salvar rascunho` e `Limpar fila` na area de dados do empreendimento.
+- Ao carregar um rascunho, a interface volta para criacao de boletos com CPF/CNPJ, tipo, valor e enderecos preenchidos para revisao.
+- A validacao de execucao continua exigindo CPF/CNPJ, tipo, valor e endereco completo antes de colocar o cliente na fila pronta.
+- Corrigido texto do botao de cancelamento da Multa Contratual quando o fluxo esta em execucao.
+- Atualizada a versao do projeto de `1.4.31` para `1.4.32`.
+
+**Validacao realizada**
+
+- `python -m py_compile interface.py backend\settings.py backend\drafts.py`
+- `node --check interface\app.js`
+- Checagem de handlers declarados no HTML contra `interface\app.js`.
+- `git diff --check`
+- Renderizacao local em `http://127.0.0.1:8767`, validando exibicao da fila de CPF/CNPJ, adicao de cliente pronto, salvamento de rascunho incompleto, carregamento do rascunho e bloqueio de execucao quando faltam dados obrigatorios.
+- Console do navegador sem erros ou avisos durante os testes da nova fila.
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.32` no codigo e no `embasa_settings.json` distribuido.
+- Smoke test do executavel empacotado: processo iniciou em modo frozen, carregou `interface\index.html`, respeitou `require_sap_session=false` e permaneceu em execucao ate o encerramento do teste.
+
 ## Quarta-feira, 03/06/2026 - Versao 1.4.31
 
 **Ajuste aplicado**

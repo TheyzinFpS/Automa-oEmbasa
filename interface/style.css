@@ -1208,6 +1208,11 @@ input.is-loading {
   background: linear-gradient(135deg, rgba(11, 79, 159, 0.08), rgba(0, 143, 208, 0.06));
 }
 
+.client-batch-builder {
+  margin-top: 16px;
+  background: linear-gradient(135deg, rgba(0, 143, 208, 0.08), rgba(15, 139, 87, 0.07));
+}
+
 .batch-copy {
   display: grid;
   gap: 4px;
@@ -1230,7 +1235,8 @@ input.is-loading {
 }
 
 .batch-add-button,
-.batch-clear-button {
+.batch-clear-button,
+.batch-draft-button {
   width: auto;
   min-height: 38px;
   padding: 0 14px;
@@ -1246,6 +1252,12 @@ input.is-loading {
   color: var(--success);
 }
 
+.batch-draft-button {
+  border-color: rgba(255, 184, 77, 0.42);
+  background: rgba(255, 184, 77, 0.14);
+  color: #9b6515;
+}
+
 .batch-clear-button {
   border-color: rgba(11, 79, 159, 0.16);
   background: var(--surface-soft);
@@ -1253,7 +1265,8 @@ input.is-loading {
 }
 
 .batch-add-button:hover,
-.batch-clear-button:hover {
+.batch-clear-button:hover,
+.batch-draft-button:hover {
   transform: translateY(-1px);
 }
 
@@ -1311,6 +1324,114 @@ input.is-loading {
   font-size: 0.82rem;
   font-weight: 800;
   cursor: pointer;
+}
+
+.client-queue {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.client-queue.empty {
+  padding: 14px 16px;
+  border: 1px dashed rgba(15, 139, 87, 0.24);
+  border-radius: 18px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.client-queue-section {
+  display: grid;
+  gap: 10px;
+}
+
+.client-queue-section > span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.client-queue-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid rgba(11, 79, 159, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.client-queue-item.ready {
+  border-color: rgba(15, 139, 87, 0.22);
+}
+
+.client-queue-item.draft {
+  border-color: rgba(255, 184, 77, 0.34);
+}
+
+[data-theme="dark"] .client-queue-item {
+  background: rgba(13, 28, 48, 0.72);
+}
+
+.client-queue-item > div:first-child {
+  min-width: 0;
+}
+
+.client-queue-item strong,
+.client-queue-item small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.client-queue-item small {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.client-queue-badge {
+  display: inline-flex;
+  width: max-content;
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(11, 79, 159, 0.1);
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.client-queue-item.draft .client-queue-badge {
+  background: rgba(255, 184, 77, 0.16);
+  color: #9b6515;
+}
+
+.client-queue-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.client-queue-actions button {
+  width: auto;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(11, 79, 159, 0.08);
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.client-queue-actions button:last-child {
+  background: rgba(201, 87, 74, 0.12);
+  color: var(--danger);
 }
 
 .field-span-2 {
@@ -2840,10 +2961,19 @@ body.operational-modals-split #batchConfirmModal .contact-success-card {
 
   .batch-builder,
   .batch-item,
+  .client-queue-item,
   .batch-confirm-actions,
   .flow-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .client-queue-actions {
+    justify-content: stretch;
+  }
+
+  .client-queue-actions button {
+    flex: 1 1 120px;
   }
 
   .flow-actions {
