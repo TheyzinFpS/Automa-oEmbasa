@@ -494,6 +494,144 @@ video {
   filter: drop-shadow(0 18px 28px rgba(69, 211, 255, 0.12));
 }
 
+.hero-queue-dock {
+  display: grid;
+  gap: 6px;
+  width: min(100%, 720px);
+  align-self: center;
+  margin: 4px auto 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.queue-mini-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.queue-mini-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.queue-mini-copy span {
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.queue-mini-copy small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.queue-mini-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.queue-action {
+  width: auto;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.queue-action:hover {
+  transform: translateY(-1px);
+}
+
+.queue-action.add {
+  border-color: rgba(15, 139, 87, 0.28);
+  background: rgba(15, 139, 87, 0.12);
+  color: var(--success);
+}
+
+.queue-action.draft {
+  border-color: rgba(255, 184, 77, 0.36);
+  background: rgba(255, 184, 77, 0.12);
+  color: #9b6515;
+}
+
+.queue-action.clear {
+  border-color: rgba(11, 79, 159, 0.16);
+  background: rgba(11, 79, 159, 0.06);
+  color: var(--muted);
+}
+
+.hero-queue-dock .batch-queue,
+.hero-queue-dock .client-queue {
+  gap: 6px;
+  max-height: 132px;
+  margin-top: 0;
+  padding-right: 2px;
+  overflow: auto;
+}
+
+.hero-queue-dock .batch-queue.empty,
+.hero-queue-dock .client-queue.empty {
+  display: none;
+}
+
+.hero-queue-dock .batch-item,
+.hero-queue-dock .client-queue-item {
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+[data-theme="dark"] .hero-queue-dock .batch-item,
+[data-theme="dark"] .hero-queue-dock .client-queue-item {
+  background: rgba(10, 29, 50, 0.48);
+}
+
+.hero-queue-dock .batch-item strong,
+.hero-queue-dock .client-queue-item strong {
+  font-size: 0.84rem;
+}
+
+.hero-queue-dock .batch-item small,
+.hero-queue-dock .client-queue-item small {
+  margin-top: 2px;
+  font-size: 0.75rem;
+}
+
+.hero-queue-dock .batch-item button,
+.hero-queue-dock .client-queue-actions button {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 0.74rem;
+}
+
+.hero-queue-dock .client-queue-section {
+  gap: 6px;
+}
+
+.hero-queue-dock .client-queue-section > span {
+  font-size: 0.64rem;
+  letter-spacing: 0.1em;
+}
+
+.hero-queue-dock .client-queue-badge {
+  margin-bottom: 3px;
+  padding: 3px 7px;
+  font-size: 0.62rem;
+}
+
 .hero-signature {
   align-self: flex-start;
   margin-top: 8px;
@@ -2804,6 +2942,10 @@ body.operational-modals-split #batchConfirmModal .contact-success-card {
     text-align: left;
   }
 
+  .hero-queue-dock {
+    width: 100%;
+  }
+
   .field-span-2 {
     grid-column: auto;
   }
@@ -2928,6 +3070,10 @@ body.operational-modals-split #batchConfirmModal .contact-success-card {
     padding: 18px;
   }
 
+  .queue-action {
+    min-height: 32px;
+  }
+
   .hero-status-card {
     align-items: center;
   }
@@ -2976,6 +3122,20 @@ body.operational-modals-split #batchConfirmModal .contact-success-card {
     flex: 1 1 120px;
   }
 
+  .hero-queue-dock .batch-item,
+  .hero-queue-dock .client-queue-item {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .hero-queue-dock .client-queue-actions {
+    justify-content: flex-end;
+  }
+
+  .hero-queue-dock .client-queue-actions button {
+    flex: 0 0 auto;
+  }
+
   .flow-actions {
     display: flex;
   }
@@ -2993,6 +3153,17 @@ body.operational-modals-split #batchConfirmModal .contact-success-card {
     min-width: 58px;
     height: 50px;
     font-size: 0.82rem;
+  }
+}
+
+@media (max-width: 380px) {
+  .queue-mini-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .queue-mini-actions {
+    justify-content: flex-start;
   }
 }
 

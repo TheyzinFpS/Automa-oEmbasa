@@ -98,6 +98,76 @@
           </div>
         </div>
 
+        <div class="hero-queue-dock" aria-label="Filas de criação">
+          <div class="queue-mini-row">
+            <div class="queue-mini-copy">
+              <span>Empreendimentos</span>
+              <small>Mesmo cliente</small>
+            </div>
+
+            <div class="queue-mini-actions">
+              <button
+                id="addEmpreendimentoButton"
+                class="queue-action add"
+                type="button"
+                onclick="adicionarEmpreendimentoNaFila()"
+              >
+                + Empreend.
+              </button>
+              <button
+                id="clearEmpreendimentosButton"
+                class="queue-action clear"
+                type="button"
+                onclick="limparFilaEmpreendimentos()"
+              >
+                Limpar
+              </button>
+            </div>
+          </div>
+
+          <div id="empreendimentoQueue" class="batch-queue empty">
+            Nenhum empreendimento adicional.
+          </div>
+
+          <div class="queue-mini-row client">
+            <div class="queue-mini-copy">
+              <span>CPF/CNPJ</span>
+              <small>Fila e rascunhos</small>
+            </div>
+
+            <div class="queue-mini-actions">
+              <button
+                id="addClienteFilaButton"
+                class="queue-action add"
+                type="button"
+                onclick="adicionarClienteNaFila()"
+              >
+                + Cliente
+              </button>
+              <button
+                id="saveClienteDraftButton"
+                class="queue-action draft"
+                type="button"
+                onclick="salvarRascunhoCliente()"
+              >
+                Rascunho
+              </button>
+              <button
+                id="clearClientesFilaButton"
+                class="queue-action clear"
+                type="button"
+                onclick="limparFilaClientes()"
+              >
+                Limpar
+              </button>
+            </div>
+          </div>
+
+          <div id="clienteQueue" class="client-queue empty">
+            Nenhum CPF/CNPJ salvo.
+          </div>
+        </div>
+
         <div class="hero-bottom-meta">
           <div class="hero-signature">
             <p class="hero-signature-title">API Desenvolvida por Augusto Taylor</p>
@@ -115,7 +185,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.4.32</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.4.33</span>
           </div>
         </div>
       </div>
@@ -372,78 +442,6 @@
                     readonly
                   />
                 </label>
-              </div>
-
-              <div class="batch-builder">
-                <div class="batch-copy">
-                  <strong>Fila de empreendimentos</strong>
-                  <small>
-                    Use o + para adicionar v&aacute;rios empreendimentos do mesmo cliente.
-                  </small>
-                </div>
-
-                <div class="batch-actions">
-                  <button
-                    id="addEmpreendimentoButton"
-                    class="batch-add-button"
-                    type="button"
-                    onclick="adicionarEmpreendimentoNaFila()"
-                  >
-                    + Adicionar
-                  </button>
-                  <button
-                    id="clearEmpreendimentosButton"
-                    class="batch-clear-button"
-                    type="button"
-                    onclick="limparFilaEmpreendimentos()"
-                  >
-                    Limpar fila
-                  </button>
-                </div>
-              </div>
-
-              <div id="empreendimentoQueue" class="batch-queue empty">
-                Nenhum empreendimento adicional na fila.
-              </div>
-
-              <div class="batch-builder client-batch-builder">
-                <div class="batch-copy">
-                  <strong>Fila de CPF/CNPJ</strong>
-                  <small>
-                    Adicione clientes prontos para execu&ccedil;&atilde;o ou salve rascunhos incompletos para terminar depois.
-                  </small>
-                </div>
-
-                <div class="batch-actions">
-                  <button
-                    id="addClienteFilaButton"
-                    class="batch-add-button"
-                    type="button"
-                    onclick="adicionarClienteNaFila()"
-                  >
-                    + Adicionar cliente
-                  </button>
-                  <button
-                    id="saveClienteDraftButton"
-                    class="batch-draft-button"
-                    type="button"
-                    onclick="salvarRascunhoCliente()"
-                  >
-                    Salvar rascunho
-                  </button>
-                  <button
-                    id="clearClientesFilaButton"
-                    class="batch-clear-button"
-                    type="button"
-                    onclick="limparFilaClientes()"
-                  >
-                    Limpar fila
-                  </button>
-                </div>
-              </div>
-
-              <div id="clienteQueue" class="client-queue empty">
-                Nenhum CPF/CNPJ na fila e nenhum rascunho salvo.
               </div>
             </div>
           </div>
