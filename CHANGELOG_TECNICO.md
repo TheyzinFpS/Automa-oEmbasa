@@ -1,5 +1,27 @@
 # Registro técnico de alterações
 
+## Segunda-feira, 08/06/2026 - Versao 1.4.34
+
+**Ajuste aplicado**
+
+- Restaurado o layout anterior das filas dentro da seção `Dados do empreendimento`.
+- Removido o dock compacto que havia sido colocado no bloco superior `Automacao SAP Desktop`.
+- As caixas `Fila de empreendimentos` e `Fila de CPF/CNPJ` voltaram a exibir os textos, botões e listas no mesmo formato da versão `1.4.32`.
+- Mantidas as funcoes de fila de CPF/CNPJ, rascunhos, edicao, exclusao e processamento sequencial.
+- Atualizada a versao do projeto de `1.4.33` para `1.4.34`.
+
+**Validacao realizada**
+
+- `node --check interface\app.js`
+- `python -m py_compile interface.py backend\settings.py backend\drafts.py`
+- Checagem de IDs duplicados no HTML.
+- Checagem de handlers declarados no HTML contra `interface\app.js`.
+- `git diff --check`
+- Renderizacao local em viewport estreita, confirmando ausencia do dock no topo, duas caixas novamente dentro de `Dados do empreendimento`, textos vazios restaurados e versao `1.4.34`.
+- Console do navegador sem erros ou avisos durante a validacao visual.
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.34` no codigo e no `embasa_settings.json` distribuido.
+- Smoke test do executavel empacotado: processo iniciou em modo frozen, carregou `interface\index.html`, respeitou `require_sap_session=false` e permaneceu em execucao ate o encerramento do teste.
+
 ## Domingo, 07/06/2026 - Versao 1.4.33
 
 **Ajuste aplicado**

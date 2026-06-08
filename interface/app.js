@@ -74,7 +74,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.33";
+const APP_VERSION = "1.4.34";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -827,7 +827,7 @@ function renderizarFilaEmpreendimentos() {
 
   if (!state.empreendimentosFila.length) {
     queue.className = "batch-queue empty";
-    queue.textContent = "Sem empreendimentos adicionais.";
+    queue.textContent = "Nenhum empreendimento adicional na fila.";
     return;
   }
 
@@ -1007,7 +1007,7 @@ function renderizarFilaClientes() {
 
   if (!fila.length && !rascunhos.length) {
     queue.className = "client-queue empty";
-    queue.textContent = "Sem CPF/CNPJ na fila ou rascunho salvo.";
+    queue.textContent = "Nenhum CPF/CNPJ na fila e nenhum rascunho salvo.";
     return;
   }
 
