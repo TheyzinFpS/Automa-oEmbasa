@@ -1,5 +1,29 @@
 # Registro técnico de alterações
 
+## Terca-feira, 09/06/2026 - Versao 1.4.36
+
+**Ajuste aplicado**
+
+- As filas de empreendimentos e de CPF/CNPJ agora removem visualmente cada item concluido durante o processamento, mantendo na tela apenas o que ainda esta pendente.
+- Corrigido o empilhamento dos modais operacionais quando o aviso do PDF e a confirmacao de proximo item aparecem juntos: PDF fica acima, confirmacao fica abaixo, os cards permanecem nitidos e apenas a tela principal fica desfocada.
+- Ao fechar o aviso do PDF enquanto a confirmacao do proximo item esta aberta, o modal de confirmacao sobe para o centro com animacao fluida.
+- Reforcada a selecao do campo de tratamento na criacao de cliente CPF no SAP: o sistema tenta selecionar por chave, texto visivel e lista interna do combobox, evitando travamento em `Sr`/`Sra`.
+- Otimizada a preparacao do runtime local quando o sistema e aberto pela rede, usando `robocopy` multithread antes do fallback Python.
+- A publicacao na rede passou a gerar `Abrir_EMBASA_Rapido.cmd`, um launcher que abre a copia local da mesma versao quando ela ja existe, reduzindo o tempo de abertura para os usuarios apos a primeira execucao da versao.
+- Atualizada a versao do projeto de `1.4.35` para `1.4.36`.
+
+**Validacao realizada**
+
+- `node --check interface\app.js`
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\cliente_cadastro.py`
+- Checagem de IDs duplicados no HTML.
+- Checagem de handlers declarados no HTML contra `interface\app.js`.
+- Checagem local da interface confirmando versao `1.4.36`, ausencia de erros no console e carregamento das regras de empilhamento/animacao dos modais PDF + confirmacao.
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.36`.
+- Publicacao de teste em pasta temporaria local confirmando criacao do `Abrir_EMBASA_Rapido.cmd`.
+- Smoke test do executavel empacotado: processo iniciou e permaneceu em execucao ate o encerramento do teste.
+
 ## Terca-feira, 09/06/2026 - Versao 1.4.35
 
 **Ajuste aplicado**

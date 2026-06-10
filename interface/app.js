@@ -74,7 +74,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.35";
+const APP_VERSION = "1.4.36";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -139,6 +139,8 @@ const state = {
   statusSnapshot: "",
   empreendimentosFila: [],
   clientesFila: [],
+  clienteQueueSeq: 0,
+  batchConfirmTransitionTimer: 0,
   rascunhosClientes: [],
   rascunhoClienteEditando: "",
   rascunhosClientesCarregados: false,
@@ -996,6 +998,122 @@ function montarRascunhoClienteAtual() {
   };
 }
 
+function normalizarChaveFila(valor) {
+  return String(valor || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ");
+}
+
+function chaveEnderecoFila(endereco = {}) {
+  return [
+    endereco.empreendimento,
+    endereco.rua,
+    endereco.numero,
+    endereco.cep,
+    endereco.bairro,
+    endereco.cidade,
+    endereco.estado
+  ].map(normalizarChaveFila).join("|");
+}
+
+function garantirIdClienteFila(cliente = {}) {
+  if (!cliente._queue_id) {
+    state.clienteQueueSeq += 1;
+    cliente._queue_id = `cliente-${Date.now()}-${state.clienteQueueSeq}`;
+  }
+
+  return cliente._queue_id;
+}
+
+function resolverInicioRetomadaFilaClientes(contexto = {}) {
+  const queueId = String(contexto.queueId || "").trim();
+  const enderecoKey = String(contexto.enderecoKey || "").trim();
+  let startClientIndex = -1;
+
+  if (queueId) {
+    startClientIndex = state.clientesFila.findIndex(
+      (cliente) => String(cliente?._queue_id || "") === queueId
+    );
+  }
+
+  if (startClientIndex < 0) {
+    startClientIndex = Math.max(0, Number(contexto.clienteIndex) || 0);
+  }
+
+  startClientIndex = Math.min(startClientIndex, Math.max(state.clientesFila.length - 1, 0));
+
+  const cliente = state.clientesFila[startClientIndex] || {};
+  const enderecos = Array.isArray(cliente.enderecos) ? cliente.enderecos : [];
+  let startPayloadIndex = enderecoKey
+    ? enderecos.findIndex((endereco) => chaveEnderecoFila(endereco) === enderecoKey)
+    : -1;
+
+  if (startPayloadIndex < 0) {
+    startPayloadIndex = Math.max(0, Number(contexto.payloadIndex) || 0);
+  }
+
+  startPayloadIndex = Math.min(startPayloadIndex, Math.max(enderecos.length - 1, 0));
+
+  return { startClientIndex, startPayloadIndex };
+}
+
+function removerPayloadConcluidoDaFilaClientes(payload = {}) {
+  const contexto = payload._queue_context || {};
+  const queueId = String(contexto.queueId || "").trim();
+  const enderecoKey = String(contexto.enderecoKey || chaveEnderecoFila(payload.endereco || {})).trim();
+  let clienteIndex = -1;
+
+  if (queueId) {
+    clienteIndex = state.clientesFila.findIndex(
+      (cliente) => String(cliente?._queue_id || "") === queueId
+    );
+  }
+
+  if (clienteIndex < 0) {
+    const doc = limparDocumento(payload.doc || "");
+    clienteIndex = state.clientesFila.findIndex((cliente) => (
+      limparDocumento(cliente?.doc || "") === doc &&
+      String(cliente?.tipo || "") === String(payload.tipo || "")
+    ));
+  }
+
+  if (clienteIndex < 0) {
+    return;
+  }
+
+  const cliente = state.clientesFila[clienteIndex];
+  const enderecos = Array.isArray(cliente.enderecos) ? cliente.enderecos : [];
+  let enderecoIndex = enderecos.findIndex((endereco) => chaveEnderecoFila(endereco) === enderecoKey);
+
+  if (enderecoIndex < 0) {
+    enderecoIndex = Math.min(
+      Math.max(0, Number(contexto.payloadIndex) || 0),
+      Math.max(enderecos.length - 1, 0)
+    );
+  }
+
+  if (enderecos.length > 1 && enderecoIndex >= 0) {
+    enderecos.splice(enderecoIndex, 1);
+  } else {
+    state.clientesFila.splice(clienteIndex, 1);
+  }
+
+  renderizarFilaClientes();
+}
+
+function removerPayloadConcluidoDaFilaEmpreendimentos(payload = {}) {
+  const enderecoKey = chaveEnderecoFila(payload.endereco || {});
+  const index = state.empreendimentosFila.findIndex(
+    (endereco) => chaveEnderecoFila(endereco) === enderecoKey
+  );
+
+  if (index >= 0) {
+    state.empreendimentosFila.splice(index, 1);
+    renderizarFilaEmpreendimentos();
+  }
+}
+
 function renderizarFilaClientes() {
   const queue = el("clienteQueue");
 
@@ -1065,6 +1183,7 @@ async function adicionarClienteNaFila() {
   }
 
   const draftId = state.rascunhoClienteEditando;
+  garantirIdClienteFila(cliente);
   state.clientesFila.push(cliente);
   state.rascunhoClienteEditando = "";
   renderizarFilaClientes();
@@ -2875,8 +2994,31 @@ function closePdfNameModal() {
   closeModal("pdfNameModal");
 }
 
+function promoverModalConfirmacaoLote() {
+  const modal = el("batchConfirmModal");
+
+  if (!modal || modal.classList.contains("hidden")) {
+    return;
+  }
+
+  window.clearTimeout(state.batchConfirmTransitionTimer);
+  modal.classList.add("batch-confirm-promote");
+  state.batchConfirmTransitionTimer = window.setTimeout(() => {
+    modal.classList.remove("batch-confirm-promote");
+  }, 360);
+}
+
 function closePdfNameNotice() {
+  const estavaEmpilhado =
+    modalEstaAberto("pdfNameModal") &&
+    modalEstaAberto("batchConfirmModal");
+
   closePdfNameModal();
+
+  if (estavaEmpilhado) {
+    promoverModalConfirmacaoLote();
+  }
+
   processarProximoAvisoOperacional();
 }
 
@@ -3758,8 +3900,8 @@ async function submitCadastroCliente() {
     }
 
     if (contextoFilaCliente && state.clientesFila.length) {
-      const startClientIndex = Math.max(0, Number(contextoFilaCliente.clienteIndex) || 0);
-      const startPayloadIndex = Math.max(0, Number(contextoFilaCliente.payloadIndex) || 0);
+      const { startClientIndex, startPayloadIndex } =
+        resolverInicioRetomadaFilaClientes(contextoFilaCliente);
 
       showSimpleOperationalToast("Cliente criado. Retomando fila de CPF/CNPJ.");
       log(
@@ -3936,6 +4078,10 @@ function sincronizarLayoutDosModaisOperacionais() {
     modalEstaAberto("pdfNameModal") &&
     modalEstaAberto("batchConfirmModal");
 
+  if (exibirEmConjunto) {
+    el("batchConfirmModal")?.classList.remove("batch-confirm-promote");
+  }
+
   document.body.classList.toggle("operational-modals-split", exibirEmConjunto);
 }
 
@@ -3965,6 +4111,7 @@ function closeModal(id) {
   }
 
   modal.classList.add("hidden");
+  modal.classList.remove("batch-confirm-promote");
   sincronizarScrollDosModais();
 }
 
@@ -4498,19 +4645,19 @@ async function confirmarCancelamentoFluxo() {
   }
 }
 
-function aguardarConfirmacaoBoletoLote(payload, resultado, proximoIndex, total) {
+function aguardarConfirmacaoBoletoLote(payload, resultado, proximoPayload, atual, total) {
   return new Promise((resolve) => {
     const modal = el("batchConfirmModal");
     const message = el("batchConfirmMessage");
     const continueButton = el("batchConfirmContinue");
     const pauseButton = el("batchConfirmPause");
-    const nome = payload.endereco?.empreendimento || `empreendimento ${proximoIndex}`;
-    const proximoNome = state.empreendimentosFila[proximoIndex]?.empreendimento || `empreendimento ${proximoIndex + 1}`;
+    const nome = payload.endereco?.empreendimento || `empreendimento ${atual}`;
+    const proximoNome = proximoPayload?.endereco?.empreendimento || `empreendimento ${atual + 1}`;
     const docFat = resultado?.resultado?.doc_fat || resultado?.resultado?.faturamento || "--";
 
     message.textContent =
       `Boleto do empreendimento "${nome}" finalizado. Doc. fat: ${docFat}. ` +
-      `Confirme para seguir para "${proximoNome}" (${proximoIndex + 1} de ${total}).`;
+      `Confirme para seguir para "${proximoNome}" (${atual + 1} de ${total}).`;
 
     const finalizar = (continuar) => {
       closeModal("batchConfirmModal");
@@ -4594,8 +4741,10 @@ async function executarLoteEmpreendimentos(payloads) {
       log(`Empreendimento concluído ${index + 1}/${total}: ${nome}.`);
       log(`Resultado ${nome}: Cliente ${resultado?.resultado?.cliente || "--"} | Doc. fat ${resultado?.resultado?.doc_fat || resultado?.resultado?.faturamento || "--"} | Boleto ${resultado?.resultado?.boleto || resultado?.resultado?.identificacao_pagamento || "--"}.`);
       checkpointCliente = montarCheckpointClienteParaProximo(payload, resultado) || checkpointCliente;
+      removerPayloadConcluidoDaFilaEmpreendimentos(payload);
 
       if (index < payloads.length - 1) {
+        const proximoPayload = payloads[index + 1];
         const proximoNome = payloads[index + 1]?.endereco?.empreendimento || `Empreendimento ${index + 2}`;
         setStatus(`Aguardando confirmação ${index + 1}/${total}`, "idle");
         log(`Aguardando confirmação do boleto de ${nome} para seguir para ${proximoNome}.`);
@@ -4603,6 +4752,7 @@ async function executarLoteEmpreendimentos(payloads) {
         const continuar = await aguardarConfirmacaoBoletoLote(
           payload,
           resultado,
+          proximoPayload,
           index + 1,
           total
         );
@@ -4652,6 +4802,7 @@ function clienteFilaValido(cliente = {}) {
 
 function montarPayloadsClienteFila(cliente = {}, clienteIndex = 0, totalClientes = 1) {
   const enderecos = Array.isArray(cliente.enderecos) ? cliente.enderecos.map(cloneEndereco) : [];
+  const queueId = garantirIdClienteFila(cliente);
 
   return enderecos.map((endereco, index) => ({
     doc: limparDocumento(cliente.doc || ""),
@@ -4672,6 +4823,8 @@ function montarPayloadsClienteFila(cliente = {}, clienteIndex = 0, totalClientes
     },
     _queue_context: {
       source: "clientes_fila",
+      queueId,
+      enderecoKey: chaveEnderecoFila(endereco),
       clienteIndex,
       payloadIndex: index,
       totalClientes,
@@ -4813,6 +4966,7 @@ async function executarFilaClientes(clientes, options = {}) {
         boletosConcluidos += 1;
         checkpointCliente = montarCheckpointClienteParaProximo(payload, resultado) || checkpointCliente;
         log(`Concluido ${boletosConcluidos}/${totalBoletos}: ${payload._clientBatch.doc_formatado} - ${nome}.`);
+        removerPayloadConcluidoDaFilaClientes(payload);
 
         const proximo = obterProximoItemFilaClientes(planos, clienteIndex, payloadIndex);
 
@@ -5170,6 +5324,9 @@ async function executarFluxo(payload, options = {}) {
 // Handler principal do botao Gerar Boleto.
 async function gerarBoleto() {
   if (state.clientesFila.length) {
+    state.clientesFila.forEach(garantirIdClienteFila);
+    renderizarFilaClientes();
+
     const invalido = state.clientesFila
       .map((cliente) => clienteFilaValido(cliente))
       .find((resultado) => !resultado.ok);

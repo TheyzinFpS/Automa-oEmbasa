@@ -120,6 +120,49 @@ def sync_runtime_config_files(source_dir: Path, target_dir: Path) -> None:
             write_startup_log(f"Falha ao sincronizar configuracao: {file_name}")
 
 
+def copy_runtime_to_local(source_dir: Path, target_dir: Path) -> None:
+    if target_dir.exists():
+        shutil.rmtree(target_dir, ignore_errors=True)
+
+    robocopy = shutil.which("robocopy")
+
+    if robocopy:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        comando = [
+            robocopy,
+            str(source_dir),
+            str(target_dir),
+            "/MIR",
+            "/R:1",
+            "/W:1",
+            "/MT:8",
+            "/NFL",
+            "/NDL",
+            "/NJH",
+            "/NJS",
+            "/NP",
+        ]
+
+        resultado = subprocess.run(
+            comando,
+            capture_output=True,
+            text=True,
+            creationflags=creationflags,
+        )
+
+        if resultado.returncode <= 7:
+            write_startup_log("Runtime local preparado com robocopy.")
+            return
+
+        write_startup_log(f"Robocopy falhou ao preparar runtime local: {resultado.returncode}")
+        write_startup_log((resultado.stderr or resultado.stdout or "").strip())
+        shutil.rmtree(target_dir, ignore_errors=True)
+
+    shutil.copytree(source_dir, target_dir)
+    write_startup_log("Runtime local preparado com copytree.")
+
+
 # Se o exe estiver na rede, copia a pasta onedir para LOCALAPPDATA e relanca de la.
 def relaunch_from_local_runtime_if_needed() -> bool:
     if not getattr(sys, "frozen", False):
@@ -141,10 +184,7 @@ def relaunch_from_local_runtime_if_needed() -> bool:
         write_startup_log(f"Preparando runtime local: {target_dir}")
 
         if not target_exe.exists():
-            if target_dir.exists():
-                shutil.rmtree(target_dir, ignore_errors=True)
-
-            shutil.copytree(source_dir, target_dir)
+            copy_runtime_to_local(source_dir, target_dir)
             cleanup_old_local_runtimes(target_dir)
 
         sync_runtime_config_files(source_dir, target_dir)

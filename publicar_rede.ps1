@@ -48,15 +48,41 @@ if ($RoboCode -gt 7) {
 }
 
 $ExeRede = Join-Path $DestinoRede "EmbasaPedidosSAP.exe"
+$LauncherRede = Join-Path $DestinoRede "Abrir_EMBASA_Rapido.cmd"
 
 if (-not (Test-Path -LiteralPath $ExeRede)) {
     throw "Publicacao incompleta: executavel nao encontrado no destino."
 }
+
+$LauncherConteudo = @'
+@echo off
+setlocal
+set "SOURCE_DIR=%~dp0"
+set "EXE_REDE=%SOURCE_DIR%EmbasaPedidosSAP.exe"
+set "VERSION_FILE=%SOURCE_DIR%VERSAO.txt"
+set "LOCAL_DIR="
+
+for /f "usebackq delims=" %%D in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$version=(Get-Content -LiteralPath $env:VERSION_FILE -ErrorAction SilentlyContinue | Select-Object -First 1); $root=Join-Path $env:LOCALAPPDATA 'EMBASA\Runtime'; if($version -and (Test-Path -LiteralPath $root)){ Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'EmbasaPedidosSAP.exe') } | Where-Object { (Get-Content -LiteralPath (Join-Path $_.FullName 'VERSAO.txt') -ErrorAction SilentlyContinue | Select-Object -First 1) -eq $version } | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName }"`) do set "LOCAL_DIR=%%D"
+
+if defined LOCAL_DIR if exist "%LOCAL_DIR%\EmbasaPedidosSAP.exe" (
+    set "EMBASA_LOCAL_RUNTIME=1"
+    set "EMBASA_NETWORK_SOURCE=%SOURCE_DIR%"
+    start "" "%LOCAL_DIR%\EmbasaPedidosSAP.exe" %*
+    exit /b
+)
+
+start "" "%EXE_REDE%" %*
+'@
+
+Set-Content -LiteralPath $LauncherRede -Value $LauncherConteudo -Encoding ASCII
 
 Write-Host ""
 Write-Host "==============================================="
 Write-Host " PUBLICACAO CONCLUIDA COM SUCESSO"
 Write-Host "==============================================="
 Write-Host ""
-Write-Host "Atalho dos usuarios deve apontar para:"
+Write-Host "Atalho dos usuarios deve apontar preferencialmente para:"
+Write-Host $LauncherRede
+Write-Host ""
+Write-Host "Executavel publicado em:"
 Write-Host $ExeRede

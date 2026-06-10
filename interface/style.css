@@ -2659,37 +2659,73 @@ input.is-loading {
 body.operational-modals-split #pdfNameModal,
 body.operational-modals-split #batchConfirmModal {
   display: flex;
-  align-items: flex-start;
-  padding: clamp(16px, 6vh, 72px) clamp(16px, 3vw, 48px);
+  align-items: center;
+  justify-content: center;
+  padding: clamp(16px, 3vh, 36px) clamp(16px, 3vw, 48px);
   pointer-events: none;
 }
 
 body.operational-modals-split #pdfNameModal {
-  justify-content: flex-start;
+  z-index: 36;
 }
 
 body.operational-modals-split #batchConfirmModal {
-  justify-content: flex-end;
+  z-index: 37;
 }
 
-body.operational-modals-split #pdfNameModal .contact-backdrop,
 body.operational-modals-split #batchConfirmModal .contact-backdrop {
   pointer-events: none;
+  background: transparent;
+  backdrop-filter: none;
 }
 
 body.operational-modals-split #pdfNameModal .contact-success-card,
 body.operational-modals-split #batchConfirmModal .contact-success-card {
-  width: min(620px, calc(50vw - 56px));
-  max-height: calc(100dvh - 48px);
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(48dvh - 24px);
   margin: 0;
   overflow: auto;
   pointer-events: auto;
+  backdrop-filter: none;
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease;
+}
+
+body.operational-modals-split #pdfNameModal .contact-success-card {
+  transform: translateY(clamp(-230px, -22vh, -130px));
+}
+
+body.operational-modals-split #batchConfirmModal .contact-success-card {
+  transform: translateY(clamp(150px, 24vh, 240px));
+}
+
+#batchConfirmModal.batch-confirm-promote {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(16px, 3vh, 36px) clamp(16px, 3vw, 48px);
+}
+
+#batchConfirmModal.batch-confirm-promote .contact-success-card {
+  margin: 0;
+  animation: batch-confirm-slide-up 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes rise-in {
   from {
     opacity: 0;
     transform: translateY(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes batch-confirm-slide-up {
+  from {
+    opacity: 1;
+    transform: translateY(clamp(150px, 24vh, 240px));
   }
 
   to {
@@ -2911,19 +2947,18 @@ body.operational-modals-split #batchConfirmModal .contact-success-card {
     padding: 12px 16px;
   }
 
-  body.operational-modals-split #pdfNameModal {
-    align-items: flex-start;
-  }
-
-  body.operational-modals-split #batchConfirmModal {
-    align-items: flex-end;
-    padding-bottom: 30px;
-  }
-
   body.operational-modals-split #pdfNameModal .contact-success-card,
   body.operational-modals-split #batchConfirmModal .contact-success-card {
     width: min(620px, calc(100vw - 32px));
-    max-height: calc(50dvh - 18px);
+    max-height: calc(46dvh - 14px);
+  }
+
+  body.operational-modals-split #pdfNameModal .contact-success-card {
+    transform: translateY(-24dvh);
+  }
+
+  body.operational-modals-split #batchConfirmModal .contact-success-card {
+    transform: translateY(24dvh);
   }
 }
 

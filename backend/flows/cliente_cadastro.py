@@ -348,6 +348,120 @@ def _set_key(session, element_id, value, timeout=8, required=True):
     return None
 
 
+def _normalizar_opcao_combo(valor):
+    texto = unicodedata.normalize("NFKD", str(valor or ""))
+    texto = "".join(char for char in texto if not unicodedata.combining(char))
+    return re.sub(r"[^a-z0-9]+", "", texto.lower())
+
+
+def _ler_atributo_com(objeto, *nomes):
+    for nome in nomes:
+        try:
+            valor = getattr(objeto, nome)
+        except Exception:
+            continue
+
+        if valor is not None:
+            return str(valor)
+
+    return ""
+
+
+def _iterar_opcoes_combo(combo):
+    entradas = None
+
+    for attr in ("Entries", "entries"):
+        try:
+            entradas = getattr(combo, attr)
+            break
+        except Exception:
+            continue
+
+    if entradas is None:
+        return
+
+    try:
+        total = int(getattr(entradas, "Count"))
+    except Exception:
+        try:
+            total = int(entradas.Count())
+        except Exception:
+            total = 0
+
+    for index in range(total):
+        item = None
+
+        for accessor in ("ElementAt", "elementAt", "Item", "item"):
+            try:
+                item = getattr(entradas, accessor)(index)
+                break
+            except Exception:
+                continue
+
+        if item is None:
+            continue
+
+        chave = _ler_atributo_com(item, "Key", "key")
+        texto = _ler_atributo_com(item, "Value", "value", "Text", "text")
+        yield chave, texto
+
+
+def _selecionar_combo_por_texto(session, element_id, value, timeout=8, required=True):
+    try:
+        combo = wait_for_element(session, element_id, timeout=timeout)
+        valor = str(value or "").strip()
+        alvo = _normalizar_opcao_combo(valor)
+        aliases = {
+            "empresa": {"empresa", "pj", "pessoajuridica"},
+            "sr": {"sr", "senhor", "senhor1"},
+            "sra": {"sra", "senhora", "dona"},
+        }.get(alvo, {alvo})
+
+        candidatos = {
+            "empresa": ("Empresa", "EMPRESA"),
+            "sr": ("Sr", "SR", "Sr.", "SR.", "Senhor", "SENHOR"),
+            "sra": ("Sra", "SRA", "Sra.", "SRA.", "Senhora", "SENHORA"),
+        }.get(alvo, (valor,))
+
+        for candidato in candidatos:
+            try:
+                combo.key = candidato
+                wait_until_ready(session)
+                return combo
+            except Exception:
+                try:
+                    combo.Key = candidato
+                    wait_until_ready(session)
+                    return combo
+                except Exception:
+                    continue
+
+        for chave, texto in _iterar_opcoes_combo(combo) or ():
+            normalizados = {
+                _normalizar_opcao_combo(chave),
+                _normalizar_opcao_combo(texto),
+            }
+
+            if normalizados.intersection(aliases):
+                combo.key = chave
+                wait_until_ready(session)
+                return combo
+
+        try:
+            combo.text = valor
+            wait_until_ready(session)
+            return combo
+        except Exception:
+            combo.Text = valor
+            wait_until_ready(session)
+            return combo
+    except Exception:
+        if required:
+            raise
+
+    return None
+
+
 
 def _press(session, element_id, timeout=8, required=True):
     try:
@@ -420,7 +534,7 @@ def _preencher_primeira_tela(
 
 def _preencher_dados_gerais(session, dados):
     if dados.get("titulo"):
-        _set_key(
+        _selecionar_combo_por_texto(
             session,
             "wnd[0]/usr/subSUBTAB:SAPLATAB:0100/tabsTABSTRIP100/tabpTAB01/"
             "ssubSUBSC:SAPLATAB:0201/subAREA1:SAPMF02D:7111/"
