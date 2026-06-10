@@ -74,7 +74,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.34";
+const APP_VERSION = "1.4.35";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -218,7 +218,8 @@ const VALIDATION_FIELDS = {
   enderecoCidade: { messageId: "enderecoCidadeError", accordion: true },
   multaDoc: { messageId: "multaDocError" },
   multaValor: { messageId: "multaFormError" },
-  multaContrato: { messageId: "multaFormError" }
+  multaContrato: { messageId: "multaFormError" },
+  multaValidade: { messageId: "multaValidadeError", focusId: "multaValidade30" }
 };
 
 // Normaliza percentuais enviados pelo backend para o intervalo 0-100.
@@ -2025,6 +2026,25 @@ function formatarContratoMulta(elm) {
   elm.value = String(elm.value || "").replace(/\D/g, "").slice(0, 9);
 }
 
+function atualizarValidadeMultaUI() {
+  const valor = el("multaValidade")?.value === "60" ? "60" : "30";
+
+  el("multaValidade30")?.classList.toggle("active", valor === "30");
+  el("multaValidade60")?.classList.toggle("active", valor === "60");
+}
+
+function selecionarValidadeMulta(dias) {
+  const valor = String(dias || "").replace(/\D/g, "") === "60" ? "60" : "30";
+  const input = el("multaValidade");
+
+  if (input) {
+    input.value = valor;
+  }
+
+  limparMensagemCampo("multaValidade");
+  atualizarValidadeMultaUI();
+}
+
 // Atualiza tipo de solicitação e reseta valor customizado quando necessário.
 function atualizarTipo() {
   const tipo = el("tipo").value;
@@ -3661,6 +3681,13 @@ function preencherMultaAposCadastroCliente(cadastro = {}, payloadOriginal = {}) 
       payloadOriginal.contrato || el("multaContrato").value || ""
     ).replace(/\D/g, "").slice(0, 9);
   }
+
+  if (el("multaValidade")) {
+    el("multaValidade").value = String(
+      payloadOriginal.validade_dias_uteis || el("multaValidade").value || "30"
+    ).replace(/\D/g, "") === "60" ? "60" : "30";
+    atualizarValidadeMultaUI();
+  }
 }
 
 async function submitCadastroCliente() {
@@ -3672,6 +3699,9 @@ async function submitCadastroCliente() {
 
   const button = el("clientRegistrationSubmit");
   const payloadOriginal = clonePlain(state.pendingSapPayload) || {};
+  const contextoFilaCliente = payloadOriginal?._queue_context?.source === "clientes_fila"
+    ? clonePlain(payloadOriginal._queue_context)
+    : null;
   const origem = state.clientRegistrationSource
     || (payloadOriginal._cadastro_manual ? "manual" : "boleto");
 
@@ -3716,14 +3746,31 @@ async function submitCadastroCliente() {
       return;
     }
 
-    showSimpleOperationalToast("Cliente criado. Localizando código no XD03.");
-    log("Cliente criado no SAP. Retomando fluxo pelo XD03 para localizar o código.");
+    showSimpleOperationalToast("Cliente criado. Retomando pelo XD03.");
+    log("Cliente criado no SAP. Retomando fluxo pelo XD03.");
     setStatus("Retomando pelo XD03", "running");
     if (origem === "multa") {
       showSimpleOperationalToast("Cliente criado. Retomando Multa Contratual.");
       log("Cliente criado no SAP. Retomando fluxo de Multa Contratual pelo XD03.");
       setStatus("Retomando Multa Contratual", "running");
       await gerarBoletoMultaContratual();
+      return;
+    }
+
+    if (contextoFilaCliente && state.clientesFila.length) {
+      const startClientIndex = Math.max(0, Number(contextoFilaCliente.clienteIndex) || 0);
+      const startPayloadIndex = Math.max(0, Number(contextoFilaCliente.payloadIndex) || 0);
+
+      showSimpleOperationalToast("Cliente criado. Retomando fila de CPF/CNPJ.");
+      log(
+        `Cliente criado no SAP. Retomando fila de CPF/CNPJ a partir do item ` +
+        `${startClientIndex + 1}/${state.clientesFila.length}.`
+      );
+      setStatus("Retomando fila CPF/CNPJ", "running");
+      await executarFilaClientes(state.clientesFila.map(clonePlain), {
+        startClientIndex,
+        startPayloadIndex
+      });
       return;
     }
 
@@ -4622,6 +4669,13 @@ function montarPayloadsClienteFila(cliente = {}, clienteIndex = 0, totalClientes
       total: totalClientes,
       doc_formatado: cliente.doc_formatado || formatarDocumentoResumo(cliente.doc),
       tipo_label: cliente.tipo_label || getTipoSolicitacaoLabel(cliente.tipo)
+    },
+    _queue_context: {
+      source: "clientes_fila",
+      clienteIndex,
+      payloadIndex: index,
+      totalClientes,
+      totalPayloadsCliente: enderecos.length
     }
   }));
 }
@@ -4678,26 +4732,45 @@ function aguardarConfirmacaoFilaClientes(payload, resultado, proximo, atual, tot
   });
 }
 
-async function executarFilaClientes(clientes) {
+async function executarFilaClientes(clientes, options = {}) {
   const planos = clientes.map((cliente, index) => ({
     cliente,
     payloads: montarPayloadsClienteFila(cliente, index, clientes.length)
   }));
   const totalBoletos = planos.reduce((total, item) => total + item.payloads.length, 0);
-  let boletosConcluidos = 0;
+  const inicioCliente = Math.min(
+    Math.max(0, Number(options.startClientIndex) || 0),
+    Math.max(planos.length - 1, 0)
+  );
+  const inicioPayload = Math.max(0, Number(options.startPayloadIndex) || 0);
+  const boletosIgnorados = planos.reduce((total, item, index) => {
+    if (index < inicioCliente) {
+      return total + item.payloads.length;
+    }
+
+    if (index === inicioCliente) {
+      return total + Math.min(inicioPayload, Math.max(item.payloads.length - 1, 0));
+    }
+
+    return total;
+  }, 0);
+  let boletosConcluidos = boletosIgnorados;
 
   state.batchRunning = true;
   setFlowButtonsBusy(true, "batch");
   hideResumeBox();
 
   try {
-    for (let clienteIndex = 0; clienteIndex < planos.length; clienteIndex += 1) {
+    for (let clienteIndex = inicioCliente; clienteIndex < planos.length; clienteIndex += 1) {
       const plano = planos[clienteIndex];
       let checkpointCliente = null;
+      const payloadInicial = clienteIndex === inicioCliente
+        ? Math.min(inicioPayload, Math.max(plano.payloads.length - 1, 0))
+        : 0;
 
       log(`Iniciando cliente ${clienteIndex + 1}/${planos.length}: ${plano.cliente.doc_formatado || formatarDocumentoResumo(plano.cliente.doc)}.`);
 
-      for (let payloadIndex = 0; payloadIndex < plano.payloads.length; payloadIndex += 1) {
+      for (let payloadIndex = payloadInicial; payloadIndex < plano.payloads.length; payloadIndex += 1) {
         const payload = plano.payloads[payloadIndex];
         const nome = payload.endereco?.empreendimento || `Empreendimento ${payloadIndex + 1}`;
         const resume = Boolean(payloadIndex > 0 && checkpointCliente);
@@ -4786,19 +4859,28 @@ function limparFormularioMultaContratual() {
     el("multaContrato").value = "";
   }
 
+  if (el("multaValidade")) {
+    el("multaValidade").value = "30";
+  }
+
+  atualizarValidadeMultaUI();
+
   limparMensagemCampo("multaDoc");
   limparMensagemCampo("multaValor");
   limparMensagemCampo("multaContrato");
+  limparMensagemCampo("multaValidade");
 }
 
 function montarPayloadMultaContratual() {
   const docInfo = analisarDocumento(el("multaDoc")?.value || "");
   const valor = el("multaValor")?.value || "";
   const contrato = String(el("multaContrato")?.value || "").replace(/\D/g, "").slice(0, 9);
+  const validadeDias = String(el("multaValidade")?.value || "30").replace(/\D/g, "");
 
   limparMensagemCampo("multaDoc");
   limparMensagemCampo("multaValor");
   limparMensagemCampo("multaContrato");
+  limparMensagemCampo("multaValidade");
 
   if (![11, 14].includes(docInfo.digitos.length)) {
     mostrarErroCampo("multaDoc", "Informe CPF ou CNPJ completo para gerar a multa contratual.");
@@ -4815,12 +4897,18 @@ function montarPayloadMultaContratual() {
     return null;
   }
 
+  if (!["30", "60"].includes(validadeDias)) {
+    mostrarErroCampo("multaValidade", "Selecione a data de validade da multa contratual.");
+    return null;
+  }
+
   return {
     doc: docInfo.digitos,
     tipo: "multa_contratual",
     modalidade: "multa_contratual",
     valor,
-    contrato
+    contrato,
+    validade_dias_uteis: validadeDias
   };
 }
 
@@ -5260,6 +5348,7 @@ setBaseStatus("active");
 construirEtapas();
 atualizarDocumentoUI("");
 atualizarDocumentoMultaUI("");
+atualizarValidadeMultaUI();
 atualizarTipo();
 atualizarModoValorUI();
 registrarValidacaoInterativa();

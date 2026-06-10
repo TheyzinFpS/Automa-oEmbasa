@@ -115,7 +115,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.4.34</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.4.35</span>
           </div>
         </div>
       </div>
@@ -529,6 +529,31 @@
             />
             <small class="field-hint">Somente n&uacute;meros, at&eacute; 9 d&iacute;gitos.</small>
           </label>
+
+          <div class="field field-span-2">
+            <span>Data de Validade</span>
+            <input id="multaValidade" type="hidden" value="30" />
+            <div class="validity-options" role="group" aria-label="Data de Validade">
+              <button
+                id="multaValidade30"
+                class="validity-option active"
+                type="button"
+                onclick="selecionarValidadeMulta('30')"
+              >
+                30 dias &uacute;teis
+              </button>
+              <button
+                id="multaValidade60"
+                class="validity-option"
+                type="button"
+                onclick="selecionarValidadeMulta('60')"
+              >
+                60 dias &uacute;teis
+              </button>
+            </div>
+            <small class="field-hint">Define o prazo aplicado na VA01.</small>
+            <p id="multaValidadeError" class="field-message hidden"></p>
+          </div>
         </div>
 
         <p id="multaFormError" class="field-message hidden"></p>

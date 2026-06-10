@@ -89,4 +89,9 @@ def validar_dados_multa_contratual(dados):
     elif len(contrato) > 9:
         erros.append("Número do contrato deve ter no máximo 9 dígitos")
 
+    validade = "".join(filter(str.isdigit, str(dados.get("validade_dias_uteis", ""))))
+
+    if validade not in {"30", "60"}:
+        erros.append("Data de validade da multa contratual obrigatoria")
+
     return erros

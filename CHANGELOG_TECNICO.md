@@ -1,5 +1,28 @@
 # Registro técnico de alterações
 
+## Terca-feira, 09/06/2026 - Versao 1.4.35
+
+**Ajuste aplicado**
+
+- Adicionada a selecao `Data de Validade` no fluxo de Multa Contratual, com opcoes de 30 e 60 dias uteis.
+- A Multa Contratual passou a enviar `validade_dias_uteis` no payload e a VA01 aplica `C030` para 30 dias uteis ou `C060` para 60 dias uteis.
+- O backend passou a validar a validade da Multa Contratual antes de iniciar o fluxo SAP.
+- Corrigida a retomada da fila de CPF/CNPJ apos criacao de cliente: quando um cliente inexistente e criado no meio da fila, o fluxo retoma a partir do CPF/CNPJ e empreendimento pendentes, sem reiniciar pelos itens anteriores.
+- Atualizada a versao do projeto de `1.4.34` para `1.4.35`.
+
+**Validacao realizada**
+
+- `node --check interface\app.js`
+- `python -m py_compile interface.py backend\settings.py backend\validators.py backend\flows\va01.py`
+- Teste direto do validador confirmando boleto comum sem exigencia de validade, multa aceita em 30/60 dias uteis e bloqueio de valor invalido.
+- Teste direto da regra da VA01 confirmando `C030` para 30 dias uteis e `C060` para 60 dias uteis.
+- Checagem de IDs duplicados no HTML.
+- Checagem de handlers declarados no HTML contra `interface\app.js`.
+- Checagem visual local do seletor de validade da Multa Contratual.
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.35`.
+- Smoke test do executavel empacotado: processo iniciou e permaneceu em execucao ate o encerramento do teste.
+
 ## Segunda-feira, 08/06/2026 - Versao 1.4.34
 
 **Ajuste aplicado**

@@ -161,6 +161,14 @@ def _normalizar_tipo(tipo):
     return tipo_normalizado
 
 
+def _resolver_condicao_pagamento(tipo, dados, configuracao):
+    if tipo == TIPO_MULTA_CONTRATUAL:
+        validade = "".join(filter(str.isdigit, str(dados.get("validade_dias_uteis", ""))))
+        return "C060" if validade == "60" else "C030"
+
+    return configuracao.get("condicao_pagamento", "C060")
+
+
 def _normalizar_endereco(dados):
     endereco = dict(dados.get("endereco") or {})
     cep_original = str(endereco.get("cep", "")).strip().upper()
@@ -298,14 +306,14 @@ def _preencher_dados_iniciais(session, codigo_cliente):
     wait_for_element(session, _CAMPO_DESTINATARIO, timeout=10).text = str(codigo_cliente).strip()
 
 
-def _preencher_item_principal(session, configuracao):
+def _preencher_item_principal(session, configuracao, condicao_pagamento=None):
     wait_for_element(session, _ABA_OVERVIEW, timeout=10).select()
 
     campo_centro = wait_for_element(session, _CAMPO_CENTRO, timeout=10)
     campo_centro.text = configuracao.get("centro", "CAB")
 
     campo_pagamento = wait_for_element(session, _CAMPO_CONDICAO_PAGAMENTO, timeout=10)
-    campo_pagamento.text = configuracao.get("condicao_pagamento", "C060")
+    campo_pagamento.text = condicao_pagamento or configuracao.get("condicao_pagamento", "C060")
 
     campo_material = wait_for_element(session, _CAMPO_MATERIAL, timeout=10)
     campo_material.text = configuracao["material"]
@@ -377,6 +385,7 @@ def criar_pedido(session, dados, codigo_cliente, logger, progress_callback=None)
     try:
         tipo = _normalizar_tipo(dados.get("tipo"))
         configuracao = _TIPOS_VA01[tipo]
+        condicao_pagamento = _resolver_condicao_pagamento(tipo, dados, configuracao)
         endereco = _normalizar_endereco(dados)
 
         valor_sap = (
@@ -390,6 +399,7 @@ def criar_pedido(session, dados, codigo_cliente, logger, progress_callback=None)
         logger.add(1, f"Tipo VA01 selecionado: {tipo}")
         logger.add(1, f"Cliente aplicado na VA01: {codigo_cliente}")
         logger.add(1, f"Valor SAP aplicado na VA01: {valor_sap}")
+        logger.add(1, f"Condicao de pagamento aplicada na VA01: {condicao_pagamento}")
 
         progresso_atual = 10
         _notificar(
@@ -416,7 +426,7 @@ def criar_pedido(session, dados, codigo_cliente, logger, progress_callback=None)
             "Preenchendo centro, pagamento e material...",
             progresso_atual,
         )
-        _preencher_item_principal(session, configuracao)
+        _preencher_item_principal(session, configuracao, condicao_pagamento)
 
         progresso_atual = 72
         _notificar(

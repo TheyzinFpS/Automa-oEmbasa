@@ -1438,6 +1438,36 @@ input.is-loading {
   grid-column: 1 / -1;
 }
 
+.validity-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.validity-option {
+  min-height: 54px;
+  padding: 0 14px;
+  border: 1px solid rgba(11, 79, 159, 0.16);
+  border-radius: 16px;
+  background: rgba(11, 79, 159, 0.08);
+  color: var(--ink);
+  font-weight: 800;
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+.validity-option:hover {
+  transform: translateY(-1px);
+  border-color: rgba(11, 79, 159, 0.34);
+}
+
+.validity-option.active {
+  border-color: rgba(72, 190, 255, 0.58);
+  background: linear-gradient(135deg, rgba(11, 79, 159, 0.2), rgba(72, 190, 255, 0.18));
+  box-shadow: 0 0 0 4px rgba(72, 190, 255, 0.1);
+  color: var(--ink);
+}
+
 .number-shell {
   position: relative;
 }
