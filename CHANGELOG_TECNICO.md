@@ -1,5 +1,23 @@
 # Registro técnico de alterações
 
+## Quinta-feira, 11/06/2026 - Versao 1.4.38
+
+**Ajuste aplicado**
+
+- Adicionada a nova area `Baixar extratos` na sidebar, com icone `BE`.
+- Criada a base visual da rotina de extratos bancarios para a Caixa, com campos de banco, mes e ano.
+- O painel de andamento ganhou o modo `BE - Baixar extratos`, usado para validar a base antes da automacao real do site.
+- O botao `Preparar baixa de extratos` valida o periodo, atualiza o monitor e registra log operacional, deixando o fluxo pronto para receber os prints do passo a passo.
+- Atualizada a versao do projeto de `1.4.37` para `1.4.38`.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py`
+- `node --check interface\app.js`
+- `git diff --check`
+- Checagem pelo Browser interno em `http://127.0.0.1:8790/index.html`: painel `Baixar extratos` abriu pela sidebar e o botao `Preparar baixa de extratos` atualizou o monitor para `BE - Baixar extratos`.
+- A captura de screenshot pelo Browser interno travou em `Page.captureScreenshot`, mas a validacao DOM confirmou painel visivel, preview `Junho/2026`, status `Base pronta` e log operacional gerado.
+
 ## Quinta-feira, 11/06/2026 - Versao 1.4.37
 
 **Ajuste aplicado**

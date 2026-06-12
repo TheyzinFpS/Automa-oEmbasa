@@ -21,6 +21,9 @@ const MONITOR_STAGES = {
   ],
   setor: [
     { id: "XD01", codigo: "XD01", titulo: "Criar setor" }
+  ],
+  extratos: [
+    { id: "BE", codigo: "BE", titulo: "Baixar extratos" }
   ]
 };
 
@@ -74,7 +77,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.37";
+const APP_VERSION = "1.4.38";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -94,6 +97,20 @@ const EMPTY_LOG_MARKUP = '<div class="log-empty">Os logs do fluxo aparecerão aq
 const PDF_NAME_NOTICE_PREFIX = "PDF_NAME_READY::";
 const PAYMENT_FILE_NOTICE_PREFIX = "PAYMENT_FILE_READY::";
 const SIMPLE_NOTICE_PREFIX = "SIMPLE_NOTICE::";
+const MESES_EXTRATO = {
+  "01": "Janeiro",
+  "02": "Fevereiro",
+  "03": "Marco",
+  "04": "Abril",
+  "05": "Maio",
+  "06": "Junho",
+  "07": "Julho",
+  "08": "Agosto",
+  "09": "Setembro",
+  "10": "Outubro",
+  "11": "Novembro",
+  "12": "Dezembro"
+};
 // Mapeia eventos vindos do Python para a etapa visual correspondente.
 function criarDisplayStageMap(etapas = ETAPAS) {
   const map = new Map();
@@ -1941,7 +1958,8 @@ function setSidebarActive(view) {
   const mapa = {
     boletos: "navBoleto",
     cliente: "navCliente",
-    multa: "navMulta"
+    multa: "navMulta",
+    extratos: "navExtratos"
   };
 
   Object.values(mapa).forEach((id) => {
@@ -1978,7 +1996,8 @@ function mostrarPainelWorkspace(view) {
   const panels = {
     boletos: el("mainFormPanel"),
     cliente: el("clientRegistrationPanel"),
-    multa: el("multaContratualPanel")
+    multa: el("multaContratualPanel"),
+    extratos: el("bankStatementsPanel")
   };
 
   Object.entries(panels).forEach(([key, node]) => {
@@ -2040,6 +2059,158 @@ function showClienteRegistrationWorkspace() {
   setSidebarExpanded(false);
   setStatus("Cadastro de cliente", "idle");
   window.setTimeout(() => el("clienteCadastroDoc")?.focus(), 180);
+}
+
+function obterAnoAtualExtrato() {
+  return String(new Date().getFullYear());
+}
+
+function obterMesAtualExtrato() {
+  return String(new Date().getMonth() + 1).padStart(2, "0");
+}
+
+function preencherMesAnoExtratosPadrao(force = false) {
+  const mes = el("extratoMes");
+  const ano = el("extratoAno");
+
+  if (mes && (force || !mes.value)) {
+    mes.value = obterMesAtualExtrato();
+  }
+
+  if (ano && (force || !ano.value)) {
+    ano.value = obterAnoAtualExtrato();
+  }
+
+  atualizarPreviewExtrato();
+}
+
+function atualizarPreviewExtrato() {
+  const preview = el("extratoPreview");
+
+  if (!preview) {
+    return;
+  }
+
+  const mes = el("extratoMes")?.value || "";
+  const ano = String(el("extratoAno")?.value || "").replace(/\D/g, "").slice(0, 4);
+  const strong = preview.querySelector("strong");
+
+  if (strong) {
+    strong.textContent = mes && ano.length === 4
+      ? `${MESES_EXTRATO[mes] || mes}/${ano}`
+      : "--";
+  }
+}
+
+function normalizarAnoExtrato(input) {
+  input.value = String(input.value || "").replace(/\D/g, "").slice(0, 4);
+  atualizarPreviewExtrato();
+}
+
+function limparErroExtrato() {
+  const erro = el("extratoFormError");
+
+  if (erro) {
+    erro.textContent = "";
+    erro.classList.add("hidden");
+  }
+}
+
+function mostrarErroExtrato(mensagem) {
+  const erro = el("extratoFormError");
+
+  if (erro) {
+    erro.textContent = mensagem;
+    erro.classList.remove("hidden");
+  }
+}
+
+function montarPayloadExtratos() {
+  const banco = el("extratoBanco")?.value || "caixa";
+  const mes = el("extratoMes")?.value || "";
+  const ano = String(el("extratoAno")?.value || "").replace(/\D/g, "").slice(0, 4);
+
+  limparErroExtrato();
+
+  if (banco !== "caixa") {
+    mostrarErroExtrato("Banco ainda nao preparado para esta rotina.");
+    return null;
+  }
+
+  if (!MESES_EXTRATO[mes]) {
+    mostrarErroExtrato("Selecione o mes do extrato.");
+    return null;
+  }
+
+  if (ano.length !== 4) {
+    mostrarErroExtrato("Informe o ano com 4 digitos.");
+    return null;
+  }
+
+  return {
+    banco,
+    banco_label: "Caixa",
+    mes,
+    mes_label: MESES_EXTRATO[mes],
+    ano
+  };
+}
+
+function showExtratosWorkspace(options = {}) {
+  if (state.flowRunning) {
+    showSimpleOperationalToast("Aguarde a conclusao da acao SAP atual.");
+    return;
+  }
+
+  setMonitorMode("extratos");
+  mostrarPainelWorkspace("extratos");
+  hideCadastroClienteFeedback();
+  setSidebarExpanded(false);
+  preencherMesAnoExtratosPadrao();
+
+  if (options.status !== false) {
+    setStatus("Baixar extratos", "idle");
+  }
+
+  window.setTimeout(() => el("extratoMes")?.focus(), 180);
+}
+
+function prepararBaixaExtratos() {
+  const payload = montarPayloadExtratos();
+
+  if (!payload) {
+    setStatus("Revise os extratos", "error");
+    return;
+  }
+
+  window.resetarProgresso();
+  ativarEtapa(0, 40, `Base Caixa preparada para ${payload.mes_label}/${payload.ano}.`);
+  concluirEtapa(0, "Base pronta para receber o passo a passo do site.");
+  setStatus("Base pronta", "success");
+  log(`Base de extratos preparada: ${payload.banco_label} - ${payload.mes_label}/${payload.ano}.`);
+  showSimpleOperationalToast("Base de extratos pronta para os prints de amanha.");
+}
+
+function limparFormularioExtratos() {
+  const banco = el("extratoBanco");
+  const mes = el("extratoMes");
+  const ano = el("extratoAno");
+
+  if (banco) {
+    banco.value = "caixa";
+  }
+
+  if (mes) {
+    mes.value = "";
+  }
+
+  if (ano) {
+    ano.value = obterAnoAtualExtrato();
+  }
+
+  limparErroExtrato();
+  atualizarPreviewExtrato();
+  setStatus("Baixar extratos", "idle");
 }
 
 // Atualiza visualmente o status operacional da base.
@@ -4512,6 +4683,8 @@ function limparPainel() {
   if (workspaceAtual === "multa") {
     limparFormularioMultaContratual();
     showMultaContratualWorkspace({ status: false });
+  } else if (workspaceAtual === "extratos") {
+    showExtratosWorkspace({ status: false });
   } else {
     showBoletoWorkspace({ status: false });
   }
@@ -5540,6 +5713,7 @@ atualizarDocumentoMultaUI("");
 atualizarValidadeMultaUI();
 atualizarTipo();
 atualizarModoValorUI();
+preencherMesAnoExtratosPadrao(true);
 registrarValidacaoInterativa();
 registrarCepAutocomplete();
 updateContactCharCount();

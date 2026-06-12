@@ -60,6 +60,16 @@
         <span class="sidebar-label">Multa Contratual</span>
       </button>
 
+      <button
+        id="navExtratos"
+        class="sidebar-nav-item"
+        type="button"
+        onclick="showExtratosWorkspace()"
+      >
+        <span class="sidebar-icon">BE</span>
+        <span class="sidebar-label">Baixar extratos</span>
+      </button>
+
     </nav>
 
     <div class="sidebar-footer" aria-label="Utilit&aacute;rios">
@@ -115,7 +125,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.4.37</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.4.38</span>
           </div>
         </div>
       </div>
@@ -575,6 +585,93 @@
             disabled
           >
             Cancelar criaÃ§Ã£o
+          </button>
+        </div>
+      </section>
+
+      <section id="bankStatementsPanel" class="panel bank-statement-panel hidden">
+        <div class="panel-head compact">
+          <div>
+            <p class="section-kicker">Extratos banc&aacute;rios</p>
+            <h2>Baixar extratos</h2>
+          </div>
+          <div class="doc-badge neutral">BE</div>
+        </div>
+
+        <div class="bank-statement-summary">
+          <div>
+            <span>Banco preparado</span>
+            <strong>Caixa Econ&ocirc;mica Federal</strong>
+          </div>
+          <div>
+            <span>Modo atual</span>
+            <strong>Base de interface</strong>
+          </div>
+        </div>
+
+        <div class="bank-statement-grid">
+          <label class="field">
+            <span>Banco</span>
+            <select id="extratoBanco" onchange="atualizarPreviewExtrato()">
+              <option value="caixa" selected>Caixa</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>M&ecirc;s</span>
+            <select id="extratoMes" onchange="atualizarPreviewExtrato()">
+              <option value="">Selecione</option>
+              <option value="01">Janeiro</option>
+              <option value="02">Fevereiro</option>
+              <option value="03">Mar&ccedil;o</option>
+              <option value="04">Abril</option>
+              <option value="05">Maio</option>
+              <option value="06">Junho</option>
+              <option value="07">Julho</option>
+              <option value="08">Agosto</option>
+              <option value="09">Setembro</option>
+              <option value="10">Outubro</option>
+              <option value="11">Novembro</option>
+              <option value="12">Dezembro</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Ano</span>
+            <input
+              id="extratoAno"
+              type="number"
+              inputmode="numeric"
+              min="2020"
+              max="2099"
+              placeholder="2026"
+              oninput="normalizarAnoExtrato(this)"
+            />
+          </label>
+        </div>
+
+        <div id="extratoPreview" class="bank-statement-preview">
+          <span>Per&iacute;odo selecionado</span>
+          <strong>--</strong>
+        </div>
+
+        <p id="extratoFormError" class="field-message hidden"></p>
+
+        <div class="flow-actions">
+          <button
+            id="extratoSubmitButton"
+            class="primary-action"
+            type="button"
+            onclick="prepararBaixaExtratos()"
+          >
+            Preparar baixa de extratos
+          </button>
+          <button
+            class="ghost-action"
+            type="button"
+            onclick="limparFormularioExtratos()"
+          >
+            Limpar
           </button>
         </div>
       </section>
