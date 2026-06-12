@@ -115,7 +115,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.4.36</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.4.37</span>
           </div>
         </div>
       </div>
@@ -1021,16 +1021,18 @@
     <div class="contact-success-card pdf-name-card">
       <p class="section-kicker">PDFCreator</p>
       <h2>Linha de boleto selecionada</h2>
-      <p>
+      <p id="pdfNameInstruction">
         D&ecirc; o comando <strong>Shift + F5 / Ctrl + Shift + F8</strong>
         ou selecione o &iacute;cone de impress&atilde;o no SAP para imprimir o boleto.
         O nome abaixo j&aacute; foi copiado automaticamente. Cole no PDFCreator.
       </p>
+      <p id="pdfNameWarning" class="pdf-name-warning hidden"></p>
 
       <div id="pdfNameValue" class="pdf-name-value"></div>
 
       <div class="batch-confirm-actions pdf-name-actions">
         <button
+          id="pdfNameActionButton"
           type="button"
           class="primary-action"
           onclick="closePdfNameNotice()"

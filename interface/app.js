@@ -74,7 +74,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.36";
+const APP_VERSION = "1.4.37";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -150,6 +150,8 @@ const state = {
   cancelRequested: false,
   currentPdfNameNotice: "",
   lastPdfNameNotice: "",
+  currentPdfNoticeId: "",
+  currentPdfRequiresConfirmation: false,
   currentPaymentFileNotice: "",
   lastPaymentFileNotice: "",
   paymentFileCopiedTimer: 0,
@@ -2959,35 +2961,52 @@ async function copiarMeioPagamentoResultado() {
 
 window.copiarMeioPagamentoResultado = copiarMeioPagamentoResultado;
 
-function openPdfNameModal(nomePdf) {
+function openPdfNameModal(nomePdf, options = {}) {
   const nomeLimpo = String(nomePdf || "").trim();
 
   if (!nomeLimpo) {
     return;
   }
 
-  if (state.lastPdfNameNotice === nomeLimpo) {
+  const exigeConfirmacao = Boolean(options.aguardar_confirmacao || options.exigir_confirmacao);
+  const forceOpen = Boolean(options.forceOpen || exigeConfirmacao);
+
+  if (state.lastPdfNameNotice === nomeLimpo && !forceOpen) {
     return;
   }
 
   state.currentPdfNameNotice = nomeLimpo;
   state.lastPdfNameNotice = nomeLimpo;
+  state.currentPdfNoticeId = String(options.notice_id || "");
+  state.currentPdfRequiresConfirmation = exigeConfirmacao;
 
   prepararInterfaceParaAvisoOperacional();
 
   const value = el("pdfNameValue");
+  const warning = el("pdfNameWarning");
+  const button = el("pdfNameActionButton");
 
   if (value) {
     value.textContent = nomeLimpo;
+  }
+
+  if (warning) {
+    const aviso = String(options.aviso_confirmacao || "").trim();
+    warning.textContent = aviso;
+    warning.classList.toggle("hidden", !aviso);
+  }
+
+  if (button) {
+    button.textContent = String(options.botao_confirmacao || "").trim() || "Fechar";
   }
 
   copiarTextoParaAreaTransferencia(nomeLimpo).catch(() => {});
   openModal("pdfNameModal");
 }
 
-function openPdfNameModalComConfirmacao(nomePdf) {
+function openPdfNameModalComConfirmacao(nomePdf, options = {}) {
   state.lastPdfNameNotice = "";
-  openPdfNameModal(nomePdf);
+  openPdfNameModal(nomePdf, { ...options, forceOpen: true });
 }
 
 function closePdfNameModal() {
@@ -3012,8 +3031,21 @@ function closePdfNameNotice() {
   const estavaEmpilhado =
     modalEstaAberto("pdfNameModal") &&
     modalEstaAberto("batchConfirmModal");
+  const noticeId = state.currentPdfNoticeId;
+  const deveConfirmar = state.currentPdfRequiresConfirmation;
+
+  state.currentPdfNoticeId = "";
+  state.currentPdfRequiresConfirmation = false;
 
   closePdfNameModal();
+
+  if (deveConfirmar && noticeId) {
+    try {
+      window.pywebview?.api?.confirmar_aviso_operacional?.(noticeId)?.catch?.(() => {});
+    } catch (error) {
+      // A confirmacao e opcional para a interface, mas exigida pelo backend neste aviso.
+    }
+  }
 
   if (estavaEmpilhado) {
     promoverModalConfirmacaoLote();
@@ -3051,7 +3083,7 @@ function mostrarAvisoOperacionalAgora(tipo, payload = {}) {
     return;
   }
 
-  openPdfNameModalComConfirmacao(nome);
+  openPdfNameModalComConfirmacao(nome, payload);
 }
 
 function mostrarAvisoOperacional(tipo, payload = {}) {

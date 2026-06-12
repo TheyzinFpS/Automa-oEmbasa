@@ -254,20 +254,32 @@ def _aguardar_copia_interface(
     percentual=99,
     emitir_aviso=True,
     aguardar_confirmacao=True,
+    contexto_confirmacao=None,
 ):
     """
-    Copia o nome e emite aviso apenas informativo.
+    Copia o nome e emite aviso para a interface.
 
-    Importante:
-    - não chama notice_callback;
-    - não espera confirmação do frontend;
-    - não bloqueia o backend;
-    - o botão do modal apenas copia/fecha localmente no app.js.
+    Por padrão o aviso é apenas informativo. Quando contexto_confirmacao é
+    informado, o frontend precisa confirmar para liberar a próxima ação SAP.
     """
 
     _copiar_nome_pdf(nome)
 
     if not emitir_aviso:
+        return True
+
+    if contexto_confirmacao and callable(notice_callback):
+        payload = {
+            "nome": nome,
+            "nome_pdf": nome,
+            "aguardar_confirmacao": True,
+            **dict(contexto_confirmacao or {}),
+        }
+        evento = notice_callback("pdf", payload)
+
+        if hasattr(evento, "wait"):
+            evento.wait()
+
         return True
 
     prefixo = _PAYMENT_NOTICE_PREFIX if tipo == "payment" else _PDF_NOTICE_PREFIX
@@ -1467,7 +1479,8 @@ def finalizar_boleto_f110(
             100,
             status="processando",
         )
-        time.sleep(max(0, float(aguardar_apos_copia_segundos or 0)))
+        tempo_aguardo_pdf = max(0, float(aguardar_apos_copia_segundos or 0))
+        time.sleep(tempo_aguardo_pdf)
 
     if retornar_apos_boleto:
         voltar_tela_inicial_com_f3(
@@ -1497,6 +1510,7 @@ def selecionar_boletos_sp02(
     progress_callback=None,
     notice_callback=None,
     aguardar_apos_copia_segundos=_PDF_COPY_WAIT_SECONDS,
+    confirmar_entre_boletos=False,
 ):
     boletos = list(boletos or [])
 
@@ -1583,6 +1597,29 @@ def selecionar_boletos_sp02(
             f"Boleto de {tipo_label} selecionado. Aguardando cópia do nome...",
             99,
         )
+        proximo_tipo_label = ""
+
+        if indice < len(boletos) - 1:
+            proximo_boleto = boletos[indice + 1]
+            proximo_tipo_label = _TIPOS_LABEL.get(
+                str(proximo_boleto.get("tipo") or ""),
+                proximo_boleto.get("tipo") or "proximo boleto",
+            )
+
+        exigir_confirmacao = bool(confirmar_entre_boletos and proximo_tipo_label)
+        contexto_confirmacao = None
+        proximo_botao_label = str(proximo_tipo_label or "").replace("Projeto ", "").strip()
+
+        if exigir_confirmacao:
+            contexto_confirmacao = {
+                "botao_confirmacao": f"Prosseguir para {proximo_botao_label or proximo_tipo_label}",
+                "aviso_confirmacao": (
+                    "Clique em Prosseguir somente depois de gerar este boleto no PDFCreator."
+                ),
+                "modo": "agua_esgoto_intermediario",
+                "proximo_tipo_label": proximo_tipo_label,
+            }
+
         _aguardar_copia_interface(
             "pdf",
             nome_pdf,
@@ -1590,14 +1627,22 @@ def selecionar_boletos_sp02(
             progress_callback=progress_callback,
             mensagem=f"Copie o nome do PDF do projeto {tipo_label}.",
             percentual=100 if indice == len(boletos) - 1 else 99,
+            contexto_confirmacao=contexto_confirmacao,
         )
 
-        _notificar(
-            progress_callback,
-            f"Aguardando {aguardar_apos_copia_segundos} segundos após cópia do boleto de {tipo_label}...",
-            99,
-        )
-        time.sleep(max(0, float(aguardar_apos_copia_segundos or 0)))
+        if exigir_confirmacao:
+            _notificar(
+                progress_callback,
+                f"Confirmacao recebida. Seguindo para o boleto de {proximo_tipo_label}...",
+                99,
+            )
+        else:
+            _notificar(
+                progress_callback,
+                f"Aguardando {aguardar_apos_copia_segundos} segundos após cópia do boleto de {tipo_label}...",
+                99,
+            )
+            time.sleep(max(0, float(aguardar_apos_copia_segundos or 0)))
 
         if indice < len(boletos) - 1:
             _notificar(

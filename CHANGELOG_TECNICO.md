@@ -1,5 +1,23 @@
 # Registro técnico de alterações
 
+## Quinta-feira, 11/06/2026 - Versao 1.4.37
+
+**Ajuste aplicado**
+
+- No fluxo `Agua + Esgoto`, o primeiro aviso de PDF da SP02 passou a exigir confirmacao do usuario antes de desmarcar o boleto atual e seguir para o proximo.
+- O modal especial do PDF usa o botao `Prosseguir para Agua` e exibe aviso amarelo orientando a clicar somente depois de gerar o boleto no PDFCreator.
+- O aviso padrao de PDF continua apenas informativo nos demais fluxos, preservando o comportamento sem bloqueio.
+- Corrigida a criacao de cliente CPF na aba `Dados de controle`: o sistema preenche o campo fiscal de CPF e marca a opcao `Pessoa fisica` antes de seguir para dados de empresa e vendas.
+- Atualizada a versao do projeto de `1.4.36` para `1.4.37`.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\controller.py backend\flows\f110_boleto.py backend\flows\cliente_cadastro.py`
+- `node --check interface\app.js`
+- `git diff --check`
+- Tentativa de checagem visual pelo Browser interno: `http://127.0.0.1:8765/` foi bloqueado por `net::ERR_BLOCKED_BY_CLIENT` e `file:///` foi bloqueado pela politica do Browser.
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.37`.
+
 ## Terca-feira, 09/06/2026 - Versao 1.4.36
 
 **Ajuste aplicado**

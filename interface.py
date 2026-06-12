@@ -211,23 +211,37 @@ class API:
 
     def _aguardar_aviso_operacional(self, tipo, payload=None, timeout=900):
         """
-        Aviso operacional apenas informativo.
+        Emite aviso operacional para o frontend.
 
-        Não aguarda clique, confirmação nem retorno do frontend.
-        Isso evita travamento do pywebview quando o fluxo SAP já terminou
-        ou quando o backend está ocupado.
+        Avisos comuns seguem informativos. Avisos com confirmacao criam um
+        Event e retornam ao backend para liberar a proxima etapa apos o clique.
         """
 
         payload = dict(payload or {})
         payload["tipo"] = str(tipo or "")
+        evento = None
 
-        self._emitir_funcao_js(
+        if payload.get("aguardar_confirmacao") or payload.get("exigir_confirmacao"):
+            notice_id = f"{time.time_ns()}-{threading.get_ident()}"
+            evento = threading.Event()
+            payload["notice_id"] = notice_id
+
+            with self._notice_lock:
+                self._notice_events[notice_id] = evento
+
+            if str(tipo or "") == "pdf":
+                self._trazer_interface_para_frente(maximizar=True)
+
+        emitido = self._emitir_funcao_js(
             "mostrarAvisoOperacional",
             str(tipo or ""),
             _serializar_para_front(payload),
         )
 
-        return True
+        if evento is not None and not emitido:
+            evento.set()
+
+        return evento or True
 
     # Encaminha logs publicos do backend para o balao de logs em tempo real.
     def _instalar_logger_tempo_real(self):
@@ -276,7 +290,7 @@ class API:
 
     def confirmar_aviso_operacional(self, notice_id):
         with self._notice_lock:
-            evento = self._notice_events.get(str(notice_id or ""))
+            evento = self._notice_events.pop(str(notice_id or ""), None)
 
         if evento is None:
             return {"ok": False, "msg": "Aviso operacional não encontrado."}

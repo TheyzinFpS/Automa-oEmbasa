@@ -348,6 +348,34 @@ def _set_key(session, element_id, value, timeout=8, required=True):
     return None
 
 
+def _set_checkbox(session, element_id, checked=True, timeout=8, required=True):
+    try:
+        if not required:
+            timeout = min(float(timeout or 1), 1.0)
+
+        element = wait_for_element(session, element_id, timeout=timeout)
+        valor = bool(checked)
+
+        try:
+            element.selected = valor
+        except Exception:
+            try:
+                element.Selected = valor
+            except Exception:
+                atual = bool(getattr(element, "selected", False))
+
+                if atual != valor:
+                    element.press()
+
+        wait_until_ready(session)
+        return element
+    except Exception:
+        if required:
+            raise
+
+    return None
+
+
 def _normalizar_opcao_combo(valor):
     texto = unicodedata.normalize("NFKD", str(valor or ""))
     texto = "".join(char for char in texto if not unicodedata.combining(char))
@@ -575,7 +603,20 @@ def _preencher_documentos_fiscais(session, dados):
         "ssubSUBSC:SAPLATAB:0200/subAREA3:SAPMF02D:7122/"
     )
 
-    # O layout EMBASA usa o mesmo campo fiscal para CPF e CNPJ.
+    if dados.get("tipo_documento") == "cpf":
+        campo_cpf = _set_text(
+            session,
+            prefixo + "txtKNA1-STCD2",
+            dados["doc"],
+            required=False,
+        )
+
+        if campo_cpf is None:
+            _set_text(session, prefixo + "txtKNA1-STCD1", dados["doc"])
+
+        _set_checkbox(session, prefixo + "chkKNA1-STKZN", True)
+        return
+
     _set_text(session, prefixo + "txtKNA1-STCD1", dados["doc"])
     _set_text(
         session,
