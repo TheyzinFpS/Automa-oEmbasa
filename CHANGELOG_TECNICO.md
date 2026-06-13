@@ -1,5 +1,23 @@
 # Registro técnico de alterações
 
+## Sabado, 13/06/2026 - Versao 1.4.39
+
+**Ajuste aplicado**
+
+- A area `Baixar extratos` foi atualizada com o roteiro visual do site da Caixa enviado nos prints: `Saldo e Extratos`, `Extrato Individualizado de Contas`, selecao da conta, mes/ano, pesquisa, exportacao em PDF e salvamento em `CEF`.
+- A interface agora calcula a pasta destino no padrao usado pelo setor, como `...\EXTRATOS\2026\05.MAI\CEF`.
+- Adicionado campo `Conta no arquivo` para montar o nome sugerido no padrao `CEF 8512-3_MAI-26.pdf`.
+- O botao `Preparar baixa de extratos` passou a registrar no log os passos mapeados, a pasta destino e o nome sugerido.
+- Atualizada a versao do projeto de `1.4.38` para `1.4.39`, incluindo `VERSAO.txt`, `embasa_settings.json`, `backend/settings.py`, rodape da interface e constante JS.
+
+**Validacao realizada**
+
+- `node --check interface\app.js`
+- `python -m py_compile main.py interface.py backend\settings.py`
+- `git diff --check`
+- Checagem pelo Browser interno em `http://127.0.0.1:8790/index.html`: painel `Baixar extratos` abriu pela sidebar, a conta `8512-3` gerou o preview `CEF 8512-3_JUN-26.pdf`, a pasta destino ficou no padrao `...\EXTRATOS\2026\06.JUN\CEF` e o botao de preparacao registrou pasta/nome/roteiro no log operacional.
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.39`.
+
 ## Quinta-feira, 11/06/2026 - Versao 1.4.38
 
 **Ajuste aplicado**

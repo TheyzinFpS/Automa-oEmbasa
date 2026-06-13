@@ -77,7 +77,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.38";
+const APP_VERSION = "1.4.39";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -111,6 +111,30 @@ const MESES_EXTRATO = {
   "11": "Novembro",
   "12": "Dezembro"
 };
+const MESES_EXTRATO_SIGLA = {
+  "01": "JAN",
+  "02": "FEV",
+  "03": "MAR",
+  "04": "ABR",
+  "05": "MAI",
+  "06": "JUN",
+  "07": "JUL",
+  "08": "AGO",
+  "09": "SET",
+  "10": "OUT",
+  "11": "NOV",
+  "12": "DEZ"
+};
+const EXTRATO_PASTA_BASE_PADRAO = "N:\\DF\\FAFT\\documentos\\FFAM\\Documentos\\Documentos Diversos\\EQUIPE FAFF\\DANIEL\\EXTRATOS";
+const EXTRATO_CAIXA_PASSOS = [
+  "Saldo e Extratos",
+  "Extrato Individualizado de Contas",
+  "Selecionar conta",
+  "Selecionar mes e ano",
+  "Pesquisar",
+  "Exportar PDF",
+  "Salvar na pasta CEF"
+];
 // Mapeia eventos vindos do Python para a etapa visual correspondente.
 function criarDisplayStageMap(etapas = ETAPAS) {
   const map = new Map();
@@ -2072,6 +2096,7 @@ function obterMesAtualExtrato() {
 function preencherMesAnoExtratosPadrao(force = false) {
   const mes = el("extratoMes");
   const ano = el("extratoAno");
+  const pastaBase = el("extratoPastaBase");
 
   if (mes && (force || !mes.value)) {
     mes.value = obterMesAtualExtrato();
@@ -2081,7 +2106,41 @@ function preencherMesAnoExtratosPadrao(force = false) {
     ano.value = obterAnoAtualExtrato();
   }
 
+  if (pastaBase && (force || !pastaBase.value.trim())) {
+    pastaBase.value = EXTRATO_PASTA_BASE_PADRAO;
+  }
+
   atualizarPreviewExtrato();
+}
+
+function normalizarPastaBaseExtrato(valor) {
+  return String(valor || "").trim().replace(/[\\\/]+$/, "");
+}
+
+function normalizarContaExtrato(input) {
+  input.value = String(input.value || "")
+    .toUpperCase()
+    .replace(/[^0-9A-Z-]/g, "")
+    .slice(0, 32);
+  atualizarPreviewExtrato();
+}
+
+function montarPastaDestinoExtrato(mes, ano, pastaBase) {
+  const base = normalizarPastaBaseExtrato(pastaBase) || EXTRATO_PASTA_BASE_PADRAO;
+  const sigla = MESES_EXTRATO_SIGLA[mes] || "MES";
+
+  if (!mes || String(ano || "").length !== 4) {
+    return "--";
+  }
+
+  return `${base}\\${ano}\\${mes}.${sigla}\\CEF`;
+}
+
+function montarNomeArquivoExtrato(contaArquivo, mes, ano) {
+  const conta = String(contaArquivo || "").trim() || "CONTA";
+  const sigla = MESES_EXTRATO_SIGLA[mes] || "MES";
+  const anoCurto = String(ano || "").slice(-2) || "AA";
+  return `CEF ${conta}_${sigla}-${anoCurto}.pdf`;
 }
 
 function atualizarPreviewExtrato() {
@@ -2093,12 +2152,24 @@ function atualizarPreviewExtrato() {
 
   const mes = el("extratoMes")?.value || "";
   const ano = String(el("extratoAno")?.value || "").replace(/\D/g, "").slice(0, 4);
-  const strong = preview.querySelector("strong");
+  const contaArquivo = el("extratoContaArquivo")?.value || "";
+  const pastaBase = el("extratoPastaBase")?.value || EXTRATO_PASTA_BASE_PADRAO;
+  const periodoPreview = el("extratoPeriodoPreview") || preview.querySelector("strong");
+  const destinoPreview = el("extratoDestinoPreview");
+  const nomePreview = el("extratoNomePreview");
 
-  if (strong) {
-    strong.textContent = mes && ano.length === 4
+  if (periodoPreview) {
+    periodoPreview.textContent = mes && ano.length === 4
       ? `${MESES_EXTRATO[mes] || mes}/${ano}`
       : "--";
+  }
+
+  if (destinoPreview) {
+    destinoPreview.textContent = montarPastaDestinoExtrato(mes, ano, pastaBase);
+  }
+
+  if (nomePreview) {
+    nomePreview.textContent = montarNomeArquivoExtrato(contaArquivo, mes, ano);
   }
 }
 
@@ -2129,6 +2200,8 @@ function montarPayloadExtratos() {
   const banco = el("extratoBanco")?.value || "caixa";
   const mes = el("extratoMes")?.value || "";
   const ano = String(el("extratoAno")?.value || "").replace(/\D/g, "").slice(0, 4);
+  const contaArquivo = String(el("extratoContaArquivo")?.value || "").trim();
+  const pastaBase = normalizarPastaBaseExtrato(el("extratoPastaBase")?.value || EXTRATO_PASTA_BASE_PADRAO);
 
   limparErroExtrato();
 
@@ -2152,7 +2225,13 @@ function montarPayloadExtratos() {
     banco_label: "Caixa",
     mes,
     mes_label: MESES_EXTRATO[mes],
-    ano
+    mes_sigla: MESES_EXTRATO_SIGLA[mes],
+    ano,
+    conta_arquivo: contaArquivo,
+    pasta_base: pastaBase,
+    pasta_destino: montarPastaDestinoExtrato(mes, ano, pastaBase),
+    nome_arquivo: montarNomeArquivoExtrato(contaArquivo, mes, ano),
+    passos: [...EXTRATO_CAIXA_PASSOS]
   };
 }
 
@@ -2184,17 +2263,22 @@ function prepararBaixaExtratos() {
   }
 
   window.resetarProgresso();
-  ativarEtapa(0, 40, `Base Caixa preparada para ${payload.mes_label}/${payload.ano}.`);
-  concluirEtapa(0, "Base pronta para receber o passo a passo do site.");
+  ativarEtapa(0, 40, `GovConta Caixa preparado para ${payload.mes_label}/${payload.ano}.`);
+  concluirEtapa(0, `Salvar PDF em ${payload.pasta_destino}.`);
   setStatus("Base pronta", "success");
-  log(`Base de extratos preparada: ${payload.banco_label} - ${payload.mes_label}/${payload.ano}.`);
-  showSimpleOperationalToast("Base de extratos pronta para os prints de amanha.");
+  log(`Rotina de extratos preparada: ${payload.banco_label} - ${payload.mes_label}/${payload.ano}.`);
+  log(`Passos mapeados: ${payload.passos.join(" > ")}.`);
+  log(`Destino sugerido: ${payload.pasta_destino}.`);
+  log(`Nome sugerido: ${payload.nome_arquivo}.`);
+  showSimpleOperationalToast("Roteiro Caixa preparado com pasta e nome sugeridos.");
 }
 
 function limparFormularioExtratos() {
   const banco = el("extratoBanco");
   const mes = el("extratoMes");
   const ano = el("extratoAno");
+  const contaArquivo = el("extratoContaArquivo");
+  const pastaBase = el("extratoPastaBase");
 
   if (banco) {
     banco.value = "caixa";
@@ -2206,6 +2290,14 @@ function limparFormularioExtratos() {
 
   if (ano) {
     ano.value = obterAnoAtualExtrato();
+  }
+
+  if (contaArquivo) {
+    contaArquivo.value = "";
+  }
+
+  if (pastaBase) {
+    pastaBase.value = EXTRATO_PASTA_BASE_PADRAO;
   }
 
   limparErroExtrato();

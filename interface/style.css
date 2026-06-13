@@ -703,6 +703,10 @@ video {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.bank-statement-preview {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .bank-statement-summary span,
 .bank-statement-preview span {
   display: block;
@@ -729,6 +733,54 @@ video {
 
 .bank-statement-grid .field:last-child {
   grid-column: 1 / -1;
+}
+
+.bank-statement-steps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 4px 0 18px;
+}
+
+.bank-step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-height: 74px;
+  padding: 12px;
+  border: 1px solid rgba(11, 79, 159, 0.12);
+  border-radius: 18px;
+  background: var(--surface-soft);
+}
+
+.bank-step > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 14px;
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 900;
+  background: var(--accent-soft);
+}
+
+.bank-step strong,
+.bank-step small {
+  display: block;
+}
+
+.bank-step strong {
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+
+.bank-step small {
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.35;
 }
 
 .client-registration-grid {
@@ -2901,6 +2953,13 @@ body.operational-modals-split #batchConfirmModal .contact-success-card {
   }
 
   .client-registration-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .bank-statement-summary,
+  .bank-statement-preview,
+  .bank-statement-grid,
+  .bank-statement-steps {
     grid-template-columns: 1fr;
   }
 

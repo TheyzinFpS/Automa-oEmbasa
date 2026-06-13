@@ -125,7 +125,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.4.38</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.4.39</span>
           </div>
         </div>
       </div>
@@ -604,8 +604,8 @@
             <strong>Caixa Econ&ocirc;mica Federal</strong>
           </div>
           <div>
-            <span>Modo atual</span>
-            <strong>Base de interface</strong>
+            <span>Fluxo mapeado</span>
+            <strong>GovConta - Extrato individualizado</strong>
           </div>
         </div>
 
@@ -648,11 +648,87 @@
               oninput="normalizarAnoExtrato(this)"
             />
           </label>
+
+          <label class="field">
+            <span>Conta no arquivo</span>
+            <input
+              id="extratoContaArquivo"
+              type="text"
+              inputmode="text"
+              placeholder="Ex.: 8512-3"
+              oninput="normalizarContaExtrato(this)"
+            />
+          </label>
+
+          <label class="field field-span-2">
+            <span>Pasta base de destino</span>
+            <input
+              id="extratoPastaBase"
+              type="text"
+              value="N:\DF\FAFT\documentos\FFAM\Documentos\Documentos Diversos\EQUIPE FAFF\DANIEL\EXTRATOS"
+              oninput="atualizarPreviewExtrato()"
+            />
+          </label>
         </div>
 
         <div id="extratoPreview" class="bank-statement-preview">
-          <span>Per&iacute;odo selecionado</span>
-          <strong>--</strong>
+          <div>
+            <span>Per&iacute;odo selecionado</span>
+            <strong id="extratoPeriodoPreview">--</strong>
+          </div>
+          <div>
+            <span>Pasta destino</span>
+            <strong id="extratoDestinoPreview">--</strong>
+          </div>
+          <div>
+            <span>Nome sugerido</span>
+            <strong id="extratoNomePreview">--</strong>
+          </div>
+        </div>
+
+        <div class="bank-statement-steps" aria-label="Passos mapeados da Caixa">
+          <div class="bank-step">
+            <span>1</span>
+            <div>
+              <strong>Saldo e Extratos</strong>
+              <small>Menu lateral esquerdo do Gerenciador Caixa.</small>
+            </div>
+          </div>
+          <div class="bank-step">
+            <span>2</span>
+            <div>
+              <strong>Extrato individualizado de contas</strong>
+              <small>Op&ccedil;&atilde;o em Vis&atilde;o Consolidada (GovConta).</small>
+            </div>
+          </div>
+          <div class="bank-step">
+            <span>3</span>
+            <div>
+              <strong>Selecionar conta</strong>
+              <small>Escolha a conta no campo Selecione da lista.</small>
+            </div>
+          </div>
+          <div class="bank-step">
+            <span>4</span>
+            <div>
+              <strong>M&ecirc;s, ano e pesquisar</strong>
+              <small>Use os combos do site e clique em Pesquisar.</small>
+            </div>
+          </div>
+          <div class="bank-step">
+            <span>5</span>
+            <div>
+              <strong>Exportar PDF</strong>
+              <small>Clique no &iacute;cone PDF da &aacute;rea Exportar.</small>
+            </div>
+          </div>
+          <div class="bank-step">
+            <span>6</span>
+            <div>
+              <strong>Salvar em CEF</strong>
+              <small>Use a pasta e o nome sugeridos acima.</small>
+            </div>
+          </div>
         </div>
 
         <p id="extratoFormError" class="field-message hidden"></p>
