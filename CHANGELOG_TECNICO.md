@@ -1,5 +1,20 @@
 # Registro técnico de alterações
 
+## Quarta-feira, 22/07/2026 - Versao 1.4.47
+
+**Ajuste aplicado**
+
+- Corrigido o clique no item `Extrato Individualizado de Contas` do menu da Caixa.
+- A automacao agora prioriza o link real com `href="/empresa/dashboard/govconta/selecao-govconta/extrato-individualizado"`, evitando clicar no container visual `li`.
+- Caso o clique no link nao altere a rota, o sistema aplica a navegacao pelo proprio `href` do anchor como fallback.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\extratos_caixa_chrome.py`
+- `node --check interface\app.js`
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.47`.
+
 ## Quarta-feira, 22/07/2026 - Versao 1.4.46
 
 **Ajuste aplicado**

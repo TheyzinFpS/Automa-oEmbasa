@@ -638,6 +638,7 @@ def _clicar_menu_extrato(tab: ChromeTab) -> str:
 
   const clickElement = (element) => {
     element.scrollIntoView({ block: 'center', inline: 'center' });
+    element.focus();
     element.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
     element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
@@ -658,7 +659,10 @@ def _clicar_menu_extrato(tab: ChromeTab) -> str:
 
   const until = Date.now() + 10000;
   while (Date.now() < until) {
-    const target = [...document.querySelectorAll('a, button, li')]
+    const links = [...document.querySelectorAll('a[href]')];
+    const target = links
+      .find((element) => (element.getAttribute('href') || '').includes('/empresa/dashboard/govconta/selecao-govconta/extrato-individualizado'))
+      || links
       .find((element) => {
         const text = normalize(element.textContent);
         const href = normalize(element.getAttribute('href') || '');
@@ -667,8 +671,24 @@ def _clicar_menu_extrato(tab: ChromeTab) -> str:
       });
 
     if (target) {
+      const href = target.getAttribute('href') || '';
       clickElement(target);
-      return 'menu-extrato-clicado';
+      await sleep(1200);
+
+      if (document.querySelector('gcx-select[label="Selecione da lista"]')
+        || location.href.includes('extrato-individualizado')) {
+        return 'menu-extrato-clicado';
+      }
+
+      if (href) {
+        const url = href.startsWith('http')
+          ? href
+          : `${location.origin}${href.startsWith('/') ? '' : '/'}${href}`;
+        location.href = url;
+        return 'menu-extrato-href-aplicado';
+      }
+
+      return 'menu-extrato-clicado-sem-href';
     }
 
     await sleep(250);
