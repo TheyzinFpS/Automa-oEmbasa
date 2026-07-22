@@ -1,5 +1,21 @@
 # Registro técnico de alterações
 
+## Quarta-feira, 22/07/2026 - Versao 1.4.49
+
+**Ajuste aplicado**
+
+- A baixa de extratos Caixa agora força o clique em `Pesquisar` para cada conta selecionada antes de acionar o PDF.
+- Depois do clique em `Pesquisar`, o sistema aguarda uma resposta nova/estavel da listagem antes de clicar no icone PDF, reduzindo o risco de exportar o resultado da conta anterior.
+- O monitoramento do download passou a observar a pasta destino, `Downloads` e `Desktop` como fallback.
+- O PDF baixado e movido/renomeado para o padrao `CEF CONTA_MES-AA.pdf`, mesmo quando o navegador ou o site gera o arquivo com nome nativo.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\extratos_caixa_chrome.py`
+- `node --check interface\app.js`
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.49`.
+
 ## Quarta-feira, 22/07/2026 - Versao 1.4.48
 
 **Ajuste aplicado**

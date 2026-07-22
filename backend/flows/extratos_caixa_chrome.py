@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 import urllib.error
@@ -550,30 +551,88 @@ def _resolver_pasta_destino_extrato(dados: dict) -> Path:
     return base
 
 
-def _snapshot_downloads(pasta: Path) -> set[str]:
-    if not pasta.exists():
-        return set()
+def _pastas_monitoradas_download(pasta_destino: Path) -> list[Path]:
+    candidatos = [pasta_destino]
 
-    return {
-        str(path.resolve()).lower()
-        for path in pasta.glob("*")
-        if path.is_file()
-    }
+    for base in (
+        os.environ.get("USERPROFILE"),
+        os.environ.get("OneDriveCommercial"),
+        os.environ.get("OneDriveConsumer"),
+        os.environ.get("OneDrive"),
+    ):
+        if base:
+            candidatos.append(Path(base) / "Downloads")
+
+    candidatos.append(Path.home() / "Downloads")
+    candidatos.append(Path.home() / "Desktop")
+
+    vistos = set()
+    pastas = []
+    for pasta in candidatos:
+        try:
+            chave = str(pasta.resolve()).lower()
+        except Exception:
+            chave = str(pasta).lower()
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        pastas.append(pasta)
+
+    return pastas
 
 
-def _aguardar_pdf(pasta: Path, antes: set[str], started_at: float, timeout: float = 180.0) -> Path:
+def _normalizar_pastas(pastas: Path | list[Path] | tuple[Path, ...]) -> list[Path]:
+    if isinstance(pastas, (list, tuple)):
+        return [Path(pasta) for pasta in pastas]
+    return [Path(pastas)]
+
+
+def _snapshot_downloads(pastas: Path | list[Path] | tuple[Path, ...]) -> set[str]:
+    arquivos = set()
+
+    for pasta in _normalizar_pastas(pastas):
+        if not pasta.exists():
+            continue
+
+        arquivos.update(
+            str(path.resolve()).lower()
+            for path in pasta.glob("*")
+            if path.is_file()
+        )
+
+    return arquivos
+
+
+def _aguardar_pdf(
+    pastas: Path | list[Path] | tuple[Path, ...],
+    antes: set[str],
+    started_at: float,
+    timeout: float = 180.0,
+) -> Path:
     deadline = time.time() + timeout
+    pastas_monitoradas = _normalizar_pastas(pastas)
 
     while time.time() < deadline:
-        temporarios = list(pasta.glob("*.crdownload")) + list(pasta.glob("*.tmp"))
+        temporarios = []
+        pdfs = []
+
+        for pasta in pastas_monitoradas:
+            if not pasta.exists():
+                continue
+
+            temporarios.extend(list(pasta.glob("*.crdownload")) + list(pasta.glob("*.tmp")))
+            pdfs.extend(
+                [
+                    path
+                    for path in pasta.glob("*.pdf")
+                    if path.is_file()
+                    and str(path.resolve()).lower() not in antes
+                    and path.stat().st_mtime >= started_at - 1
+                ]
+            )
+
         pdfs = sorted(
-            [
-                path
-                for path in pasta.glob("*.pdf")
-                if path.is_file()
-                and str(path.resolve()).lower() not in antes
-                and path.stat().st_mtime >= started_at - 1
-            ],
+            pdfs,
             key=lambda item: item.stat().st_mtime,
             reverse=True,
         )
@@ -586,6 +645,33 @@ def _aguardar_pdf(pasta: Path, antes: set[str], started_at: float, timeout: floa
     raise CaixaChromeError(
         "O PDF nao apareceu na pasta destino. Confira se o Chrome abriu uma janela "
         "'Salvar como' ou se o download foi bloqueado."
+    )
+
+
+def _mover_pdf_para_destino(origem: Path, destino: Path, timeout: float = 35.0) -> Path:
+    origem = Path(origem)
+    destino = Path(destino)
+
+    if origem.resolve() == destino.resolve():
+        return destino
+
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.time() + timeout
+    ultimo_erro = None
+
+    while time.time() < deadline:
+        try:
+            if destino.exists():
+                destino = _unique_path(destino)
+            shutil.move(str(origem), str(destino))
+            return destino
+        except OSError as exc:
+            ultimo_erro = exc
+            time.sleep(0.5)
+
+    raise CaixaChromeError(
+        "O PDF foi baixado, mas nao consegui aplicar o nome padrao. "
+        f"Origem: {origem}. Destino: {destino}. Erro: {ultimo_erro}"
     )
 
 
@@ -1086,8 +1172,14 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
     throw new Error('Botao Pesquisar ainda esta desabilitado apos selecionar mes e ano.');
   }}
 
-  searchButton.click();
-  await sleep(1000);
+  const textoResultadoAntes = (document.querySelector('component-listagem')?.innerText || '').trim();
+  const linhasAntes = document.querySelectorAll(
+    'component-listagem tr, component-listagem [role="row"]'
+  ).length;
+  const inicioPesquisa = Date.now();
+
+  await forceClick(searchButton);
+  await sleep(900);
 
   await waitFor(
     () => document.querySelector('app-exportar-arquivo img[alt="icone-pdf"]')
@@ -1098,6 +1190,44 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
     45000
   );
 
+  await waitFor(
+    () => {{
+      const tempoDecorrido = Date.now() - inicioPesquisa;
+      if (tempoDecorrido < 2600) return false;
+
+      const textoPagina = document.body.textContent || '';
+      if (
+        textoPagina.includes('Nao foram encontrados')
+        || textoPagina.includes('NÃ£o foram encontrados')
+      ) {{
+        return 'sem-registros';
+      }}
+
+      const listagem = document.querySelector('component-listagem');
+      const textoResultadoAtual = (listagem?.innerText || '').trim();
+      const linhasAtual = document.querySelectorAll(
+        'component-listagem tr, component-listagem [role="row"]'
+      ).length;
+      const pdfButton = document.querySelector('app-exportar-arquivo img[alt="icone-pdf"]')
+        ?.closest('button');
+      const resultadoMudou = textoResultadoAtual
+        && (
+          textoResultadoAtual !== textoResultadoAntes
+          || linhasAtual !== linhasAntes
+          || tempoDecorrido > 5200
+        );
+
+      if (listagem && resultadoMudou && pdfButton && !pdfButton.disabled) {{
+        return 'resultado-atualizado';
+      }}
+
+      return false;
+    }},
+    `Resultado da pesquisa da conta ${{contaSelecionada || contaAlvo || ''}}`,
+    45000
+  );
+
+  await sleep(600);
   return contaSelecionada;
 }})()
 """
@@ -1172,6 +1302,7 @@ def executar_download_extrato_atual(
             raise CaixaChromeError("Pasta destino nao informada.")
 
         pasta_destino.mkdir(parents=True, exist_ok=True)
+        pastas_monitoradas = _pastas_monitoradas_download(pasta_destino)
 
         progress(f"Conectando ao {rotulo_navegador} controlavel.", 10)
         log(f"Conectando ao {rotulo_navegador} controlavel na porta 9222.")
@@ -1212,26 +1343,24 @@ def executar_download_extrato_atual(
 
                 nome_final = _nome_final(dados, conta_site or conta_alvo)
                 destino_final = _unique_path(pasta_destino / nome_final)
-                antes = _snapshot_downloads(pasta_destino)
+                antes = _snapshot_downloads(pastas_monitoradas)
 
                 progress(f"Conta {indice}/{total}: exportando PDF.", min(95, percentual_base + 8))
                 inicio = time.time()
                 _clicar_pdf(tab)
 
                 progress(f"Conta {indice}/{total}: aguardando download.", min(98, percentual_base + 14))
-                arquivo_baixado = _aguardar_pdf(pasta_destino, antes, inicio)
-
-                if arquivo_baixado.resolve() != destino_final.resolve():
-                    arquivo_baixado.rename(destino_final)
+                arquivo_baixado = _aguardar_pdf(pastas_monitoradas, antes, inicio)
+                arquivo_final = _mover_pdf_para_destino(arquivo_baixado, destino_final)
 
                 item_resultado = {
                     "status": "ok",
                     "conta": conta_site or conta_alvo,
-                    "arquivo": str(destino_final),
+                    "arquivo": str(arquivo_final),
                 }
                 resultados.append(item_resultado)
                 progress_resultado(item_resultado)
-                log(f"Extrato Caixa salvo ({indice}/{total}): {destino_final}.")
+                log(f"Extrato Caixa salvo ({indice}/{total}): {arquivo_final}.")
             except Exception as item_exc:
                 mensagem_item = _friendly_cdp_error(item_exc, navegador)
                 item_resultado = {
