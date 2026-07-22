@@ -77,7 +77,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.42";
+const APP_VERSION = "1.4.43";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -126,7 +126,7 @@ const MESES_EXTRATO_SIGLA = {
   "11": "NOV",
   "12": "DEZ"
 };
-const EXTRATO_PASTA_BASE_PADRAO = "N:\\DF\\FAFT\\documentos\\FFAM\\Documentos\\Documentos Diversos\\EQUIPE FAFF\\DANIEL\\EXTRATOS";
+const EXTRATO_PASTA_BASE_PADRAO = "";
 const NAVEGADORES_EXTRATO = {
   opera: "Opera",
   chrome: "Chrome",
@@ -2137,11 +2137,15 @@ function normalizarContaExtrato(input) {
 }
 
 function montarPastaDestinoExtrato(mes, ano, pastaBase) {
-  const base = normalizarPastaBaseExtrato(pastaBase) || EXTRATO_PASTA_BASE_PADRAO;
+  const base = normalizarPastaBaseExtrato(pastaBase || EXTRATO_PASTA_BASE_PADRAO);
   const sigla = MESES_EXTRATO_SIGLA[mes] || "MES";
 
   if (!mes || String(ano || "").length !== 4) {
     return "--";
+  }
+
+  if (!base) {
+    return "";
   }
 
   return `${base}\\${ano}\\${mes}.${sigla}\\CEF`;
@@ -2412,11 +2416,11 @@ function prepararBaixaExtratos() {
 
   window.resetarProgresso();
   ativarEtapa(0, 40, `GovConta Caixa preparado para ${payload.mes_label}/${payload.ano}.`);
-  concluirEtapa(0, `Salvar PDF em ${payload.pasta_destino}.`);
+  concluirEtapa(0, `Salvar PDF na area de trabalho.`);
   setStatus("Base pronta", "success");
   log(`Rotina de extratos preparada: ${payload.banco_label} - ${payload.mes_label}/${payload.ano}.`);
   log(`Passos mapeados: ${payload.passos.join(" > ")}.`);
-  log(`Destino sugerido: ${payload.pasta_destino}.`);
+  log(`Destino sugerido: ${payload.pasta_destino || "Area de trabalho do usuario atual"}.`);
   log(`Nome sugerido: ${payload.nome_arquivo}.`);
   showSimpleOperationalToast("Roteiro Caixa preparado com pasta e nome sugeridos.");
 }

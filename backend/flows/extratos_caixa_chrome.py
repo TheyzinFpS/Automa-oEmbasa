@@ -406,6 +406,41 @@ def _unique_path(path: Path) -> Path:
     return path.with_name(f"{stem} {timestamp}{suffix}")
 
 
+def _desktop_extratos_base() -> Path:
+    candidatos = []
+
+    for env_name in ("USERPROFILE", "OneDriveCommercial", "OneDriveConsumer", "OneDrive"):
+        valor = os.environ.get(env_name)
+        if valor:
+            candidatos.append(Path(valor) / "Desktop")
+
+    candidatos.append(Path.home() / "Desktop")
+
+    for candidato in candidatos:
+        if candidato.exists():
+            return candidato / "EXTRATOS_CAIXA"
+
+    return candidatos[0] / "EXTRATOS_CAIXA"
+
+
+def _resolver_pasta_destino_extrato(dados: dict) -> Path:
+    destino_informado = str(dados.get("pasta_destino") or "").strip()
+    base_informada = str(dados.get("pasta_base") or "").strip()
+    mes = str(dados.get("mes") or "")
+    ano = str(dados.get("ano") or "")
+    sigla = str(dados.get("mes_sigla") or MESES_SIGLA.get(mes) or "MES")
+
+    if destino_informado:
+        return Path(destino_informado)
+
+    base = Path(base_informada) if base_informada else _desktop_extratos_base()
+
+    if mes and ano:
+        return base / ano / f"{mes}.{sigla}" / "CEF"
+
+    return base
+
+
 def _snapshot_downloads(pasta: Path) -> set[str]:
     if not pasta.exists():
         return set()
@@ -759,7 +794,7 @@ def executar_download_extrato_atual(
         navegador = _normalizar_navegador(dados.get("navegador"))
         rotulo_navegador = _rotulo_navegador(navegador)
         mes_label = MESES_SITE.get(mes) or str(dados.get("mes_label") or "").strip()
-        pasta_destino = Path(str(dados.get("pasta_destino") or "").strip())
+        pasta_destino = _resolver_pasta_destino_extrato(dados)
 
         if not mes_label or not ano:
             raise CaixaChromeError("Informe mes e ano para baixar o extrato.")

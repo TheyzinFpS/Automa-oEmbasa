@@ -1,5 +1,20 @@
 # Registro técnico de alterações
 
+## Quarta-feira, 22/07/2026 - Versao 1.4.43
+
+**Ajuste aplicado**
+
+- A rotina `Baixar extratos` passou a usar a Area de Trabalho do usuario atual como destino padrao durante os testes locais.
+- Quando nenhum destino e informado pela interface, o backend cria os PDFs em `Desktop\EXTRATOS_CAIXA\ANO\MES.SIGLA\CEF`.
+- A interface continua sem exibir campo tecnico de pasta, mantendo a tela enxuta para operacao real.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\extratos_caixa_chrome.py`
+- `node --check interface\app.js`
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.43`.
+
 ## Quarta-feira, 22/07/2026 - Versao 1.4.42
 
 **Ajuste aplicado**
