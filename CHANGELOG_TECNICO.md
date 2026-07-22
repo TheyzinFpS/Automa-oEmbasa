@@ -1,5 +1,21 @@
 # Registro técnico de alterações
 
+## Quarta-feira, 22/07/2026 - Versao 1.4.52
+
+**Ajuste aplicado**
+
+- Reforcado o clique no botao PDF da rotina de extratos Caixa apos cada pesquisa.
+- O sistema agora procura o botao PDF visivel/ativo mais recente no componente de exportacao, evitando reaproveitar um elemento antigo do DOM.
+- O clique do PDF passou a combinar eventos de ponteiro/mouse com `click()` nativo.
+- Se nenhum PDF aparecer apos o clique, a rotina repete o acionamento do botao PDF na mesma conta antes de marcar erro.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\extratos_caixa_chrome.py`
+- `node --check interface\app.js`
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.52`.
+
 ## Quarta-feira, 22/07/2026 - Versao 1.4.51
 
 **Ajuste aplicado**

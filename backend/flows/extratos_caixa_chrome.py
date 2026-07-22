@@ -1261,6 +1261,37 @@ def _clicar_pdf(tab: ChromeTab):
     script = """
 (async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const isVisible = (element) => {
+    if (!element) return false;
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    return rect.width > 0
+      && rect.height > 0
+      && style.display !== 'none'
+      && style.visibility !== 'hidden'
+      && style.opacity !== '0'
+      && !element.closest('[hidden], .hidden');
+  };
+
+  const findPdfButton = () => {
+    const images = [
+      ...document.querySelectorAll(
+        'app-exportar-arquivo img[alt="icone-pdf"], app-exportar-arquivo img[src*="pdf"]'
+      )
+    ];
+
+    const buttons = images
+      .map((img) => img.closest('button'))
+      .filter(Boolean)
+      .filter((button) => (
+        isVisible(button)
+        && !button.disabled
+        && button.getAttribute('aria-disabled') !== 'true'
+      ));
+
+    return buttons[buttons.length - 1] || null;
+  };
+
   const forceClick = async (element) => {
     element.scrollIntoView({ block: 'center', inline: 'nearest' });
     await sleep(120);
@@ -1293,6 +1324,9 @@ def _clicar_pdf(tab: ChromeTab):
     element.dispatchEvent(new PointerCtor('pointerup', { ...pointerBase, buttons: 0 }));
     element.dispatchEvent(new MouseEvent('mouseup', { ...eventBase, buttons: 0 }));
     element.dispatchEvent(new MouseEvent('click', { ...eventBase, buttons: 0 }));
+    if (typeof element.click === 'function') {
+      element.click();
+    }
   };
 
   const until = Date.now() + 30000;
@@ -1302,10 +1336,10 @@ def _clicar_pdf(tab: ChromeTab):
       throw new Error('Nenhum lancamento encontrado para esta conta no periodo.');
     }
 
-    const img = document.querySelector('app-exportar-arquivo img[alt="icone-pdf"]');
-    const button = img && img.closest('button');
-    if (button && !button.disabled) {
+    const button = findPdfButton();
+    if (button) {
       await forceClick(button);
+      await sleep(350);
       return true;
     }
     await sleep(250);
@@ -1403,11 +1437,43 @@ def executar_download_extrato_atual(
                 antes = _snapshot_downloads(pastas_monitoradas)
 
                 progress(f"Conta {indice}/{total}: exportando PDF.", min(95, percentual_base + 8))
-                inicio = time.time()
-                _clicar_pdf(tab)
+                arquivo_baixado = None
+                ultimo_erro_download = None
 
-                progress(f"Conta {indice}/{total}: aguardando download.", min(98, percentual_base + 14))
-                arquivo_baixado = _aguardar_pdf(pastas_monitoradas, antes, inicio)
+                for tentativa_pdf, timeout_pdf in enumerate((25, 35, 120), start=1):
+                    inicio = time.time()
+                    _clicar_pdf(tab)
+
+                    progress(
+                        f"Conta {indice}/{total}: aguardando download.",
+                        min(98, percentual_base + 14),
+                    )
+                    try:
+                        arquivo_baixado = _aguardar_pdf(
+                            pastas_monitoradas,
+                            antes,
+                            inicio,
+                            timeout=timeout_pdf,
+                        )
+                        break
+                    except Exception as download_exc:
+                        ultimo_erro_download = download_exc
+                        if tentativa_pdf >= 3:
+                            break
+
+                        log(
+                            "PDF da conta "
+                            f"{conta_site or conta_alvo} nao apareceu apos o clique "
+                            f"(tentativa {tentativa_pdf}/3). Repetindo clique no PDF.",
+                            "warning",
+                        )
+                        time.sleep(1.2)
+
+                if arquivo_baixado is None:
+                    raise ultimo_erro_download or CaixaChromeError(
+                        "O PDF nao foi baixado apos repetir o clique no botao PDF."
+                    )
+
                 arquivo_final = _mover_pdf_para_destino(arquivo_baixado, destino_final)
 
                 item_resultado = {
