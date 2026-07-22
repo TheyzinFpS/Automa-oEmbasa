@@ -251,7 +251,7 @@ def abrir_navegador_caixa(navegador: str | None = None) -> dict:
         "ok": False,
         "msg": (
             f"{rotulo} foi iniciado, mas a porta {CDP_PORT} ainda nao respondeu. "
-            "Aguarde alguns segundos e clique em Testar conexao."
+            "Aguarde alguns segundos e tente baixar novamente."
         ),
     }
 
@@ -478,15 +478,111 @@ def _abrir_tela_extrato(tab: ChromeTab):
     tab.evaluate(wait_script, await_promise=True, timeout=65)
 
 
-def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str) -> str:
+def _listar_contas(tab: ChromeTab) -> list[str]:
+    script = """
+(async () => {
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const waitFor = async (fn, label, timeout = 20000) => {
+    const until = Date.now() + timeout;
+    while (Date.now() < until) {
+      const value = fn();
+      if (value) return value;
+      await sleep(250);
+    }
+    throw new Error(`${label} nao encontrado.`);
+  };
+
+  const accountSelect = await waitFor(
+    () => document.querySelector('gcx-select[label="Selecione da lista"]'),
+    'Lista de contas'
+  );
+  const opener = accountSelect.querySelector('.input-wrapper')
+    || accountSelect.querySelector('input[name="search-gcx-select"]')
+    || accountSelect;
+  opener.click();
+  await sleep(700);
+
+  const contas = new Set();
+  const coletarVisiveis = () => {
+    [...document.querySelectorAll('button.dropdown-wrapper-item')]
+      .map((button) => button.textContent.trim())
+      .filter(Boolean)
+      .forEach((texto) => contas.add(texto));
+  };
+
+  const viewport = document.querySelector('.cdk-virtual-scroll-viewport.dropdown-wrapper')
+    || document.querySelector('.cdk-virtual-scroll-viewport');
+
+  coletarVisiveis();
+
+  if (viewport) {
+    viewport.scrollTop = 0;
+    viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+    await sleep(250);
+    coletarVisiveis();
+
+    for (let index = 0; index < 120; index += 1) {
+      const limite = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      if (viewport.scrollTop >= limite - 4) break;
+      viewport.scrollTop = Math.min(
+        limite,
+        viewport.scrollTop + Math.max(120, viewport.clientHeight - 20)
+      );
+      viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+      await sleep(220);
+      coletarVisiveis();
+    }
+  }
+
+  const input = accountSelect.querySelector('input[name="search-gcx-select"]');
+  if (input && input.value.trim()) {
+    contas.add(input.value.trim());
+  }
+
+  document.dispatchEvent(new KeyboardEvent('keydown', {
+    key: 'Escape',
+    code: 'Escape',
+    bubbles: true
+  }));
+
+  return [...contas];
+})()
+"""
+    contas = tab.evaluate(script, await_promise=True, timeout=55) or []
+
+    if not isinstance(contas, list):
+        return []
+
+    normalizadas = []
+    vistos = set()
+    for conta in contas:
+        texto = str(conta or "").strip()
+        chave = re.sub(r"\D+", "", texto)
+        if not texto or not chave or chave in vistos:
+            continue
+        vistos.add(chave)
+        normalizadas.append(texto)
+
+    return normalizadas
+
+
+def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str | None = None) -> str:
     script = f"""
 (async () => {{
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const contaAlvo = {_js_string(conta_alvo or '')};
   const normalize = (value) => String(value || '')
     .normalize('NFD')
     .replace(/[\\u0300-\\u036f]/g, '')
     .trim()
     .toLowerCase();
+  const onlyDigits = (value) => String(value || '').replace(/\\D/g, '');
+  const sameAccount = (left, right) => {{
+    const leftDigits = onlyDigits(left);
+    const rightDigits = onlyDigits(right);
+    return normalize(left) === normalize(right)
+      || (leftDigits && rightDigits && leftDigits === rightDigits);
+  }};
 
   const waitFor = async (fn, label, timeout = 20000) => {{
     const until = Date.now() + timeout;
@@ -506,7 +602,42 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str) -> str:
   const currentInput = accountSelect.querySelector('input[name="search-gcx-select"]');
   let contaSelecionada = currentInput && currentInput.value ? currentInput.value.trim() : '';
 
-  if (!contaSelecionada) {{
+  const selecionarConta = async (conta) => {{
+    const opener = accountSelect.querySelector('.input-wrapper') || currentInput || accountSelect;
+    if (contaSelecionada && sameAccount(contaSelecionada, conta)) {{
+      return contaSelecionada;
+    }}
+
+    opener.click();
+    await sleep(700);
+
+    if (currentInput) {{
+      currentInput.focus();
+      currentInput.value = '';
+      currentInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+      await sleep(180);
+      currentInput.value = conta;
+      currentInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+      currentInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+      await sleep(700);
+    }}
+
+    const option = await waitFor(
+      () => [...document.querySelectorAll('button.dropdown-wrapper-item')]
+        .find((button) => sameAccount(button.textContent, conta))
+        || [...document.querySelectorAll('button.dropdown-wrapper-item')]
+          .find((button) => normalize(button.textContent).includes(normalize(conta))),
+      `Conta ${{conta}}`
+    );
+    contaSelecionada = option.textContent.trim();
+    option.click();
+    await sleep(900);
+    return contaSelecionada;
+  }};
+
+  if (contaAlvo) {{
+    contaSelecionada = await selecionarConta(contaAlvo);
+  }} else if (!contaSelecionada) {{
     const opener = accountSelect.querySelector('.input-wrapper') || currentInput || accountSelect;
     opener.click();
     await sleep(700);
@@ -575,6 +706,11 @@ def _clicar_pdf(tab: ChromeTab):
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const until = Date.now() + 30000;
   while (Date.now() < until) {
+    const texto = document.body.textContent || '';
+    if (texto.includes('Nao foram encontrados') || texto.includes('Não foram encontrados')) {
+      throw new Error('Nenhum lancamento encontrado para esta conta no periodo.');
+    }
+
     const img = document.querySelector('app-exportar-arquivo img[alt="icone-pdf"]');
     const button = img && img.closest('button');
     if (button && !button.disabled) {
@@ -602,6 +738,15 @@ def executar_download_extrato_atual(
     def progress(message: str, percentual: int):
         if callable(progress_callback):
             progress_callback("BE", "processando", message, percentual)
+
+    def progress_resultado(item: dict):
+        if callable(progress_callback):
+            progress_callback(
+                "BE",
+                "processando",
+                "EXTRATO_RESULT::" + json.dumps(item, ensure_ascii=False),
+                None,
+            )
 
     tab = None
 
@@ -634,33 +779,97 @@ def executar_download_extrato_atual(
         progress("Abrindo Extrato individualizado da Caixa.", 25)
         _abrir_tela_extrato(tab)
 
-        progress("Selecionando conta, mes e ano.", 45)
-        conta_site = _preparar_consulta(tab, mes_label, ano)
-        log(f"Conta preparada na Caixa: {conta_site or '--'}.")
+        progress("Mapeando contas disponiveis.", 30)
+        contas = _listar_contas(tab)
+        if not contas:
+            raise CaixaChromeError("Nenhuma conta foi encontrada na lista do GovConta.")
 
-        nome_final = _nome_final(dados, conta_site)
-        destino_final = _unique_path(pasta_destino / nome_final)
-        antes = _snapshot_downloads(pasta_destino)
+        log(f"Contas Caixa encontradas para baixa: {len(contas)}.")
 
-        progress("Solicitando exportacao em PDF.", 70)
-        inicio = time.time()
-        _clicar_pdf(tab)
+        resultados = []
+        total = max(1, len(contas))
 
-        progress("Aguardando download do PDF.", 85)
-        arquivo_baixado = _aguardar_pdf(pasta_destino, antes, inicio)
+        for indice, conta_alvo in enumerate(contas, start=1):
+            if cancel_event is not None and cancel_event.is_set():
+                return {
+                    "ok": False,
+                    "cancelado": True,
+                    "msg": "Download cancelado.",
+                    "itens": resultados,
+                }
 
-        if arquivo_baixado.resolve() != destino_final.resolve():
-            arquivo_baixado.rename(destino_final)
+            percentual_base = 30 + int(((indice - 1) / total) * 65)
 
-        progress("Extrato salvo com sucesso.", 100)
-        log(f"Extrato Caixa salvo: {destino_final}.")
+            try:
+                progress(f"Conta {indice}/{total}: selecionando dados.", percentual_base)
+                conta_site = _preparar_consulta(tab, mes_label, ano, conta_alvo)
+                log(f"Conta preparada na Caixa ({indice}/{total}): {conta_site or conta_alvo}.")
+
+                nome_final = _nome_final(dados, conta_site or conta_alvo)
+                destino_final = _unique_path(pasta_destino / nome_final)
+                antes = _snapshot_downloads(pasta_destino)
+
+                progress(f"Conta {indice}/{total}: exportando PDF.", min(95, percentual_base + 8))
+                inicio = time.time()
+                _clicar_pdf(tab)
+
+                progress(f"Conta {indice}/{total}: aguardando download.", min(98, percentual_base + 14))
+                arquivo_baixado = _aguardar_pdf(pasta_destino, antes, inicio)
+
+                if arquivo_baixado.resolve() != destino_final.resolve():
+                    arquivo_baixado.rename(destino_final)
+
+                item_resultado = {
+                    "status": "ok",
+                    "conta": conta_site or conta_alvo,
+                    "arquivo": str(destino_final),
+                }
+                resultados.append(item_resultado)
+                progress_resultado(item_resultado)
+                log(f"Extrato Caixa salvo ({indice}/{total}): {destino_final}.")
+            except Exception as item_exc:
+                mensagem_item = _friendly_cdp_error(item_exc, navegador)
+                item_resultado = {
+                    "status": "erro",
+                    "conta": conta_alvo or "--",
+                    "erro": mensagem_item,
+                }
+                resultados.append(item_resultado)
+                progress_resultado(item_resultado)
+                log(f"Falha na conta Caixa {conta_alvo or '--'}: {mensagem_item}", "error")
+
+                try:
+                    _abrir_tela_extrato(tab)
+                except Exception:
+                    pass
+
+        baixados = [item for item in resultados if item.get("status") == "ok"]
+        erros = len(resultados) - len(baixados)
+
+        if not baixados:
+            progress("Nenhum extrato foi baixado.", 100)
+            return {
+                "ok": False,
+                "msg": "Nenhum extrato Caixa foi baixado.",
+                "pasta": str(pasta_destino),
+                "itens": resultados,
+            }
+
+        progress("Baixa de extratos finalizada.", 100)
+        log(f"Baixa Caixa finalizada. Baixados: {len(baixados)}. Erros: {erros}.")
+        primeiro = baixados[0]
 
         return {
             "ok": True,
-            "msg": "Extrato baixado com sucesso.",
-            "conta": conta_site,
-            "arquivo": str(destino_final),
+            "msg": (
+                "Extratos baixados com sucesso."
+                if not erros
+                else "Extratos baixados com alertas."
+            ),
+            "conta": primeiro.get("conta", ""),
+            "arquivo": primeiro.get("arquivo", ""),
             "pasta": str(pasta_destino),
+            "itens": resultados,
         }
     except Exception as exc:
         mensagem = _friendly_cdp_error(exc, dados.get("navegador") if isinstance(dados, dict) else None)
@@ -668,6 +877,13 @@ def executar_download_extrato_atual(
         return {
             "ok": False,
             "msg": mensagem,
+            "itens": [
+                {
+                    "status": "erro",
+                    "conta": str(dados.get("conta") or dados.get("conta_arquivo") or "--") if isinstance(dados, dict) else "--",
+                    "erro": mensagem,
+                }
+            ],
         }
     finally:
         if tab is not None:

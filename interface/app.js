@@ -77,7 +77,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.41";
+const APP_VERSION = "1.4.42";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -97,6 +97,7 @@ const EMPTY_LOG_MARKUP = '<div class="log-empty">Os logs do fluxo aparecerão aq
 const PDF_NAME_NOTICE_PREFIX = "PDF_NAME_READY::";
 const PAYMENT_FILE_NOTICE_PREFIX = "PAYMENT_FILE_READY::";
 const SIMPLE_NOTICE_PREFIX = "SIMPLE_NOTICE::";
+const EXTRATO_RESULT_NOTICE_PREFIX = "EXTRATO_RESULT::";
 const MESES_EXTRATO = {
   "01": "Janeiro",
   "02": "Fevereiro",
@@ -213,7 +214,8 @@ const state = {
   cadastroCepLookupSeq: 0,
   cadastroCepLookupController: null,
   historicoItens: [],
-  historicoSelecionado: null
+  historicoSelecionado: null,
+  extratoResultados: []
 };
 
 const domCache = new Map();
@@ -2110,7 +2112,6 @@ function obterMesAtualExtrato() {
 function preencherMesAnoExtratosPadrao(force = false) {
   const mes = el("extratoMes");
   const ano = el("extratoAno");
-  const pastaBase = el("extratoPastaBase");
 
   if (mes && (force || !mes.value)) {
     mes.value = obterMesAtualExtrato();
@@ -2118,10 +2119,6 @@ function preencherMesAnoExtratosPadrao(force = false) {
 
   if (ano && (force || !ano.value)) {
     ano.value = obterAnoAtualExtrato();
-  }
-
-  if (pastaBase && (force || !pastaBase.value.trim())) {
-    pastaBase.value = EXTRATO_PASTA_BASE_PADRAO;
   }
 
   atualizarPreviewExtrato();
@@ -2166,19 +2163,12 @@ function atualizarPreviewExtrato() {
 
   const mes = el("extratoMes")?.value || "";
   const ano = String(el("extratoAno")?.value || "").replace(/\D/g, "").slice(0, 4);
-  const contaArquivo = el("extratoContaArquivo")?.value || "";
-  const pastaBase = el("extratoPastaBase")?.value || EXTRATO_PASTA_BASE_PADRAO;
   const periodoPreview = el("extratoPeriodoPreview") || preview.querySelector("strong");
-  const nomePreview = el("extratoNomePreview");
 
   if (periodoPreview) {
     periodoPreview.textContent = mes && ano.length === 4
       ? `${MESES_EXTRATO[mes] || mes}/${ano}`
       : "--";
-  }
-
-  if (nomePreview) {
-    nomePreview.textContent = montarNomeArquivoExtrato(contaArquivo, mes, ano);
   }
 }
 
@@ -2210,8 +2200,7 @@ function montarPayloadExtratos() {
   const navegador = el("extratoNavegador")?.value || "opera";
   const mes = el("extratoMes")?.value || "";
   const ano = String(el("extratoAno")?.value || "").replace(/\D/g, "").slice(0, 4);
-  const contaArquivo = String(el("extratoContaArquivo")?.value || "").trim();
-  const pastaBase = normalizarPastaBaseExtrato(el("extratoPastaBase")?.value || EXTRATO_PASTA_BASE_PADRAO);
+  const pastaBase = normalizarPastaBaseExtrato(EXTRATO_PASTA_BASE_PADRAO);
 
   limparErroExtrato();
 
@@ -2239,12 +2228,159 @@ function montarPayloadExtratos() {
     mes_label: MESES_EXTRATO[mes],
     mes_sigla: MESES_EXTRATO_SIGLA[mes],
     ano,
-    conta_arquivo: contaArquivo,
+    conta_arquivo: "",
     pasta_base: pastaBase,
     pasta_destino: montarPastaDestinoExtrato(mes, ano, pastaBase),
-    nome_arquivo: montarNomeArquivoExtrato(contaArquivo, mes, ano),
+    nome_arquivo: "",
     passos: [...EXTRATO_CAIXA_PASSOS]
   };
+}
+
+function extrairNomeArquivoExtrato(caminho) {
+  const partes = String(caminho || "")
+    .split(/[\\\/]/)
+    .map((parte) => parte.trim())
+    .filter(Boolean);
+
+  return partes.pop() || "--";
+}
+
+function normalizarResultadosExtrato(resposta, payload, erroPadrao = "") {
+  const origem = Array.isArray(resposta?.itens)
+    ? resposta.itens
+    : Array.isArray(resposta?.resultados)
+      ? resposta.resultados
+      : [resposta || {}];
+
+  return origem.map((item) => {
+    const statusTexto = String(item?.status || "").toLowerCase();
+    const ok = typeof item?.ok === "boolean"
+      ? item.ok
+      : statusTexto
+        ? !["erro", "error", "falha", "failed"].includes(statusTexto)
+        : resposta?.ok !== false;
+
+    return {
+      status: ok ? "ok" : "erro",
+      conta: String(item?.conta || resposta?.conta || "--").trim() || "--",
+      arquivo: String(item?.arquivo || resposta?.arquivo || payload?.nome_arquivo || "").trim(),
+      erro: String(item?.erro || item?.msg || resposta?.msg || erroPadrao || "").trim()
+    };
+  });
+}
+
+function renderizarResultadosExtrato() {
+  const summary = el("extratoRunSummary");
+  const list = el("extratoRunList");
+  const count = el("extratoRunCount");
+
+  if (!summary || !list || !count) {
+    return;
+  }
+
+  list.replaceChildren();
+
+  if (!state.extratoResultados.length) {
+    summary.classList.add("hidden");
+    count.textContent = "0 contas";
+    return;
+  }
+
+  const baixados = state.extratoResultados.filter((item) => item.status === "ok").length;
+  const erros = state.extratoResultados.length - baixados;
+  count.textContent = erros
+    ? `${baixados} baixadas / ${erros} erro`
+    : `${baixados} baixadas`;
+
+  state.extratoResultados.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = `bank-run-item ${item.status}`;
+
+    const badge = document.createElement("span");
+    badge.className = "bank-run-status";
+    badge.textContent = item.status === "ok" ? "OK" : "ERRO";
+
+    const copy = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = item.conta || "--";
+
+    const detail = document.createElement("small");
+    detail.textContent = item.status === "ok"
+      ? extrairNomeArquivoExtrato(item.arquivo)
+      : item.erro || "Falha ao baixar esta conta.";
+
+    copy.append(title, detail);
+    row.append(badge, copy);
+    list.appendChild(row);
+  });
+
+  summary.classList.remove("hidden");
+}
+
+function resetarResultadosExtrato() {
+  state.extratoResultados = [];
+  renderizarResultadosExtrato();
+}
+
+function registrarResultadosExtrato(itens) {
+  state.extratoResultados = [
+    ...state.extratoResultados,
+    ...itens
+  ];
+  renderizarResultadosExtrato();
+}
+
+function definirResultadosExtrato(itens) {
+  state.extratoResultados = [...itens];
+  renderizarResultadosExtrato();
+}
+
+function abrirResumoFinalExtratos(itens, okGeral) {
+  const titulo = el("extratoResumoTitulo");
+  const texto = el("extratoResumoTexto");
+  const lista = el("extratoResumoLista");
+
+  if (!titulo || !texto || !lista) {
+    return;
+  }
+
+  const baixados = itens.filter((item) => item.status === "ok").length;
+  const erros = itens.length - baixados;
+
+  titulo.textContent = okGeral && !erros
+    ? "Baixa finalizada"
+    : "Baixa concluida com alerta";
+  texto.textContent = erros
+    ? `${baixados} conta(s) baixada(s) e ${erros} com erro.`
+    : `${baixados} conta(s) baixada(s) com sucesso.`;
+
+  lista.replaceChildren();
+  itens.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = `extrato-summary-item ${item.status}`;
+
+    const status = document.createElement("span");
+    status.textContent = item.status === "ok" ? "OK" : "ERRO";
+
+    const info = document.createElement("div");
+    const conta = document.createElement("strong");
+    conta.textContent = item.conta || "--";
+
+    const detalhe = document.createElement("small");
+    detalhe.textContent = item.status === "ok"
+      ? extrairNomeArquivoExtrato(item.arquivo)
+      : item.erro || "Falha ao baixar esta conta.";
+
+    info.append(conta, detalhe);
+    row.append(status, info);
+    lista.appendChild(row);
+  });
+
+  openModal("extratoResumoModal");
+}
+
+function closeExtratoResumoModal() {
+  closeModal("extratoResumoModal");
 }
 
 function showExtratosWorkspace(options = {}) {
@@ -2287,11 +2423,9 @@ function prepararBaixaExtratos() {
 
 function setExtratoChromeBusy(busy) {
   const chromeButton = el("extratoChromeButton");
-  const testButton = el("extratoTestChromeButton");
   const openButton = el("extratoOpenBrowserButton");
-  const prepareButton = el("extratoSubmitButton");
 
-  [chromeButton, testButton, openButton, prepareButton].forEach((button) => {
+  [chromeButton, openButton].forEach((button) => {
     if (button) {
       button.disabled = Boolean(busy);
     }
@@ -2299,8 +2433,8 @@ function setExtratoChromeBusy(busy) {
 
   if (chromeButton) {
     chromeButton.textContent = busy
-      ? "Baixando no navegador..."
-      : "Baixar conta atual";
+      ? "Baixando..."
+      : "Baixar extratos";
   }
 }
 
@@ -2397,31 +2531,40 @@ async function baixarExtratoAtualChrome() {
 
   try {
     setExtratoChromeBusy(true);
+    resetarResultadosExtrato();
     window.resetarProgresso();
     ativarEtapa(0, 10, "Conectando ao navegador controlavel.");
     setStatus("Baixando extrato", "running");
     log(`Baixa Caixa solicitada no ${payload.navegador_label}: ${payload.mes_label}/${payload.ano}.`);
 
     const resposta = await window.pywebview.api.baixar_extratos_caixa(payload);
+    const itens = normalizarResultadosExtrato(resposta, payload);
+    const erros = itens.filter((item) => item.status === "erro").length;
+    definirResultadosExtrato(itens);
 
     if (!resposta?.ok) {
       const mensagem = resposta?.msg || "Falha ao baixar extrato Caixa.";
       mostrarErroExtrato(mensagem);
       setStatus("Falha nos extratos", "error");
       log(mensagem, "error");
-      openLogsPopover();
+      abrirResumoFinalExtratos(itens, false);
       return;
     }
 
-    concluirEtapa(0, `Arquivo salvo: ${resposta.arquivo || payload.nome_arquivo}.`);
-    setStatus("Extrato baixado", "success");
-    log(`Extrato baixado: ${resposta.arquivo || "--"}.`);
-    showSimpleOperationalToast("Extrato Caixa baixado com sucesso.");
+    const primeiroArquivo = itens.find((item) => item.status === "ok")?.arquivo || resposta.arquivo || "";
+    concluirEtapa(0, `Arquivo salvo: ${primeiroArquivo || "PDF Caixa"}.`);
+    setStatus(erros ? "Extratos com alerta" : "Extratos baixados", erros ? "error" : "success");
+    log(`Extratos Caixa processados: ${itens.length}. Baixados: ${itens.length - erros}. Erros: ${erros}.`);
+    showSimpleOperationalToast(erros ? "Baixa finalizada com alerta." : "Extratos Caixa baixados com sucesso.");
+    abrirResumoFinalExtratos(itens, !erros);
   } catch (error) {
-    mostrarErroExtrato(`Falha ao baixar extrato: ${error}`);
+    const mensagem = `Falha ao baixar extrato: ${error}`;
+    const itens = normalizarResultadosExtrato({ ok: false, msg: mensagem }, payload, mensagem);
+    registrarResultadosExtrato(itens);
+    mostrarErroExtrato(mensagem);
     setStatus("Falha nos extratos", "error");
-    log(`Falha ao baixar extrato: ${error}`, "error");
-    openLogsPopover();
+    log(mensagem, "error");
+    abrirResumoFinalExtratos(itens, false);
   } finally {
     setExtratoChromeBusy(false);
   }
@@ -2432,8 +2575,6 @@ function limparFormularioExtratos() {
   const navegador = el("extratoNavegador");
   const mes = el("extratoMes");
   const ano = el("extratoAno");
-  const contaArquivo = el("extratoContaArquivo");
-  const pastaBase = el("extratoPastaBase");
 
   if (banco) {
     banco.value = "caixa";
@@ -2451,15 +2592,8 @@ function limparFormularioExtratos() {
     ano.value = obterAnoAtualExtrato();
   }
 
-  if (contaArquivo) {
-    contaArquivo.value = "";
-  }
-
-  if (pastaBase) {
-    pastaBase.value = EXTRATO_PASTA_BASE_PADRAO;
-  }
-
   limparErroExtrato();
+  resetarResultadosExtrato();
   atualizarPreviewExtrato();
   setStatus("Baixar extratos", "idle");
 }
@@ -3250,8 +3384,36 @@ function tratarAvisoSimples(mensagem) {
   return aviso || "Ação concluída.";
 }
 
+function tratarAvisoResultadoExtrato(mensagem) {
+  const texto = String(mensagem || "").trim();
+
+  if (!texto.startsWith(EXTRATO_RESULT_NOTICE_PREFIX)) {
+    return mensagem;
+  }
+
+  const payload = texto.slice(EXTRATO_RESULT_NOTICE_PREFIX.length).trim();
+
+  try {
+    const item = JSON.parse(payload);
+    const itens = normalizarResultadosExtrato({ ok: item?.status !== "erro", itens: [item] }, {});
+    registrarResultadosExtrato(itens);
+    const conta = itens[0]?.conta || "--";
+    return itens[0]?.status === "ok"
+      ? `Extrato baixado: ${conta}.`
+      : `Falha na conta: ${conta}.`;
+  } catch (error) {
+    return "Resultado de extrato recebido.";
+  }
+}
+
 function tratarAvisosOperacionais(mensagem) {
-  return tratarAvisoSimples(tratarAvisoMeioPagamento(tratarAvisoNomePdf(mensagem)));
+  return tratarAvisoSimples(
+    tratarAvisoResultadoExtrato(
+      tratarAvisoMeioPagamento(
+        tratarAvisoNomePdf(mensagem)
+      )
+    )
+  );
 }
 
 function copiarTextoFallback(texto) {
@@ -4515,6 +4677,7 @@ const MODAL_IDS = [
   "contactModal",
   "contactSuccessModal",
   "pdfNameModal",
+  "extratoResumoModal",
   "historyModal",
   "aboutModal",
   "batchConfirmModal",

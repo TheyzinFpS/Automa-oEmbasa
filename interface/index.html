@@ -125,7 +125,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.4.41</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.4.42</span>
           </div>
         </div>
       </div>
@@ -647,36 +647,12 @@
             />
           </label>
 
-          <label class="field">
-            <span>Conta no arquivo</span>
-            <input
-              id="extratoContaArquivo"
-              type="text"
-              inputmode="text"
-              placeholder="Ex.: 8512-3"
-              oninput="normalizarContaExtrato(this)"
-            />
-          </label>
-
-          <label class="field field-span-2">
-            <span>Pasta base de destino</span>
-            <input
-              id="extratoPastaBase"
-              type="text"
-              value="N:\DF\FAFT\documentos\FFAM\Documentos\Documentos Diversos\EQUIPE FAFF\DANIEL\EXTRATOS"
-              oninput="atualizarPreviewExtrato()"
-            />
-          </label>
         </div>
 
         <div id="extratoPreview" class="bank-statement-preview">
           <div>
             <span>Per&iacute;odo</span>
             <strong id="extratoPeriodoPreview">--</strong>
-          </div>
-          <div>
-            <span>Arquivo</span>
-            <strong id="extratoNomePreview">--</strong>
           </div>
         </div>
 
@@ -697,31 +673,16 @@
             type="button"
             onclick="baixarExtratoAtualChrome()"
           >
-            Baixar conta atual
+            Baixar extratos
           </button>
-          <button
-            id="extratoTestChromeButton"
-            class="ghost-action"
-            type="button"
-            onclick="testarChromeCaixa()"
-          >
-            Testar conex&atilde;o
-          </button>
-          <button
-            id="extratoSubmitButton"
-            class="ghost-action"
-            type="button"
-            onclick="prepararBaixaExtratos()"
-          >
-            Preparar roteiro
-          </button>
-          <button
-            class="ghost-action"
-            type="button"
-            onclick="limparFormularioExtratos()"
-          >
-            Limpar
-          </button>
+        </div>
+
+        <div id="extratoRunSummary" class="bank-statement-run hidden">
+          <div class="bank-run-head">
+            <span>Resultados da baixa</span>
+            <strong id="extratoRunCount">0 contas</strong>
+          </div>
+          <div id="extratoRunList" class="bank-run-list"></div>
         </div>
       </section>
 
@@ -1186,6 +1147,24 @@
           Fechar
         </button>
       </div>
+    </div>
+  </div>
+
+  <div id="extratoResumoModal" class="contact-success-modal hidden" aria-live="polite">
+    <div class="contact-backdrop" onclick="closeExtratoResumoModal()"></div>
+
+    <div class="contact-success-card extrato-summary-card">
+      <p class="section-kicker">Extratos Caixa</p>
+      <h2 id="extratoResumoTitulo">Baixa finalizada</h2>
+      <p id="extratoResumoTexto">Confira as contas processadas.</p>
+      <div id="extratoResumoLista" class="extrato-summary-list"></div>
+      <button
+        type="button"
+        class="primary-action"
+        onclick="closeExtratoResumoModal()"
+      >
+        Fechar
+      </button>
     </div>
   </div>
 

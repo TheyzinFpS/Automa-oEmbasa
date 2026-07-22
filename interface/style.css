@@ -699,7 +699,7 @@ video {
 }
 
 .bank-statement-preview {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
 }
 
 .bank-statement-preview span {
@@ -724,12 +724,110 @@ video {
   gap: 14px;
 }
 
-.bank-statement-grid .field:last-child {
-  grid-column: 1 / -1;
+.bank-statement-actions {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
-.bank-statement-actions {
-  grid-template-columns: auto minmax(0, 1fr) repeat(3, auto);
+.bank-statement-run {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid rgba(11, 79, 159, 0.12);
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(11, 79, 159, 0.08), rgba(15, 139, 87, 0.06));
+}
+
+.bank-statement-run.hidden {
+  display: none;
+}
+
+.bank-run-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.bank-run-head span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bank-run-head strong {
+  color: var(--ink);
+}
+
+.bank-run-list,
+.extrato-summary-list {
+  display: grid;
+  gap: 8px;
+}
+
+.bank-run-item,
+.extrato-summary-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid rgba(11, 79, 159, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.44);
+}
+
+[data-theme="dark"] .bank-run-item,
+[data-theme="dark"] .extrato-summary-item {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.bank-run-status,
+.extrato-summary-item span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.bank-run-item.ok .bank-run-status,
+.extrato-summary-item.ok span {
+  background: rgba(15, 139, 87, 0.16);
+  color: var(--success);
+}
+
+.bank-run-item.erro .bank-run-status,
+.extrato-summary-item.erro span {
+  background: rgba(201, 87, 74, 0.16);
+  color: var(--danger);
+}
+
+.bank-run-item strong,
+.bank-run-item small,
+.extrato-summary-item strong,
+.extrato-summary-item small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.bank-run-item strong,
+.extrato-summary-item strong {
+  color: var(--ink);
+}
+
+.bank-run-item small,
+.extrato-summary-item small {
+  margin-top: 2px;
+  color: var(--muted);
+  line-height: 1.35;
 }
 
 .client-registration-grid {
@@ -1595,6 +1693,10 @@ input.is-loading {
   margin-top: 0;
 }
 
+.flow-actions.bank-statement-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .danger-action {
   width: auto;
   min-width: 176px;
@@ -2380,6 +2482,21 @@ input.is-loading {
 
 .contact-success-card .primary-action {
   margin-top: 0;
+}
+
+.extrato-summary-card {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.extrato-summary-card p {
+  margin-bottom: 16px;
+}
+
+.extrato-summary-list {
+  max-height: min(42vh, 360px);
+  margin-bottom: 18px;
+  overflow: auto;
+  text-align: left;
 }
 
 .about-card {

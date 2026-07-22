@@ -1,5 +1,24 @@
 # Registro técnico de alterações
 
+## Quarta-feira, 22/07/2026 - Versao 1.4.42
+
+**Ajuste aplicado**
+
+- A tela `Baixar extratos` foi simplificada para uso real, removendo os campos tecnicos `Conta no arquivo` e `Pasta base de destino`.
+- Os botoes auxiliares `Testar conexao`, `Preparar roteiro` e `Limpar` foram retirados da area principal, mantendo apenas `Abrir navegador` e `Baixar extratos`.
+- A pre-visualizacao passou a mostrar somente o periodo selecionado, deixando conta, arquivo e pasta para o resultado real da automacao.
+- Adicionado o quadro `Resultados da baixa`, exibindo cada conta processada com status `OK` ou `ERRO`.
+- O quadro de resultados passa a ser atualizado em tempo real a cada conta concluida, sem depender da abertura dos logs.
+- Adicionado modal final minimalista com resumo das contas baixadas e eventuais falhas.
+- O backend da rotina Caixa agora lista as contas do GovConta e executa a baixa em sequencia, devolvendo `itens` com conta, arquivo salvo ou erro.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\extratos_caixa_chrome.py`
+- `node --check interface\app.js`
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.42`.
+
 ## Quarta-feira, 22/07/2026 - Ajuste visual da Versao 1.4.41
 
 **Ajuste aplicado**
