@@ -1,5 +1,21 @@
 # Registro técnico de alterações
 
+## Quarta-feira, 22/07/2026 - Versao 1.4.46
+
+**Ajuste aplicado**
+
+- A rotina de extratos deixou de depender primeiro do acesso direto pela URL `extrato-individualizado`.
+- Quando o usuario ja esta logado e a Caixa fica no dashboard, o sistema agora navega pelo menu real: `Saldo e Extratos` -> `Extrato Individualizado de Contas`.
+- A URL direta continua existindo apenas como fallback, caso o clique pelo menu nao encontre o item.
+- A espera pela tela do extrato foi separada em uma funcao propria, permitindo retentativas sem deixar a automacao parada silenciosamente na tela inicial.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\extratos_caixa_chrome.py`
+- `node --check interface\app.js`
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.46`.
+
 ## Quarta-feira, 22/07/2026 - Versao 1.4.45
 
 **Ajuste aplicado**

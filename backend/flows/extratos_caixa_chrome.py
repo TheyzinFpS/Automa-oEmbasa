@@ -589,41 +589,128 @@ def _aguardar_pdf(pasta: Path, antes: set[str], started_at: float, timeout: floa
     )
 
 
-def _abrir_tela_extrato(tab: ChromeTab):
-    try:
-        url_atual = str(tab.evaluate("location.href", timeout=5) or "")
-    except Exception:
-        url_atual = ""
-
-    if CAIXA_EXTRATO_PATH not in url_atual:
-        tab.call("Page.navigate", {"url": CAIXA_EXTRATO_URL}, timeout=10)
-        time.sleep(1.2)
-
-    wait_script = """
-(async () => {
+def _aguardar_tela_extrato(tab: ChromeTab, timeout_seconds: int = 45) -> bool:
+    wait_script = f"""
+(async () => {{
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const until = Date.now() + 60000;
-  while (Date.now() < until) {
-    if (document.querySelector('gcx-select[label="Selecione da lista"]')) {
+  const until = Date.now() + {int(timeout_seconds * 1000)};
+  while (Date.now() < until) {{
+    if (document.querySelector('gcx-select[label="Selecione da lista"]')) {{
       return true;
-    }
+    }}
     await sleep(500);
-  }
+  }}
   throw new Error("Tela Extrato individualizado nao carregou no Chrome.");
-})()
+}})()
 """
     ultimo_erro = None
     for _ in range(4):
         try:
-            tab.evaluate(wait_script, await_promise=True, timeout=65)
-            return
+            tab.evaluate(wait_script, await_promise=True, timeout=timeout_seconds + 5)
+            return True
         except Exception as exc:
             ultimo_erro = exc
-            if not _is_navigation_race_error(exc):
-                raise
-            time.sleep(1.2)
+            if _is_navigation_race_error(exc):
+                time.sleep(1.2)
+                continue
 
-    raise ultimo_erro or CaixaChromeError("Tela Extrato individualizado nao carregou no navegador.")
+            if "Tela Extrato individualizado nao carregou" in str(exc):
+                return False
+
+            raise
+
+    if ultimo_erro and not _is_navigation_race_error(ultimo_erro):
+        raise ultimo_erro
+
+    return False
+
+
+def _clicar_menu_extrato(tab: ChromeTab) -> str:
+    script = """
+(async () => {
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const normalize = (value) => String(value || '')
+    .normalize('NFD')
+    .replace(/[\\u0300-\\u036f]/g, '')
+    .replace(/\\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+  const clickElement = (element) => {
+    element.scrollIntoView({ block: 'center', inline: 'center' });
+    element.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    element.click();
+  };
+
+  if (document.querySelector('gcx-select[label="Selecione da lista"]')) {
+    return 'extrato-ja-aberto';
+  }
+
+  const saldoButton = [...document.querySelectorAll('button')]
+    .find((button) => normalize(button.textContent).includes('saldo e extratos'));
+
+  if (saldoButton) {
+    clickElement(saldoButton);
+    await sleep(900);
+  }
+
+  const until = Date.now() + 10000;
+  while (Date.now() < until) {
+    const target = [...document.querySelectorAll('a, button, li')]
+      .find((element) => {
+        const text = normalize(element.textContent);
+        const href = normalize(element.getAttribute('href') || '');
+        return text.includes('extrato individualizado de contas')
+          || href.includes('extrato-individualizado');
+      });
+
+    if (target) {
+      clickElement(target);
+      return 'menu-extrato-clicado';
+    }
+
+    await sleep(250);
+  }
+
+  return 'menu-extrato-nao-encontrado';
+})()
+"""
+    return str(tab.evaluate(script, await_promise=True, timeout=15) or "")
+
+
+def _abrir_tela_extrato(tab: ChromeTab):
+    if _aguardar_tela_extrato(tab, timeout_seconds=2):
+        return
+
+    try:
+        resultado_menu = _clicar_menu_extrato(tab)
+    except Exception as exc:
+        if not _is_navigation_race_error(exc):
+            raise
+        resultado_menu = "navegacao-em-andamento"
+
+    if resultado_menu != "menu-extrato-nao-encontrado":
+        if _aguardar_tela_extrato(tab, timeout_seconds=45):
+            return
+
+    try:
+        tab.call("Page.navigate", {"url": CAIXA_EXTRATO_URL}, timeout=10)
+    except Exception as exc:
+        if not _is_navigation_race_error(exc):
+            raise
+
+    time.sleep(1.2)
+
+    if _aguardar_tela_extrato(tab, timeout_seconds=45):
+        return
+
+    raise CaixaChromeError(
+        "Nao consegui abrir a tela Extrato Individualizado. "
+        "Confirme se o menu Saldo e Extratos aparece no Gerenciador Caixa "
+        "e tente novamente."
+    )
 
 
 def _listar_contas(tab: ChromeTab) -> list[str]:
