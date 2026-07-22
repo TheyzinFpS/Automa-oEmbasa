@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import time
 import urllib.error
 import urllib.parse
@@ -20,6 +21,18 @@ CDP_PORT = 9222
 CDP_BASE_URL = f"http://{CDP_HOST}:{CDP_PORT}"
 CAIXA_EXTRATO_PATH = "/empresa/dashboard/govconta/selecao-govconta/extrato-individualizado"
 CAIXA_EXTRATO_URL = f"https://gerenciador.caixa.gov.br{CAIXA_EXTRATO_PATH}"
+
+BROWSER_LABELS = {
+    "opera": "Opera",
+    "chrome": "Chrome",
+    "edge": "Microsoft Edge",
+}
+
+BROWSER_PROCESS_NAMES = {
+    "opera": "opera.exe",
+    "chrome": "chrome.exe",
+    "edge": "msedge.exe",
+}
 
 MESES_SITE = {
     "01": "Janeiro",
@@ -56,32 +69,88 @@ class CaixaChromeError(RuntimeError):
     pass
 
 
+def _normalizar_navegador(navegador: str | None) -> str:
+    texto = str(navegador or "").strip().lower()
+    if texto in {"opera", "chrome", "edge"}:
+        return texto
+    return "opera"
+
+
+def _rotulo_navegador(navegador: str | None) -> str:
+    return BROWSER_LABELS.get(_normalizar_navegador(navegador), "Opera")
+
+
+def _candidatos_navegador(navegador: str | None) -> list[Path]:
+    browser = _normalizar_navegador(navegador)
+    local = Path(os.environ.get("LOCALAPPDATA", ""))
+    program_files = Path(os.environ.get("ProgramFiles", ""))
+    program_files_x86 = Path(os.environ.get("ProgramFiles(x86)", ""))
+
+    if browser == "opera":
+        return [
+            local / "Programs" / "Opera" / "opera.exe",
+            local / "Programs" / "Opera" / "launcher.exe",
+            local / "Programs" / "Opera GX" / "opera.exe",
+            local / "Programs" / "Opera GX" / "launcher.exe",
+            program_files / "Opera" / "opera.exe",
+            program_files / "Opera" / "launcher.exe",
+            program_files / "Opera GX" / "opera.exe",
+            program_files / "Opera GX" / "launcher.exe",
+            program_files_x86 / "Opera" / "opera.exe",
+            program_files_x86 / "Opera" / "launcher.exe",
+            program_files_x86 / "Opera GX" / "opera.exe",
+            program_files_x86 / "Opera GX" / "launcher.exe",
+        ]
+
+    if browser == "edge":
+        return [
+            program_files_x86 / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+            program_files / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+            local / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+        ]
+
+    return [
+        program_files / "Google" / "Chrome" / "Application" / "chrome.exe",
+        program_files_x86 / "Google" / "Chrome" / "Application" / "chrome.exe",
+        local / "Google" / "Chrome" / "Application" / "chrome.exe",
+    ]
+
+
+def _encontrar_executavel_navegador(navegador: str | None) -> Path | None:
+    for candidato in _candidatos_navegador(navegador):
+        if candidato.exists():
+            return candidato
+    return None
+
+
 def _get_json(path: str, timeout: float = 3.0):
     url = f"{CDP_BASE_URL}{path}"
     with urllib.request.urlopen(url, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
-def _friendly_cdp_error(exc: Exception) -> str:
+def _friendly_cdp_error(exc: Exception, navegador: str | None = None) -> str:
+    rotulo = _rotulo_navegador(navegador)
+
     if websocket is None:
         return (
             "Dependencia websocket-client ausente. Rode o rebuild para embutir "
-            "a ponte de controle do Chrome."
+            "a ponte de controle do navegador."
         )
 
     if isinstance(exc, urllib.error.URLError):
         return (
-            "Chrome controlavel nao encontrado na porta 9222. Abra o Chrome pelo "
-            "arquivo Abrir_Chrome_Caixa_Controlavel.cmd, faca login na Caixa e tente novamente."
+            f"{rotulo} controlavel nao encontrado na porta 9222. "
+            "Clique em Abrir navegador, faca login na Caixa e tente novamente."
         )
 
     return str(exc) or exc.__class__.__name__
 
 
-def diagnosticar_chrome_caixa() -> dict:
+def diagnosticar_chrome_caixa(navegador: str | None = None) -> dict:
     try:
         if websocket is None:
-            raise CaixaChromeError(_friendly_cdp_error(RuntimeError()))
+            raise CaixaChromeError(_friendly_cdp_error(RuntimeError(), navegador))
 
         version = _get_json("/json/version")
         tabs = [
@@ -101,11 +170,11 @@ def diagnosticar_chrome_caixa() -> dict:
         return {
             "ok": True,
             "msg": (
-                "Chrome controlavel conectado. "
+                "Navegador controlavel conectado. "
                 + (
                     "Aba da Caixa encontrada."
                     if abas_caixa
-                    else "Abra ou acesse a Caixa neste Chrome antes de baixar."
+                    else "Abra ou acesse a Caixa neste navegador antes de baixar."
                 )
             ),
             "browser": version.get("Browser", ""),
@@ -115,10 +184,76 @@ def diagnosticar_chrome_caixa() -> dict:
     except Exception as exc:
         return {
             "ok": False,
-            "msg": _friendly_cdp_error(exc),
+            "msg": _friendly_cdp_error(exc, navegador),
             "tabs": 0,
             "abas_caixa": [],
         }
+
+
+def abrir_navegador_caixa(navegador: str | None = None) -> dict:
+    browser = _normalizar_navegador(navegador)
+    rotulo = _rotulo_navegador(browser)
+
+    diagnostico = diagnosticar_chrome_caixa(browser)
+    if diagnostico.get("ok"):
+        return {
+            "ok": True,
+            "msg": f"{rotulo} controlavel ja esta aberto.",
+            "diagnostico": diagnostico,
+        }
+
+    executavel = _encontrar_executavel_navegador(browser)
+    if executavel is None:
+        return {
+            "ok": False,
+            "msg": f"{rotulo} nao foi encontrado neste computador.",
+        }
+
+    perfil_base = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "EMBASA" / "BrowserCaixa"
+    perfil = perfil_base / browser
+    perfil.mkdir(parents=True, exist_ok=True)
+
+    args = [
+        str(executavel),
+        f"--remote-debugging-port={CDP_PORT}",
+        f"--user-data-dir={perfil}",
+        "--no-first-run",
+        "--disable-features=Translate",
+        CAIXA_EXTRATO_URL,
+    ]
+
+    try:
+        subprocess.Popen(
+            args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            close_fds=True,
+        )
+    except Exception as exc:
+        return {
+            "ok": False,
+            "msg": f"Falha ao abrir {rotulo}: {exc}",
+        }
+
+    deadline = time.time() + 12
+    while time.time() < deadline:
+        diagnostico = diagnosticar_chrome_caixa(browser)
+        if diagnostico.get("ok"):
+            return {
+                "ok": True,
+                "msg": f"{rotulo} controlavel aberto. Faca login na Caixa nesta janela.",
+                "diagnostico": diagnostico,
+            }
+        time.sleep(0.6)
+
+    return {
+        "ok": False,
+        "msg": (
+            f"{rotulo} foi iniciado, mas a porta {CDP_PORT} ainda nao respondeu. "
+            "Aguarde alguns segundos e clique em Testar conexao."
+        ),
+    }
 
 
 class ChromeTab:
@@ -476,6 +611,8 @@ def executar_download_extrato_atual(
 
         mes = str(dados.get("mes") or "")
         ano = str(dados.get("ano") or "")
+        navegador = _normalizar_navegador(dados.get("navegador"))
+        rotulo_navegador = _rotulo_navegador(navegador)
         mes_label = MESES_SITE.get(mes) or str(dados.get("mes_label") or "").strip()
         pasta_destino = Path(str(dados.get("pasta_destino") or "").strip())
 
@@ -487,8 +624,8 @@ def executar_download_extrato_atual(
 
         pasta_destino.mkdir(parents=True, exist_ok=True)
 
-        progress("Conectando ao Chrome controlavel.", 10)
-        log("Conectando ao Chrome controlavel na porta 9222.")
+        progress(f"Conectando ao {rotulo_navegador} controlavel.", 10)
+        log(f"Conectando ao {rotulo_navegador} controlavel na porta 9222.")
         tab = _selecionar_aba_caixa()
         tab.call("Page.enable", timeout=5)
         tab.call("Runtime.enable", timeout=5)
@@ -526,7 +663,7 @@ def executar_download_extrato_atual(
             "pasta": str(pasta_destino),
         }
     except Exception as exc:
-        mensagem = _friendly_cdp_error(exc)
+        mensagem = _friendly_cdp_error(exc, dados.get("navegador") if isinstance(dados, dict) else None)
         log(f"Falha ao baixar extrato Caixa: {mensagem}", "error")
         return {
             "ok": False,

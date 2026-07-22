@@ -77,7 +77,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.40";
+const APP_VERSION = "1.4.41";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -126,6 +126,11 @@ const MESES_EXTRATO_SIGLA = {
   "12": "DEZ"
 };
 const EXTRATO_PASTA_BASE_PADRAO = "N:\\DF\\FAFT\\documentos\\FFAM\\Documentos\\Documentos Diversos\\EQUIPE FAFF\\DANIEL\\EXTRATOS";
+const NAVEGADORES_EXTRATO = {
+  opera: "Opera",
+  chrome: "Chrome",
+  edge: "Microsoft Edge"
+};
 const EXTRATO_CAIXA_PASSOS = [
   "Saldo e Extratos",
   "Extrato Individualizado de Contas",
@@ -2207,6 +2212,7 @@ function mostrarErroExtrato(mensagem) {
 
 function montarPayloadExtratos() {
   const banco = el("extratoBanco")?.value || "caixa";
+  const navegador = el("extratoNavegador")?.value || "opera";
   const mes = el("extratoMes")?.value || "";
   const ano = String(el("extratoAno")?.value || "").replace(/\D/g, "").slice(0, 4);
   const contaArquivo = String(el("extratoContaArquivo")?.value || "").trim();
@@ -2232,6 +2238,8 @@ function montarPayloadExtratos() {
   return {
     banco,
     banco_label: "Caixa",
+    navegador,
+    navegador_label: NAVEGADORES_EXTRATO[navegador] || "Opera",
     mes,
     mes_label: MESES_EXTRATO[mes],
     mes_sigla: MESES_EXTRATO_SIGLA[mes],
@@ -2285,9 +2293,10 @@ function prepararBaixaExtratos() {
 function setExtratoChromeBusy(busy) {
   const chromeButton = el("extratoChromeButton");
   const testButton = el("extratoTestChromeButton");
+  const openButton = el("extratoOpenBrowserButton");
   const prepareButton = el("extratoSubmitButton");
 
-  [chromeButton, testButton, prepareButton].forEach((button) => {
+  [chromeButton, testButton, openButton, prepareButton].forEach((button) => {
     if (button) {
       button.disabled = Boolean(busy);
     }
@@ -2295,41 +2304,82 @@ function setExtratoChromeBusy(busy) {
 
   if (chromeButton) {
     chromeButton.textContent = busy
-      ? "Baixando no Chrome..."
-      : "Baixar conta atual no Chrome";
+      ? "Baixando no navegador..."
+      : "Baixar conta atual";
   }
 }
 
-async function testarChromeCaixa() {
+async function abrirNavegadorCaixa() {
   limparErroExtrato();
 
-  if (!window.pywebview?.api?.diagnosticar_chrome_caixa) {
-    mostrarErroExtrato("Backend indisponivel para testar o Chrome.");
-    setStatus("Chrome indisponivel", "error");
+  const navegador = el("extratoNavegador")?.value || "opera";
+  const navegadorLabel = NAVEGADORES_EXTRATO[navegador] || "Opera";
+
+  if (!window.pywebview?.api?.abrir_navegador_caixa) {
+    mostrarErroExtrato("Backend indisponivel para abrir o navegador.");
+    setStatus("Navegador indisponivel", "error");
     return;
   }
 
   try {
     setExtratoChromeBusy(true);
-    setStatus("Testando Chrome", "running");
-    log("Testando conexao com Chrome controlavel na porta 9222.");
-    const resposta = await window.pywebview.api.diagnosticar_chrome_caixa();
+    setStatus("Abrindo navegador", "running");
+    log(`Abrindo ${navegadorLabel} controlavel para acesso a Caixa.`);
+    const resposta = await window.pywebview.api.abrir_navegador_caixa(navegador);
 
     if (!resposta?.ok) {
-      mostrarErroExtrato(resposta?.msg || "Chrome controlavel nao encontrado.");
-      setStatus("Chrome nao conectado", "error");
-      log(resposta?.msg || "Chrome controlavel nao encontrado.", "error");
+      mostrarErroExtrato(resposta?.msg || `Nao foi possivel abrir ${navegadorLabel}.`);
+      setStatus("Navegador nao aberto", "error");
+      log(resposta?.msg || `Nao foi possivel abrir ${navegadorLabel}.`, "error");
       openLogsPopover();
       return;
     }
 
-    setStatus("Chrome conectado", "success");
-    log(`${resposta.msg} Abas abertas: ${resposta.tabs || 0}.`);
-    showSimpleOperationalToast("Chrome controlavel conectado.");
+    setStatus("Navegador aberto", "success");
+    log(resposta.msg || `${navegadorLabel} controlavel aberto.`);
+    showSimpleOperationalToast(`${navegadorLabel} aberto. Faca login na Caixa.`);
   } catch (error) {
-    mostrarErroExtrato(`Falha ao testar Chrome: ${error}`);
-    setStatus("Chrome nao conectado", "error");
-    log(`Falha ao testar Chrome: ${error}`, "error");
+    mostrarErroExtrato(`Falha ao abrir navegador: ${error}`);
+    setStatus("Navegador nao aberto", "error");
+    log(`Falha ao abrir navegador: ${error}`, "error");
+    openLogsPopover();
+  } finally {
+    setExtratoChromeBusy(false);
+  }
+}
+
+async function testarChromeCaixa() {
+  limparErroExtrato();
+  const navegador = el("extratoNavegador")?.value || "opera";
+  const navegadorLabel = NAVEGADORES_EXTRATO[navegador] || "Opera";
+
+  if (!window.pywebview?.api?.diagnosticar_chrome_caixa) {
+    mostrarErroExtrato("Backend indisponivel para testar o navegador.");
+    setStatus("Navegador indisponivel", "error");
+    return;
+  }
+
+  try {
+    setExtratoChromeBusy(true);
+    setStatus("Testando navegador", "running");
+    log(`Testando conexao com ${navegadorLabel} controlavel na porta 9222.`);
+    const resposta = await window.pywebview.api.diagnosticar_chrome_caixa(navegador);
+
+    if (!resposta?.ok) {
+      mostrarErroExtrato(resposta?.msg || "Navegador controlavel nao encontrado.");
+      setStatus("Navegador nao conectado", "error");
+      log(resposta?.msg || "Navegador controlavel nao encontrado.", "error");
+      openLogsPopover();
+      return;
+    }
+
+    setStatus("Navegador conectado", "success");
+    log(`${resposta.msg} Abas abertas: ${resposta.tabs || 0}.`);
+    showSimpleOperationalToast("Navegador controlavel conectado.");
+  } catch (error) {
+    mostrarErroExtrato(`Falha ao testar navegador: ${error}`);
+    setStatus("Navegador nao conectado", "error");
+    log(`Falha ao testar navegador: ${error}`, "error");
     openLogsPopover();
   } finally {
     setExtratoChromeBusy(false);
@@ -2345,17 +2395,17 @@ async function baixarExtratoAtualChrome() {
   }
 
   if (!window.pywebview?.api?.baixar_extratos_caixa) {
-    mostrarErroExtrato("Backend indisponivel para controlar o Chrome.");
-    setStatus("Chrome indisponivel", "error");
+    mostrarErroExtrato("Backend indisponivel para controlar o navegador.");
+    setStatus("Navegador indisponivel", "error");
     return;
   }
 
   try {
     setExtratoChromeBusy(true);
     window.resetarProgresso();
-    ativarEtapa(0, 10, "Conectando ao Chrome controlavel.");
+    ativarEtapa(0, 10, "Conectando ao navegador controlavel.");
     setStatus("Baixando extrato", "running");
-    log(`Baixa Caixa solicitada: ${payload.mes_label}/${payload.ano}.`);
+    log(`Baixa Caixa solicitada no ${payload.navegador_label}: ${payload.mes_label}/${payload.ano}.`);
 
     const resposta = await window.pywebview.api.baixar_extratos_caixa(payload);
 
@@ -2384,6 +2434,7 @@ async function baixarExtratoAtualChrome() {
 
 function limparFormularioExtratos() {
   const banco = el("extratoBanco");
+  const navegador = el("extratoNavegador");
   const mes = el("extratoMes");
   const ano = el("extratoAno");
   const contaArquivo = el("extratoContaArquivo");
@@ -2391,6 +2442,10 @@ function limparFormularioExtratos() {
 
   if (banco) {
     banco.value = "caixa";
+  }
+
+  if (navegador) {
+    navegador.value = "opera";
   }
 
   if (mes) {

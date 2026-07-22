@@ -1,5 +1,22 @@
 # Registro técnico de alterações
 
+## Quarta-feira, 22/07/2026 - Versao 1.4.41
+
+**Ajuste aplicado**
+
+- Removido o atalho externo `Abrir_Chrome_Caixa_Controlavel.cmd`; a abertura do navegador controlavel agora fica dentro da propria interface.
+- A area `Baixar extratos` ganhou a selecao de navegador, com `Opera` como padrao e suporte adicional a `Chrome` e `Microsoft Edge`.
+- Adicionado o botao `Abrir navegador`, que localiza o navegador escolhido, abre uma janela controlavel na porta `9222` com perfil local do EMBASA e direciona para a Caixa.
+- Os textos da interface e do backend foram ajustados de `Chrome` para `navegador controlavel`, permitindo testes locais no Opera sem alterar o fluxo de download.
+- Atualizada a versao do projeto de `1.4.40` para `1.4.41`.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\extratos_caixa_chrome.py`
+- `node --check interface\app.js`
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.41`.
+
 ## Quarta-feira, 22/07/2026 - Versao 1.4.40
 
 **Ajuste aplicado**

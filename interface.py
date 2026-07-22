@@ -16,6 +16,7 @@ from backend.flows.cliente_cadastro import (
     criar_cliente_multa_contratual,
 )
 from backend.flows.extratos_caixa_chrome import (
+    abrir_navegador_caixa,
     diagnosticar_chrome_caixa,
     executar_download_extrato_atual,
 )
@@ -789,8 +790,11 @@ class API:
             "Cadastrando setores no SAP",
         )
 
-    def diagnosticar_chrome_caixa(self):
-        return _serializar_para_front(diagnosticar_chrome_caixa())
+    def abrir_navegador_caixa(self, navegador="opera"):
+        return _serializar_para_front(abrir_navegador_caixa(navegador))
+
+    def diagnosticar_chrome_caixa(self, navegador="opera"):
+        return _serializar_para_front(diagnosticar_chrome_caixa(navegador))
 
     def baixar_extratos_caixa(self, dados):
         resultado_final = {}
@@ -839,7 +843,7 @@ class API:
                     -1,
                     (
                         "Falha detalhada na rotina Caixa.\n"
-                        "O que o sistema fazia: controlar o Chrome logado e exportar o extrato em PDF.\n"
+                        "O que o sistema fazia: controlar o navegador logado e exportar o extrato em PDF.\n"
                         f"Bloqueio tecnico retornado: {str(exc) or 'sem detalhe retornado'}."
                     ),
                     nivel="ERRO",

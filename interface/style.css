@@ -762,7 +762,7 @@ video {
 }
 
 .bank-statement-actions {
-  grid-template-columns: minmax(0, 1fr) repeat(3, auto);
+  grid-template-columns: auto minmax(0, 1fr) repeat(3, auto);
 }
 
 .bank-statement-steps {
