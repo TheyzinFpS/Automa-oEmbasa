@@ -857,59 +857,208 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
   const currentInput = accountSelect.querySelector('input[name="search-gcx-select"]');
   let contaSelecionada = currentInput && currentInput.value ? currentInput.value.trim() : '';
 
-  const selecionarConta = async (conta) => {{
+  const campoDsc = (label) => [...document.querySelectorAll('dsc-select')]
+    .find((item) => normalize(item.getAttribute('label')) === normalize(label));
+
+  const textoDetalheConta = () => [
+    ...document.querySelectorAll('.detalhes-consulta, .resumo-wrapper, .resumo, .conta-nome')
+  ].map((item) => item.textContent || '').join(' ');
+
+  const camposPeriodoProntos = (contaEsperada = '') => {{
+    if (!campoDsc('Mes') || !campoDsc('Ano')) return false;
+
+    const alvoDigits = onlyDigits(contaEsperada);
+    const detalhe = textoDetalheConta();
+    const detalheDigits = onlyDigits(detalhe);
+    if (!alvoDigits || !detalhe.trim()) return true;
+    return detalheDigits.includes(alvoDigits);
+  }};
+
+  const isVisible = (element) => {{
+    if (!element) return false;
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    return rect.width > 0
+      && rect.height > 0
+      && style.display !== 'none'
+      && style.visibility !== 'hidden';
+  }};
+
+  const accountButtons = () => [...document.querySelectorAll('button.dropdown-wrapper-item')]
+    .filter((button) => isVisible(button) && button.textContent.trim());
+
+  const findAccountButton = (conta) => accountButtons()
+    .find((button) => sameAccount(button.textContent, conta))
+    || accountButtons()
+      .find((button) => normalize(button.textContent).includes(normalize(conta)));
+
+  const forceClick = async (element) => {{
+    element.scrollIntoView({{ block: 'center', inline: 'nearest' }});
+    await sleep(120);
+    const rect = element.getBoundingClientRect();
+    const clientX = rect.left + Math.min(Math.max(rect.width / 2, 8), Math.max(rect.width - 8, 8));
+    const clientY = rect.top + Math.min(Math.max(rect.height / 2, 8), Math.max(rect.height - 8, 8));
+    const eventBase = {{
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      button: 0,
+      buttons: 1,
+      clientX,
+      clientY,
+    }};
+    const pointerBase = {{
+      ...eventBase,
+      pointerId: 1,
+      pointerType: 'mouse',
+      isPrimary: true,
+    }};
+
+    const PointerCtor = window.PointerEvent || window.MouseEvent;
+    element.dispatchEvent(new PointerCtor('pointerover', pointerBase));
+    element.dispatchEvent(new MouseEvent('mouseover', eventBase));
+    element.dispatchEvent(new PointerCtor('pointermove', pointerBase));
+    element.dispatchEvent(new MouseEvent('mousemove', eventBase));
+    element.dispatchEvent(new PointerCtor('pointerdown', pointerBase));
+    element.dispatchEvent(new MouseEvent('mousedown', eventBase));
+    if (typeof element.focus === 'function') {{
+      element.focus({{ preventScroll: true }});
+    }}
+    element.dispatchEvent(new PointerCtor('pointerup', {{ ...pointerBase, buttons: 0 }}));
+    element.dispatchEvent(new MouseEvent('mouseup', {{ ...eventBase, buttons: 0 }}));
+    element.dispatchEvent(new MouseEvent('click', {{ ...eventBase, buttons: 0 }}));
+  }};
+
+  const abrirListaContas = async () => {{
     const opener = accountSelect.querySelector('.input-wrapper') || currentInput || accountSelect;
-    if (contaSelecionada && sameAccount(contaSelecionada, conta)) {{
+    if (!accountButtons().length) {{
+      await forceClick(opener);
+      await sleep(500);
+    }}
+
+    const viewport = document.querySelector('.cdk-virtual-scroll-viewport.dropdown-wrapper')
+      || document.querySelector('.cdk-virtual-scroll-viewport');
+    if (viewport) {{
+      viewport.scrollTop = 0;
+      viewport.dispatchEvent(new Event('scroll', {{ bubbles: true }}));
+      await sleep(180);
+    }}
+  }};
+
+  const filtrarConta = async (conta) => {{
+    if (!currentInput) return;
+    currentInput.focus();
+    currentInput.value = '';
+    currentInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+    currentInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+    await sleep(160);
+    currentInput.value = conta;
+    currentInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+    currentInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+    await sleep(650);
+  }};
+
+  const confirmarCamposPeriodo = async (conta, timeout = 9000) => {{
+    try {{
+      await waitFor(
+        () => camposPeriodoProntos(conta),
+        `Campos de mes e ano para a conta ${{conta}}`,
+        timeout
+      );
+      return true;
+    }} catch (error) {{
+      return false;
+    }}
+  }};
+
+  const selecionarOpcaoConta = async (conta) => {{
+    await abrirListaContas();
+
+    let option = findAccountButton(conta);
+    if (!option) {{
+      await filtrarConta(conta);
+      option = await waitFor(
+        () => findAccountButton(conta),
+        `Conta ${{conta}}`
+      );
+    }}
+
+    const textoSelecionado = option.textContent.trim();
+    await forceClick(option);
+    await sleep(850);
+
+    if (await confirmarCamposPeriodo(conta, 4500)) {{
+      return textoSelecionado;
+    }}
+
+    await abrirListaContas();
+    option = findAccountButton(conta);
+    if (!option) {{
+      await filtrarConta(conta);
+      option = await waitFor(
+        () => findAccountButton(conta),
+        `Conta ${{conta}} apos nova tentativa`
+      );
+    }}
+
+    option.focus();
+    option.dispatchEvent(new KeyboardEvent('keydown', {{
+      key: 'Enter',
+      code: 'Enter',
+      bubbles: true,
+      cancelable: true,
+    }}));
+    option.dispatchEvent(new KeyboardEvent('keyup', {{
+      key: 'Enter',
+      code: 'Enter',
+      bubbles: true,
+      cancelable: true,
+    }}));
+    await sleep(500);
+
+    if (!(await confirmarCamposPeriodo(conta, 4500))) {{
+      await forceClick(option);
+      await sleep(850);
+    }}
+
+    if (!(await confirmarCamposPeriodo(conta, 6500))) {{
+      throw new Error(
+        `A conta ${{conta}} apareceu na lista, mas o site nao abriu os campos Mes/Ano apos o clique.`
+      );
+    }}
+
+    return textoSelecionado;
+  }};
+
+  const selecionarConta = async (conta) => {{
+    if (contaSelecionada && sameAccount(contaSelecionada, conta) && camposPeriodoProntos(conta)) {{
       return contaSelecionada;
     }}
 
-    opener.click();
-    await sleep(700);
-
-    if (currentInput) {{
-      currentInput.focus();
-      currentInput.value = '';
-      currentInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-      await sleep(180);
-      currentInput.value = conta;
-      currentInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-      currentInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
-      await sleep(700);
-    }}
-
-    const option = await waitFor(
-      () => [...document.querySelectorAll('button.dropdown-wrapper-item')]
-        .find((button) => sameAccount(button.textContent, conta))
-        || [...document.querySelectorAll('button.dropdown-wrapper-item')]
-          .find((button) => normalize(button.textContent).includes(normalize(conta))),
-      `Conta ${{conta}}`
-    );
-    contaSelecionada = option.textContent.trim();
-    option.click();
-    await sleep(900);
+    contaSelecionada = await selecionarOpcaoConta(conta);
     return contaSelecionada;
   }};
 
   if (contaAlvo) {{
     contaSelecionada = await selecionarConta(contaAlvo);
   }} else if (!contaSelecionada) {{
-    const opener = accountSelect.querySelector('.input-wrapper') || currentInput || accountSelect;
-    opener.click();
-    await sleep(700);
+    await abrirListaContas();
     const firstOption = await waitFor(
-      () => [...document.querySelectorAll('button.dropdown-wrapper-item')]
-        .find((button) => button.textContent.trim()),
+      () => accountButtons().find((button) => button.textContent.trim()),
       'Primeira conta da lista'
     );
     contaSelecionada = firstOption.textContent.trim();
-    firstOption.click();
+    await forceClick(firstOption);
     await sleep(900);
+    await waitFor(
+      () => camposPeriodoProntos(contaSelecionada),
+      `Campos de mes e ano para a conta ${{contaSelecionada}}`
+    );
   }}
 
   const selectDsc = async (label, optionText) => {{
     const component = await waitFor(
-      () => [...document.querySelectorAll('dsc-select')]
-        .find((item) => normalize(item.getAttribute('label')) === normalize(label)),
+      () => campoDsc(label),
       `Campo ${{label}}`
     );
     const matSelect = component.querySelector('mat-select');

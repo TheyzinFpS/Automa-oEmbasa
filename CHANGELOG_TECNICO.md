@@ -1,5 +1,21 @@
 # Registro técnico de alterações
 
+## Quarta-feira, 22/07/2026 - Versao 1.4.48
+
+**Ajuste aplicado**
+
+- Corrigida a selecao de conta no dropdown `gcx-select` da tela `Extrato Individualizado`.
+- A automacao agora clica no botao real `button.dropdown-wrapper-item` da conta encontrada, em vez de depender do texto digitado no campo de busca.
+- O clique passou a disparar eventos de ponteiro e mouse, com nova tentativa via `Enter` caso o site nao confirme a selecao na primeira tentativa.
+- Antes de preencher `Mes` e `Ano`, o sistema agora aguarda a area de periodo da conta abrir; se isso nao acontecer, o erro informa que a conta apareceu na lista, mas os campos `Mes/Ano` nao foram exibidos.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\extratos_caixa_chrome.py`
+- `node --check interface\app.js`
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.48`.
+
 ## Quarta-feira, 22/07/2026 - Versao 1.4.47
 
 **Ajuste aplicado**
