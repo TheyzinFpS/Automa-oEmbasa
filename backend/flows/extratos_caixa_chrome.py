@@ -140,6 +140,15 @@ def _is_remote_origin_error(exc: Exception) -> bool:
     )
 
 
+def _is_navigation_race_error(exc: Exception) -> bool:
+    texto = str(exc or "").lower()
+    return (
+        "inspected target navigated or closed" in texto
+        or "execution context was destroyed" in texto
+        or "cannot find context with specified id" in texto
+    )
+
+
 def _friendly_cdp_error(exc: Exception, navegador: str | None = None) -> str:
     rotulo = _rotulo_navegador(navegador)
 
@@ -165,6 +174,48 @@ def _friendly_cdp_error(exc: Exception, navegador: str | None = None) -> str:
     return str(exc) or exc.__class__.__name__
 
 
+def _gravar_json_seguro(path: Path, dados: dict):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(dados, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _carregar_json_seguro(path: Path) -> dict:
+    try:
+        if path.exists():
+            dados = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(dados, dict):
+                return dados
+    except Exception:
+        pass
+
+    return {}
+
+
+def _preparar_perfil_navegador(perfil: Path):
+    preferences_path = perfil / "Default" / "Preferences"
+    preferences = _carregar_json_seguro(preferences_path)
+    profile = preferences.setdefault("profile", {})
+
+    default_settings = profile.setdefault("default_content_setting_values", {})
+    default_settings["geolocation"] = 2
+
+    managed_settings = profile.setdefault("managed_default_content_settings", {})
+    managed_settings["geolocation"] = 2
+
+    content_settings = profile.setdefault("content_settings", {})
+    exceptions = content_settings.setdefault("exceptions", {})
+    geolocation = exceptions.setdefault("geolocation", {})
+    geolocation["https://gerenciador.caixa.gov.br,*"] = {
+        "last_modified": str(int(time.time() * 1000000)),
+        "setting": 2,
+    }
+
+    _gravar_json_seguro(preferences_path, preferences)
+
+
 def diagnosticar_chrome_caixa(navegador: str | None = None) -> dict:
     try:
         if websocket is None:
@@ -186,7 +237,10 @@ def diagnosticar_chrome_caixa(navegador: str | None = None) -> dict:
         ]
 
         teste_controle = _selecionar_aba_caixa()
-        teste_controle.close()
+        try:
+            _bloquear_geolocalizacao_caixa(teste_controle)
+        finally:
+            teste_controle.close()
 
         return {
             "ok": True,
@@ -240,12 +294,15 @@ def abrir_navegador_caixa(navegador: str | None = None) -> dict:
     perfil_base = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "EMBASA" / "BrowserCaixa"
     perfil = perfil_base / browser
     perfil.mkdir(parents=True, exist_ok=True)
+    _preparar_perfil_navegador(perfil)
 
     args = [
         str(executavel),
         f"--remote-debugging-port={CDP_PORT}",
         f"--remote-allow-origins={CDP_BASE_URL}",
         f"--user-data-dir={perfil}",
+        "--deny-permission-prompts",
+        "--disable-geolocation",
         "--no-first-run",
         "--disable-features=Translate",
         CAIXA_EXTRATO_URL,
@@ -387,6 +444,25 @@ def _selecionar_aba_caixa() -> ChromeTab:
     return ChromeTab(tabs_ordenadas[0]["webSocketDebuggerUrl"])
 
 
+def _bloquear_geolocalizacao_caixa(tab: ChromeTab):
+    payloads = [
+        {"origin": "https://gerenciador.caixa.gov.br"},
+        {"browserContextId": ""},
+    ]
+
+    for extra in payloads:
+        params = {
+            "permission": {"name": "geolocation"},
+            "setting": "denied",
+            **{key: value for key, value in extra.items() if value},
+        }
+
+        try:
+            tab.call("Browser.setPermission", params, timeout=5)
+        except Exception:
+            continue
+
+
 def _js_string(value: str) -> str:
     return json.dumps(str(value or ""), ensure_ascii=False)
 
@@ -514,21 +590,14 @@ def _aguardar_pdf(pasta: Path, antes: set[str], started_at: float, timeout: floa
 
 
 def _abrir_tela_extrato(tab: ChromeTab):
-    script = f"""
-(() => {{
-  const path = {_js_string(CAIXA_EXTRATO_PATH)};
-  const fallback = {_js_string(CAIXA_EXTRATO_URL)};
-  const origem = location.origin && location.origin.startsWith('http')
-    ? location.origin
-    : '';
-  const destino = origem ? `${{origem}}${{path}}` : fallback;
-  if (!location.href.includes(path)) {{
-    location.href = destino;
-  }}
-  return location.href;
-}})()
-"""
-    tab.evaluate(script, timeout=10)
+    try:
+        url_atual = str(tab.evaluate("location.href", timeout=5) or "")
+    except Exception:
+        url_atual = ""
+
+    if CAIXA_EXTRATO_PATH not in url_atual:
+        tab.call("Page.navigate", {"url": CAIXA_EXTRATO_URL}, timeout=10)
+        time.sleep(1.2)
 
     wait_script = """
 (async () => {
@@ -543,7 +612,18 @@ def _abrir_tela_extrato(tab: ChromeTab):
   throw new Error("Tela Extrato individualizado nao carregou no Chrome.");
 })()
 """
-    tab.evaluate(wait_script, await_promise=True, timeout=65)
+    ultimo_erro = None
+    for _ in range(4):
+        try:
+            tab.evaluate(wait_script, await_promise=True, timeout=65)
+            return
+        except Exception as exc:
+            ultimo_erro = exc
+            if not _is_navigation_race_error(exc):
+                raise
+            time.sleep(1.2)
+
+    raise ultimo_erro or CaixaChromeError("Tela Extrato individualizado nao carregou no navegador.")
 
 
 def _listar_contas(tab: ChromeTab) -> list[str]:
@@ -842,6 +922,7 @@ def executar_download_extrato_atual(
         tab = _selecionar_aba_caixa()
         tab.call("Page.enable", timeout=5)
         tab.call("Runtime.enable", timeout=5)
+        _bloquear_geolocalizacao_caixa(tab)
         tab.set_download_path(pasta_destino)
 
         progress("Abrindo Extrato individualizado da Caixa.", 25)

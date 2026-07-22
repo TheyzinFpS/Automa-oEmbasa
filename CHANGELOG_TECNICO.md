@@ -1,5 +1,21 @@
 # Registro técnico de alterações
 
+## Quarta-feira, 22/07/2026 - Versao 1.4.45
+
+**Ajuste aplicado**
+
+- O perfil controlavel do Opera/Chrome/Edge agora grava a geolocalizacao como bloqueada antes de abrir a Caixa.
+- A abertura do navegador passou a usar `--deny-permission-prompts` e `--disable-geolocation`, evitando o popup `Saber sua localizacao`.
+- A rotina CDP tambem aplica `Browser.setPermission` com geolocalizacao negada para `https://gerenciador.caixa.gov.br`.
+- A navegacao ate `Extrato Individualizado` passou a usar `Page.navigate` e retentativas contra a falha `Runtime.evaluate: Inspected target navigated or closed`.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\extratos_caixa_chrome.py`
+- `node --check interface\app.js`
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.45`.
+
 ## Quarta-feira, 22/07/2026 - Versao 1.4.44
 
 **Ajuste aplicado**
