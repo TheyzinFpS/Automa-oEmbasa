@@ -2169,17 +2169,12 @@ function atualizarPreviewExtrato() {
   const contaArquivo = el("extratoContaArquivo")?.value || "";
   const pastaBase = el("extratoPastaBase")?.value || EXTRATO_PASTA_BASE_PADRAO;
   const periodoPreview = el("extratoPeriodoPreview") || preview.querySelector("strong");
-  const destinoPreview = el("extratoDestinoPreview");
   const nomePreview = el("extratoNomePreview");
 
   if (periodoPreview) {
     periodoPreview.textContent = mes && ano.length === 4
       ? `${MESES_EXTRATO[mes] || mes}/${ano}`
       : "--";
-  }
-
-  if (destinoPreview) {
-    destinoPreview.textContent = montarPastaDestinoExtrato(mes, ano, pastaBase);
   }
 
   if (nomePreview) {

@@ -1,5 +1,20 @@
 # Registro técnico de alterações
 
+## Quarta-feira, 22/07/2026 - Ajuste visual da Versao 1.4.41
+
+**Ajuste aplicado**
+
+- A tela `Baixar extratos` foi enxugada, removendo o roteiro visual extenso e a exibicao completa da pasta destino.
+- A pre-visualizacao passou a mostrar apenas `Periodo` e `Arquivo`, mantendo a pasta completa somente no payload/log operacional.
+- Rebuild empresarial concluido e o atalho da area de trabalho continua apontando para `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`.
+
+**Validacao realizada**
+
+- `node --check interface\app.js`
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\extratos_caixa_chrome.py`
+- `git diff --check`
+- Rebuild empresarial concluido.
+
 ## Quarta-feira, 22/07/2026 - Versao 1.4.41
 
 **Ajuste aplicado**
