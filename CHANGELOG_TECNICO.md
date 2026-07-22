@@ -1,5 +1,25 @@
 # Registro técnico de alterações
 
+## Quarta-feira, 22/07/2026 - Versao 1.4.40
+
+**Ajuste aplicado**
+
+- Criada a primeira ponte de automacao Caixa GovConta por Chrome ja logado/controlavel via Chrome DevTools Protocol na porta `9222`.
+- Adicionado o arquivo `Abrir_Chrome_Caixa_Controlavel.cmd`, que abre um Chrome separado com perfil local do EMBASA para login manual seguro na Caixa.
+- A area `Baixar extratos` passou a ter o botao `Testar Chrome` para diagnosticar a conexao com o Chrome controlavel.
+- A area `Baixar extratos` passou a ter o botao `Baixar conta atual no Chrome`, que abre a tela `Extrato Individualizado`, seleciona conta/mes/ano, pesquisa, exporta PDF e renomeia o arquivo baixado.
+- O periodo padrao dos extratos agora usa o mes anterior ao mes atual, adequado para fechamento mensal.
+- Adicionada a dependencia `websocket-client` para comunicacao direta com o Chrome sem armazenar login ou senha.
+- Atualizada a versao do projeto de `1.4.39` para `1.4.40`.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\extratos_caixa_chrome.py`
+- `node --check interface\app.js`
+- `git diff --check`
+- `build_empresarial.ps1` instalou `websocket-client==1.9.0` e gerou `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`.
+- Diagnostico local da ponte Chrome confirmou a mensagem esperada quando nao ha Chrome controlavel aberto na porta `9222`.
+
 ## Sabado, 13/06/2026 - Versao 1.4.39
 
 **Ajuste aplicado**

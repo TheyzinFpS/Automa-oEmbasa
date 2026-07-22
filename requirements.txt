@@ -2,3 +2,4 @@ pyinstaller==6.19.0
 pywebview==6.1
 pythonnet==3.0.5
 pywin32==311 ; platform_system == "Windows"
+websocket-client==1.9.0

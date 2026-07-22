@@ -15,6 +15,10 @@ from backend.flows.cliente_cadastro import (
     criar_cliente,
     criar_cliente_multa_contratual,
 )
+from backend.flows.extratos_caixa_chrome import (
+    diagnosticar_chrome_caixa,
+    executar_download_extrato_atual,
+)
 from backend.drafts import (
     diagnostico_rascunhos,
     excluir_rascunho_cliente,
@@ -784,6 +788,88 @@ class API:
             adicionar_setores_cliente,
             "Cadastrando setores no SAP",
         )
+
+    def diagnosticar_chrome_caixa(self):
+        return _serializar_para_front(diagnosticar_chrome_caixa())
+
+    def baixar_extratos_caixa(self, dados):
+        resultado_final = {}
+        concluido = threading.Event()
+
+        with self._flow_lock:
+            if self._flow_running:
+                return {
+                    "ok": False,
+                    "msg": "Ja existe uma acao em andamento.",
+                    "tempo_real": True,
+                }
+
+            self._flow_running = True
+            self._cancel_event.clear()
+            self._last_progress = {}
+
+        def worker():
+            add_original = self._instalar_logger_tempo_real()
+
+            try:
+                self._logger.clear()
+                self._emitir_reset_progresso()
+                self._emitir_status("Baixando extrato", "running")
+                self._logger.add(-1, "Iniciando rotina Caixa GovConta.", publico=True)
+
+                resultado = executar_download_extrato_atual(
+                    dict(dados or {}),
+                    log_callback=self._emitir_log,
+                    progress_callback=self._emitir_progresso,
+                    cancel_event=self._cancel_event,
+                )
+
+                resultado = _serializar_para_front(resultado)
+                resultado["logs"] = self._logger.get_logs(public_only=True)
+                resultado["tempo_real"] = True
+                resultado_final.update(resultado)
+
+                if resultado.get("ok"):
+                    self._emitir_status("Extrato baixado", "success")
+                else:
+                    self._emitir_status("Falha nos extratos", "error")
+
+            except Exception as exc:
+                self._logger.add(
+                    -1,
+                    (
+                        "Falha detalhada na rotina Caixa.\n"
+                        "O que o sistema fazia: controlar o Chrome logado e exportar o extrato em PDF.\n"
+                        f"Bloqueio tecnico retornado: {str(exc) or 'sem detalhe retornado'}."
+                    ),
+                    nivel="ERRO",
+                    publico=True,
+                )
+                self._logger.add(
+                    -1,
+                    traceback.format_exc(),
+                    nivel="DEBUG",
+                    publico=False,
+                )
+                resultado_final.update(
+                    {
+                        "ok": False,
+                        "msg": "Erro inesperado na rotina Caixa.",
+                        "logs": self._logger.get_logs(public_only=True),
+                        "tempo_real": True,
+                    }
+                )
+                self._emitir_status("Falha nos extratos", "error")
+            finally:
+                self._restaurar_logger(add_original)
+                with self._flow_lock:
+                    self._flow_running = False
+                concluido.set()
+
+        threading.Thread(target=worker, daemon=True).start()
+        concluido.wait()
+
+        return _serializar_para_front(resultado_final)
 
     # Solicita parada no proximo ponto seguro do fluxo SAP em execucao.
     def cancelar_fluxo(self):

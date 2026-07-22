@@ -735,6 +735,36 @@ video {
   grid-column: 1 / -1;
 }
 
+.bank-statement-note {
+  display: grid;
+  gap: 5px;
+  margin: 4px 0 18px;
+  padding: 14px 16px;
+  border: 1px solid rgba(15, 139, 87, 0.18);
+  border-radius: 18px;
+  background: rgba(15, 139, 87, 0.08);
+}
+
+.bank-statement-note strong {
+  color: var(--success);
+  font-size: 0.9rem;
+}
+
+.bank-statement-note span {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.bank-statement-note code {
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.bank-statement-actions {
+  grid-template-columns: minmax(0, 1fr) repeat(3, auto);
+}
+
 .bank-statement-steps {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2959,7 +2989,8 @@ body.operational-modals-split #batchConfirmModal .contact-success-card {
   .bank-statement-summary,
   .bank-statement-preview,
   .bank-statement-grid,
-  .bank-statement-steps {
+  .bank-statement-steps,
+  .bank-statement-actions {
     grid-template-columns: 1fr;
   }
 

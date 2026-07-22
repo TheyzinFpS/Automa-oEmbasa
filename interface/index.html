@@ -125,7 +125,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.4.39</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.4.40</span>
           </div>
         </div>
       </div>
@@ -733,14 +733,38 @@
 
         <p id="extratoFormError" class="field-message hidden"></p>
 
-        <div class="flow-actions">
+        <div class="bank-statement-note">
+          <strong>Chrome logado</strong>
+          <span>
+            Abra pelo arquivo <code>Abrir_Chrome_Caixa_Controlavel.cmd</code>,
+            fa&ccedil;a login na Caixa e mantenha a janela aberta.
+          </span>
+        </div>
+
+        <div class="flow-actions bank-statement-actions">
+          <button
+            id="extratoChromeButton"
+            class="primary-action"
+            type="button"
+            onclick="baixarExtratoAtualChrome()"
+          >
+            Baixar conta atual no Chrome
+          </button>
+          <button
+            id="extratoTestChromeButton"
+            class="ghost-action"
+            type="button"
+            onclick="testarChromeCaixa()"
+          >
+            Testar Chrome
+          </button>
           <button
             id="extratoSubmitButton"
-            class="primary-action"
+            class="ghost-action"
             type="button"
             onclick="prepararBaixaExtratos()"
           >
-            Preparar baixa de extratos
+            Preparar roteiro
           </button>
           <button
             class="ghost-action"

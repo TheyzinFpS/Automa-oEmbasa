@@ -77,7 +77,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.39";
+const APP_VERSION = "1.4.40";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -2085,12 +2085,21 @@ function showClienteRegistrationWorkspace() {
   window.setTimeout(() => el("clienteCadastroDoc")?.focus(), 180);
 }
 
+function obterPeriodoPadraoExtrato() {
+  const hoje = new Date();
+  const referencia = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1);
+  return {
+    mes: String(referencia.getMonth() + 1).padStart(2, "0"),
+    ano: String(referencia.getFullYear())
+  };
+}
+
 function obterAnoAtualExtrato() {
-  return String(new Date().getFullYear());
+  return obterPeriodoPadraoExtrato().ano;
 }
 
 function obterMesAtualExtrato() {
-  return String(new Date().getMonth() + 1).padStart(2, "0");
+  return obterPeriodoPadraoExtrato().mes;
 }
 
 function preencherMesAnoExtratosPadrao(force = false) {
@@ -2271,6 +2280,106 @@ function prepararBaixaExtratos() {
   log(`Destino sugerido: ${payload.pasta_destino}.`);
   log(`Nome sugerido: ${payload.nome_arquivo}.`);
   showSimpleOperationalToast("Roteiro Caixa preparado com pasta e nome sugeridos.");
+}
+
+function setExtratoChromeBusy(busy) {
+  const chromeButton = el("extratoChromeButton");
+  const testButton = el("extratoTestChromeButton");
+  const prepareButton = el("extratoSubmitButton");
+
+  [chromeButton, testButton, prepareButton].forEach((button) => {
+    if (button) {
+      button.disabled = Boolean(busy);
+    }
+  });
+
+  if (chromeButton) {
+    chromeButton.textContent = busy
+      ? "Baixando no Chrome..."
+      : "Baixar conta atual no Chrome";
+  }
+}
+
+async function testarChromeCaixa() {
+  limparErroExtrato();
+
+  if (!window.pywebview?.api?.diagnosticar_chrome_caixa) {
+    mostrarErroExtrato("Backend indisponivel para testar o Chrome.");
+    setStatus("Chrome indisponivel", "error");
+    return;
+  }
+
+  try {
+    setExtratoChromeBusy(true);
+    setStatus("Testando Chrome", "running");
+    log("Testando conexao com Chrome controlavel na porta 9222.");
+    const resposta = await window.pywebview.api.diagnosticar_chrome_caixa();
+
+    if (!resposta?.ok) {
+      mostrarErroExtrato(resposta?.msg || "Chrome controlavel nao encontrado.");
+      setStatus("Chrome nao conectado", "error");
+      log(resposta?.msg || "Chrome controlavel nao encontrado.", "error");
+      openLogsPopover();
+      return;
+    }
+
+    setStatus("Chrome conectado", "success");
+    log(`${resposta.msg} Abas abertas: ${resposta.tabs || 0}.`);
+    showSimpleOperationalToast("Chrome controlavel conectado.");
+  } catch (error) {
+    mostrarErroExtrato(`Falha ao testar Chrome: ${error}`);
+    setStatus("Chrome nao conectado", "error");
+    log(`Falha ao testar Chrome: ${error}`, "error");
+    openLogsPopover();
+  } finally {
+    setExtratoChromeBusy(false);
+  }
+}
+
+async function baixarExtratoAtualChrome() {
+  const payload = montarPayloadExtratos();
+
+  if (!payload) {
+    setStatus("Revise os extratos", "error");
+    return;
+  }
+
+  if (!window.pywebview?.api?.baixar_extratos_caixa) {
+    mostrarErroExtrato("Backend indisponivel para controlar o Chrome.");
+    setStatus("Chrome indisponivel", "error");
+    return;
+  }
+
+  try {
+    setExtratoChromeBusy(true);
+    window.resetarProgresso();
+    ativarEtapa(0, 10, "Conectando ao Chrome controlavel.");
+    setStatus("Baixando extrato", "running");
+    log(`Baixa Caixa solicitada: ${payload.mes_label}/${payload.ano}.`);
+
+    const resposta = await window.pywebview.api.baixar_extratos_caixa(payload);
+
+    if (!resposta?.ok) {
+      const mensagem = resposta?.msg || "Falha ao baixar extrato Caixa.";
+      mostrarErroExtrato(mensagem);
+      setStatus("Falha nos extratos", "error");
+      log(mensagem, "error");
+      openLogsPopover();
+      return;
+    }
+
+    concluirEtapa(0, `Arquivo salvo: ${resposta.arquivo || payload.nome_arquivo}.`);
+    setStatus("Extrato baixado", "success");
+    log(`Extrato baixado: ${resposta.arquivo || "--"}.`);
+    showSimpleOperationalToast("Extrato Caixa baixado com sucesso.");
+  } catch (error) {
+    mostrarErroExtrato(`Falha ao baixar extrato: ${error}`);
+    setStatus("Falha nos extratos", "error");
+    log(`Falha ao baixar extrato: ${error}`, "error");
+    openLogsPopover();
+  } finally {
+    setExtratoChromeBusy(false);
+  }
 }
 
 function limparFormularioExtratos() {
