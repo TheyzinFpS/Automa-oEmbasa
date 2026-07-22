@@ -1,5 +1,21 @@
 # Registro técnico de alterações
 
+## Quarta-feira, 22/07/2026 - Versao 1.4.51
+
+**Ajuste aplicado**
+
+- Ajustada a validacao da troca de conta na rotina de extratos Caixa.
+- Antes de clicar em `Pesquisar`, a automacao agora valida a conta selecionada pelo proprio campo do dropdown.
+- Depois de clicar em `Pesquisar`, o sistema passa a aguardar o texto `Conta referencia` ser atualizado para a conta da rodada antes de liberar o clique no PDF.
+- Isso evita baixar novamente o PDF da conta anterior quando o site ainda exibe a referencia antiga.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\extratos_caixa_chrome.py`
+- `node --check interface\app.js`
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.51`.
+
 ## Quarta-feira, 22/07/2026 - Versao 1.4.50
 
 **Ajuste aplicado**

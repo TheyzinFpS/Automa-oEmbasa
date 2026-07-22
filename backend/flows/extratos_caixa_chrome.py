@@ -950,15 +950,32 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
     ...document.querySelectorAll('.detalhes-consulta, .resumo-wrapper, .resumo, .conta-nome')
   ].map((item) => item.textContent || '').join(' ');
 
-  const camposPeriodoProntos = (contaEsperada = '') => {{
-    if (!campoDsc('Mes') || !campoDsc('Ano')) return false;
+  const valorContaSelecionada = () => {{
+    const searchValue = currentInput && currentInput.value ? currentInput.value.trim() : '';
+    if (searchValue) return searchValue;
 
-    const alvoDigits = onlyDigits(contaEsperada);
-    const detalhe = textoDetalheConta();
-    const detalheDigits = onlyDigits(detalhe);
-    if (!alvoDigits || !detalhe.trim()) return true;
-    return detalheDigits.includes(alvoDigits);
+    const hiddenValue = accountSelect.querySelector('input[type="hidden"]')?.value?.trim() || '';
+    if (hiddenValue) return hiddenValue;
+
+    return (accountSelect.querySelector('.input-wrapper')?.textContent || accountSelect.textContent || '').trim();
   }};
+
+  const camposPeriodoDisponiveis = () => Boolean(campoDsc('Mes') && campoDsc('Ano'));
+  const contaSelecionadaNoCampo = (contaEsperada = '') => {{
+    const alvoDigits = onlyDigits(contaEsperada);
+    if (!alvoDigits) return true;
+    return sameAccount(valorContaSelecionada(), contaEsperada);
+  }};
+
+  const contaReferenciaAtualizada = (contaEsperada = '') => {{
+    const alvoDigits = onlyDigits(contaEsperada);
+    if (!alvoDigits) return true;
+    return onlyDigits(textoDetalheConta()).includes(alvoDigits);
+  }};
+
+  const camposPeriodoProntos = (contaEsperada = '') => (
+    camposPeriodoDisponiveis() && contaSelecionadaNoCampo(contaEsperada)
+  );
 
   const isVisible = (element) => {{
     if (!element) return false;
@@ -1177,6 +1194,7 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
     'component-listagem tr, component-listagem [role="row"]'
   ).length;
   const inicioPesquisa = Date.now();
+  const contaPesquisa = contaSelecionada || contaAlvo || '';
 
   await forceClick(searchButton);
   await sleep(900);
@@ -1194,6 +1212,7 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
     () => {{
       const tempoDecorrido = Date.now() - inicioPesquisa;
       if (tempoDecorrido < 2600) return false;
+      if (!contaReferenciaAtualizada(contaPesquisa)) return false;
 
       const textoPagina = document.body.textContent || '';
       if (
@@ -1227,7 +1246,7 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
 
       return false;
     }},
-    `Resultado da pesquisa da conta ${{contaSelecionada || contaAlvo || ''}}`,
+    `Resultado da pesquisa da conta ${{contaPesquisa}}`,
     45000
   );
 
