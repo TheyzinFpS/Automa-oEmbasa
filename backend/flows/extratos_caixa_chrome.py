@@ -1210,6 +1210,10 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
       ).length;
       const pdfButton = document.querySelector('app-exportar-arquivo img[alt="icone-pdf"]')
         ?.closest('button');
+      if (pdfButton && !pdfButton.disabled && tempoDecorrido > 3600) {{
+        return 'pdf-disponivel-apos-pesquisa';
+      }}
+
       const resultadoMudou = textoResultadoAtual
         && (
           textoResultadoAtual !== textoResultadoAntes
@@ -1238,6 +1242,40 @@ def _clicar_pdf(tab: ChromeTab):
     script = """
 (async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const forceClick = async (element) => {
+    element.scrollIntoView({ block: 'center', inline: 'nearest' });
+    await sleep(120);
+    const rect = element.getBoundingClientRect();
+    const clientX = rect.left + Math.min(Math.max(rect.width / 2, 8), Math.max(rect.width - 8, 8));
+    const clientY = rect.top + Math.min(Math.max(rect.height / 2, 8), Math.max(rect.height - 8, 8));
+    const eventBase = {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      button: 0,
+      buttons: 1,
+      clientX,
+      clientY,
+    };
+    const pointerBase = {
+      ...eventBase,
+      pointerId: 1,
+      pointerType: 'mouse',
+      isPrimary: true,
+    };
+    const PointerCtor = window.PointerEvent || window.MouseEvent;
+    element.dispatchEvent(new PointerCtor('pointerover', pointerBase));
+    element.dispatchEvent(new MouseEvent('mouseover', eventBase));
+    element.dispatchEvent(new PointerCtor('pointerdown', pointerBase));
+    element.dispatchEvent(new MouseEvent('mousedown', eventBase));
+    if (typeof element.focus === 'function') {
+      element.focus({ preventScroll: true });
+    }
+    element.dispatchEvent(new PointerCtor('pointerup', { ...pointerBase, buttons: 0 }));
+    element.dispatchEvent(new MouseEvent('mouseup', { ...eventBase, buttons: 0 }));
+    element.dispatchEvent(new MouseEvent('click', { ...eventBase, buttons: 0 }));
+  };
+
   const until = Date.now() + 30000;
   while (Date.now() < until) {
     const texto = document.body.textContent || '';
@@ -1248,7 +1286,7 @@ def _clicar_pdf(tab: ChromeTab):
     const img = document.querySelector('app-exportar-arquivo img[alt="icone-pdf"]');
     const button = img && img.closest('button');
     if (button && !button.disabled) {
-      button.click();
+      await forceClick(button);
       return true;
     }
     await sleep(250);

@@ -1,5 +1,20 @@
 # Registro técnico de alterações
 
+## Quarta-feira, 22/07/2026 - Versao 1.4.50
+
+**Ajuste aplicado**
+
+- Corrigida a espera apos `Pesquisar` na rotina de extratos Caixa.
+- O sistema continua clicando em `Pesquisar` para cada conta selecionada, mas agora libera a etapa de PDF assim que o botao PDF fica disponivel apos a pesquisa.
+- O clique no icone PDF tambem passou a usar eventos reais de ponteiro/mouse, evitando falha quando o `button.click()` simples nao aciona o componente Angular da Caixa.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\extratos_caixa_chrome.py`
+- `node --check interface\app.js`
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.50`.
+
 ## Quarta-feira, 22/07/2026 - Versao 1.4.49
 
 **Ajuste aplicado**
