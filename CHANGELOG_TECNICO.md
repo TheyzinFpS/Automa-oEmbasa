@@ -1,5 +1,21 @@
 # Registro técnico de alterações
 
+## Quarta-feira, 22/07/2026 - Versao 1.4.44
+
+**Ajuste aplicado**
+
+- Corrigida a falha `Handshake status 403 Forbidden` ao controlar Opera/Chrome/Edge pela porta `9222`.
+- O navegador controlavel agora e aberto com `--remote-allow-origins=http://127.0.0.1:9222`, permitindo a conexao WebSocket usada pela rotina de extratos.
+- O diagnostico do navegador passou a testar a conexao WebSocket antes de considerar a janela pronta.
+- Quando uma janela antiga estiver aberta sem permissao de controle, a interface passa a mostrar uma mensagem amigavel pedindo para fechar a janela controlavel e abrir novamente pelo botao do app.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\extratos_caixa_chrome.py`
+- `node --check interface\app.js`
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.44`.
+
 ## Quarta-feira, 22/07/2026 - Versao 1.4.43
 
 **Ajuste aplicado**

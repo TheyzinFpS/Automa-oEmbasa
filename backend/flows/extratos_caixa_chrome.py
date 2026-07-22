@@ -129,6 +129,17 @@ def _get_json(path: str, timeout: float = 3.0):
         return json.loads(response.read().decode("utf-8"))
 
 
+def _is_remote_origin_error(exc: Exception) -> bool:
+    texto = str(exc or "").lower()
+    return (
+        "403" in texto
+        and (
+            "remote-allow-origins" in texto
+            or "rejected an incoming websocket connection" in texto
+        )
+    )
+
+
 def _friendly_cdp_error(exc: Exception, navegador: str | None = None) -> str:
     rotulo = _rotulo_navegador(navegador)
 
@@ -136,6 +147,13 @@ def _friendly_cdp_error(exc: Exception, navegador: str | None = None) -> str:
         return (
             "Dependencia websocket-client ausente. Rode o rebuild para embutir "
             "a ponte de controle do navegador."
+        )
+
+    if _is_remote_origin_error(exc):
+        return (
+            f"{rotulo} esta aberto sem permissao de controle na porta 9222. "
+            "Feche a janela do navegador controlavel, clique em Abrir navegador "
+            "novamente e tente baixar os extratos."
         )
 
     if isinstance(exc, urllib.error.URLError):
@@ -166,6 +184,9 @@ def diagnosticar_chrome_caixa(navegador: str | None = None) -> dict:
             for tab in tabs
             if "caixa" in (tab.get("url", "") + tab.get("title", "")).lower()
         ]
+
+        teste_controle = _selecionar_aba_caixa()
+        teste_controle.close()
 
         return {
             "ok": True,
@@ -202,6 +223,13 @@ def abrir_navegador_caixa(navegador: str | None = None) -> dict:
             "diagnostico": diagnostico,
         }
 
+    if "sem permissao de controle" in str(diagnostico.get("msg") or ""):
+        return {
+            "ok": False,
+            "msg": diagnostico.get("msg"),
+            "diagnostico": diagnostico,
+        }
+
     executavel = _encontrar_executavel_navegador(browser)
     if executavel is None:
         return {
@@ -216,6 +244,7 @@ def abrir_navegador_caixa(navegador: str | None = None) -> dict:
     args = [
         str(executavel),
         f"--remote-debugging-port={CDP_PORT}",
+        f"--remote-allow-origins={CDP_BASE_URL}",
         f"--user-data-dir={perfil}",
         "--no-first-run",
         "--disable-features=Translate",
@@ -261,7 +290,11 @@ class ChromeTab:
         if websocket is None:
             raise CaixaChromeError(_friendly_cdp_error(RuntimeError()))
 
-        self.ws = websocket.create_connection(websocket_url, timeout=8)
+        self.ws = websocket.create_connection(
+            websocket_url,
+            timeout=8,
+            origin=CDP_BASE_URL,
+        )
         self._next_id = 1
 
     def close(self):
