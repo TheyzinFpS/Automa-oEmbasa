@@ -725,7 +725,7 @@ video {
 }
 
 .bank-statement-actions {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .bank-statement-run {
@@ -1676,9 +1676,14 @@ input.is-loading {
   transform: translateY(-1px);
 }
 
-.primary-action:disabled {
+.primary-action:disabled,
+.ghost-action:disabled {
   opacity: 0.7;
   cursor: progress;
+}
+
+.ghost-action:disabled {
+  box-shadow: none;
 }
 
 .flow-actions {
@@ -1694,7 +1699,7 @@ input.is-loading {
 }
 
 .flow-actions.bank-statement-actions {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .danger-action {

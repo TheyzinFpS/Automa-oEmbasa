@@ -1,5 +1,22 @@
 # Registro técnico de alterações
 
+## Terca-feira, 28/07/2026 - Versao 1.4.54
+
+**Ajuste aplicado**
+
+- Adicionado botao `Pausar` na rotina de extratos Caixa.
+- Quando a pausa e solicitada, a automacao conclui a conta em andamento, registra o resultado e retorna um checkpoint para a interface.
+- A interface guarda o checkpoint em memoria e altera o botao principal para `Retomar extratos`, continuando a partir da proxima conta do mesmo mes/ano.
+- O checkpoint e descartado automaticamente se o usuario trocar o periodo, evitando misturar baixas de meses diferentes.
+- O backend ignora contas ja processadas ao retomar e preserva os resultados anteriores na lista final.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\extratos_caixa_chrome.py`
+- `node --check interface\app.js`
+- `git diff --check`
+- Teste direto dos helpers de checkpoint da rotina Caixa.
+
 ## Terca-feira, 28/07/2026 - Versao 1.4.53
 
 **Ajuste aplicado**

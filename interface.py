@@ -68,7 +68,9 @@ class API:
         self._flow_lock = threading.Lock()
         self._sap_activity_lock = threading.Lock()
         self._flow_running = False
+        self._extrato_running = False
         self._cancel_event = threading.Event()
+        self._extrato_pause_event = threading.Event()
         self._last_progress = {}
         self._notice_lock = threading.Lock()
         self._notice_events = {}
@@ -809,7 +811,9 @@ class API:
                 }
 
             self._flow_running = True
+            self._extrato_running = True
             self._cancel_event.clear()
+            self._extrato_pause_event.clear()
             self._last_progress = {}
 
         def worker():
@@ -826,6 +830,7 @@ class API:
                     log_callback=self._emitir_log,
                     progress_callback=self._emitir_progresso,
                     cancel_event=self._cancel_event,
+                    pause_event=self._extrato_pause_event,
                 )
 
                 resultado = _serializar_para_front(resultado)
@@ -833,7 +838,9 @@ class API:
                 resultado["tempo_real"] = True
                 resultado_final.update(resultado)
 
-                if resultado.get("ok"):
+                if resultado.get("pausado"):
+                    self._emitir_status("Extratos pausados", "idle")
+                elif resultado.get("ok"):
                     self._emitir_status("Extrato baixado", "success")
                 else:
                     self._emitir_status("Falha nos extratos", "error")
@@ -867,6 +874,7 @@ class API:
             finally:
                 self._restaurar_logger(add_original)
                 with self._flow_lock:
+                    self._extrato_running = False
                     self._flow_running = False
                 concluido.set()
 
@@ -874,6 +882,27 @@ class API:
         concluido.wait()
 
         return _serializar_para_front(resultado_final)
+
+    def pausar_extratos_caixa(self):
+        with self._flow_lock:
+            if not self._flow_running or not self._extrato_running:
+                return {
+                    "ok": False,
+                    "msg": "Nenhuma baixa de extratos em andamento.",
+                }
+
+            self._extrato_pause_event.set()
+
+        self._emitir_status("Pausando extratos", "running")
+        self._logger.add(
+            -1,
+            "Pausa solicitada. A conta atual sera finalizada antes da interrupcao.",
+            publico=True,
+        )
+        return {
+            "ok": True,
+            "msg": "Pausa solicitada. A conta atual sera concluida antes de parar.",
+        }
 
     # Solicita parada no proximo ponto seguro do fluxo SAP em execucao.
     def cancelar_fluxo(self):

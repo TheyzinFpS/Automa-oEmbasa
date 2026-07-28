@@ -508,6 +508,58 @@ def _nome_final(dados: dict, conta_site: str) -> str:
     return _sanitize_filename(f"CEF {_conta_curta(conta_site)}_{sigla}-{ano_curto}.pdf")
 
 
+def _conta_chave(conta: str) -> str:
+    return re.sub(r"\D+", "", str(conta or ""))
+
+
+def _normalizar_checkpoint_extrato(dados: dict, mes: str, ano: str) -> tuple[list[dict], set[str]]:
+    checkpoint = dados.get("checkpoint") if isinstance(dados, dict) else None
+
+    if not isinstance(checkpoint, dict):
+        return [], set()
+
+    if str(checkpoint.get("mes") or "") != mes or str(checkpoint.get("ano") or "") != ano:
+        return [], set()
+
+    itens = []
+    contas_processadas = set()
+
+    for item in checkpoint.get("itens") or []:
+        if not isinstance(item, dict):
+            continue
+
+        conta = str(item.get("conta") or "").strip()
+        chave = _conta_chave(conta)
+
+        if not chave:
+            continue
+
+        itens.append(dict(item))
+        contas_processadas.add(chave)
+
+    return itens, contas_processadas
+
+
+def _checkpoint_extrato(
+    *,
+    mes: str,
+    ano: str,
+    pasta_destino: Path,
+    itens: list[dict],
+) -> dict:
+    return {
+        "mes": mes,
+        "ano": ano,
+        "pasta_destino": str(pasta_destino),
+        "itens": itens,
+        "contas_processadas": [
+            _conta_chave(item.get("conta") or "")
+            for item in itens
+            if _conta_chave(item.get("conta") or "")
+        ],
+    }
+
+
 def _unique_path(path: Path) -> Path:
     if not path.exists():
         return path
@@ -1391,6 +1443,7 @@ def executar_download_extrato_atual(
     log_callback=None,
     progress_callback=None,
     cancel_event=None,
+    pause_event=None,
 ) -> dict:
     def log(message: str, classe: str = ""):
         if callable(log_callback):
@@ -1449,9 +1502,40 @@ def executar_download_extrato_atual(
 
         log(f"Contas Caixa encontradas para baixa: {len(contas)}.")
 
-        resultados = []
+        resultados, contas_processadas = _normalizar_checkpoint_extrato(dados, mes, ano)
         total = max(1, len(contas))
         periodo_configurado = False
+
+        if resultados:
+            log(
+                "Retomando baixa Caixa com "
+                f"{len(resultados)} conta(s) ja registrada(s) na memoria."
+            )
+
+        def checkpoint_atual() -> dict:
+            return _checkpoint_extrato(
+                mes=mes,
+                ano=ano,
+                pasta_destino=pasta_destino,
+                itens=resultados,
+            )
+
+        def pausa_solicitada() -> bool:
+            return pause_event is not None and pause_event.is_set()
+
+        def retornar_pausado() -> dict:
+            baixados_parciais = [item for item in resultados if item.get("status") == "ok"]
+            progress("Baixa pausada. Retome para continuar da proxima conta.", 100)
+            log("Baixa Caixa pausada pelo usuario. Checkpoint mantido na interface.", "warning")
+            return {
+                "ok": False,
+                "pausado": True,
+                "msg": "Baixa pausada. Retome para continuar da proxima conta.",
+                "pasta": str(pasta_destino),
+                "itens": resultados,
+                "checkpoint": checkpoint_atual(),
+                "baixados": len(baixados_parciais),
+            }
 
         for indice, conta_alvo in enumerate(contas, start=1):
             if cancel_event is not None and cancel_event.is_set():
@@ -1461,6 +1545,9 @@ def executar_download_extrato_atual(
                     "msg": "Download cancelado.",
                     "itens": resultados,
                 }
+
+            if _conta_chave(conta_alvo) in contas_processadas:
+                continue
 
             percentual_base = 30 + int(((indice - 1) / total) * 65)
 
@@ -1526,8 +1613,12 @@ def executar_download_extrato_atual(
                     "arquivo": str(arquivo_final),
                 }
                 resultados.append(item_resultado)
+                contas_processadas.add(_conta_chave(conta_site or conta_alvo))
                 progress_resultado(item_resultado)
                 log(f"Extrato Caixa salvo ({indice}/{total}): {arquivo_final}.")
+
+                if pausa_solicitada():
+                    return retornar_pausado()
             except Exception as item_exc:
                 mensagem_item = _friendly_cdp_error(item_exc, navegador)
                 item_resultado = {
@@ -1536,6 +1627,7 @@ def executar_download_extrato_atual(
                     "erro": mensagem_item,
                 }
                 resultados.append(item_resultado)
+                contas_processadas.add(_conta_chave(conta_alvo or ""))
                 progress_resultado(item_resultado)
                 log(f"Falha na conta Caixa {conta_alvo or '--'}: {mensagem_item}", "error")
 
@@ -1543,6 +1635,9 @@ def executar_download_extrato_atual(
                     _abrir_tela_extrato(tab)
                 except Exception:
                     pass
+
+                if pausa_solicitada():
+                    return retornar_pausado()
 
         baixados = [item for item in resultados if item.get("status") == "ok"]
         erros = len(resultados) - len(baixados)
@@ -1571,6 +1666,7 @@ def executar_download_extrato_atual(
             "arquivo": primeiro.get("arquivo", ""),
             "pasta": str(pasta_destino),
             "itens": resultados,
+            "checkpoint": None,
         }
     except Exception as exc:
         mensagem = _friendly_cdp_error(exc, dados.get("navegador") if isinstance(dados, dict) else None)

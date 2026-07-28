@@ -77,7 +77,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.53";
+const APP_VERSION = "1.4.54";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -195,6 +195,9 @@ const state = {
   batchRunning: false,
   flowRunning: false,
   cancelRequested: false,
+  extratoRunning: false,
+  extratoPauseRequested: false,
+  extratoCheckpoint: null,
   currentPdfNameNotice: "",
   lastPdfNameNotice: "",
   currentPdfNoticeId: "",
@@ -2199,6 +2202,21 @@ function mostrarErroExtrato(mensagem) {
   }
 }
 
+function checkpointExtratoCompativel(checkpoint, payload) {
+  if (!checkpoint || !payload) {
+    return false;
+  }
+
+  return String(checkpoint.mes || "") === String(payload.mes || "")
+    && String(checkpoint.ano || "") === String(payload.ano || "");
+}
+
+function limparCheckpointExtrato() {
+  state.extratoCheckpoint = null;
+  state.extratoPauseRequested = false;
+  setExtratoChromeBusy(false);
+}
+
 function montarPayloadExtratos() {
   const banco = el("extratoBanco")?.value || "caixa";
   const navegador = el("extratoNavegador")?.value || "opera";
@@ -2223,7 +2241,7 @@ function montarPayloadExtratos() {
     return null;
   }
 
-  return {
+  const payload = {
     banco,
     banco_label: "Caixa",
     navegador,
@@ -2238,6 +2256,14 @@ function montarPayloadExtratos() {
     nome_arquivo: "",
     passos: [...EXTRATO_CAIXA_PASSOS]
   };
+
+  if (checkpointExtratoCompativel(state.extratoCheckpoint, payload)) {
+    payload.checkpoint = state.extratoCheckpoint;
+  } else if (state.extratoCheckpoint) {
+    state.extratoCheckpoint = null;
+  }
+
+  return payload;
 }
 
 function extrairNomeArquivoExtrato(caminho) {
@@ -2428,17 +2454,31 @@ function prepararBaixaExtratos() {
 function setExtratoChromeBusy(busy) {
   const chromeButton = el("extratoChromeButton");
   const openButton = el("extratoOpenBrowserButton");
+  const pauseButton = el("extratoPauseButton");
 
-  [chromeButton, openButton].forEach((button) => {
-    if (button) {
-      button.disabled = Boolean(busy);
-    }
-  });
+  if (openButton) {
+    openButton.disabled = Boolean(busy);
+  }
+
+  if (pauseButton) {
+    pauseButton.disabled = !busy || !state.extratoRunning || state.extratoPauseRequested;
+    pauseButton.textContent = state.extratoPauseRequested ? "Pausando..." : "Pausar";
+  }
 
   if (chromeButton) {
-    chromeButton.textContent = busy
-      ? "Baixando..."
-      : "Baixar extratos";
+    chromeButton.disabled = Boolean(busy);
+
+    if (busy) {
+      chromeButton.textContent = state.extratoPauseRequested
+        ? "Pausando..."
+        : state.extratoRunning
+          ? "Baixando..."
+          : "Aguarde...";
+    } else {
+      chromeButton.textContent = state.extratoCheckpoint
+        ? "Retomar extratos"
+        : "Baixar extratos";
+    }
   }
 }
 
@@ -2534,17 +2574,42 @@ async function baixarExtratoAtualChrome() {
   }
 
   try {
+    const retomando = Boolean(payload.checkpoint);
+    state.extratoRunning = true;
+    state.extratoPauseRequested = false;
     setExtratoChromeBusy(true);
-    resetarResultadosExtrato();
+
+    if (retomando) {
+      definirResultadosExtrato(normalizarResultadosExtrato({ itens: payload.checkpoint.itens || [] }, payload));
+    } else {
+      resetarResultadosExtrato();
+    }
+
     window.resetarProgresso();
-    ativarEtapa(0, 10, "Conectando ao navegador controlavel.");
-    setStatus("Baixando extrato", "running");
-    log(`Baixa Caixa solicitada no ${payload.navegador_label}: ${payload.mes_label}/${payload.ano}.`);
+    ativarEtapa(0, 10, retomando ? "Retomando baixa de extratos." : "Conectando ao navegador controlavel.");
+    setStatus(retomando ? "Retomando extratos" : "Baixando extrato", "running");
+    log(`${retomando ? "Retomada" : "Baixa"} Caixa solicitada no ${payload.navegador_label}: ${payload.mes_label}/${payload.ano}.`);
 
     const resposta = await window.pywebview.api.baixar_extratos_caixa(payload);
     const itens = normalizarResultadosExtrato(resposta, payload);
     const erros = itens.filter((item) => item.status === "erro").length;
     definirResultadosExtrato(itens);
+
+    if (resposta?.pausado) {
+      state.extratoCheckpoint = resposta.checkpoint || {
+        mes: payload.mes,
+        ano: payload.ano,
+        itens
+      };
+      const baixados = itens.filter((item) => item.status === "ok").length;
+      concluirEtapa(0, `${baixados} conta(s) registrada(s). Baixa pausada.`);
+      setStatus("Extratos pausados", "idle");
+      log(resposta.msg || "Baixa de extratos pausada.");
+      showSimpleOperationalToast("Baixa pausada. Retome para continuar da proxima conta.");
+      return;
+    }
+
+    state.extratoCheckpoint = null;
 
     if (!resposta?.ok) {
       const mensagem = resposta?.msg || "Falha ao baixar extrato Caixa.";
@@ -2570,7 +2635,35 @@ async function baixarExtratoAtualChrome() {
     log(mensagem, "error");
     abrirResumoFinalExtratos(itens, false);
   } finally {
+    state.extratoRunning = false;
+    state.extratoPauseRequested = false;
     setExtratoChromeBusy(false);
+  }
+}
+
+async function pausarExtratosCaixa() {
+  if (!state.extratoRunning || state.extratoPauseRequested) {
+    return;
+  }
+
+  if (!window.pywebview?.api?.pausar_extratos_caixa) {
+    mostrarErroExtrato("Backend indisponivel para pausar a baixa.");
+    return;
+  }
+
+  state.extratoPauseRequested = true;
+  setExtratoChromeBusy(true);
+  setStatus("Pausando extratos", "running");
+  showSimpleOperationalToast("Pausa solicitada. A conta atual sera concluida antes de parar.");
+
+  try {
+    const resposta = await window.pywebview.api.pausar_extratos_caixa();
+
+    if (!resposta?.ok) {
+      log(resposta?.msg || "Nao foi possivel solicitar pausa nos extratos.", "warning");
+    }
+  } catch (error) {
+    log(`Falha ao solicitar pausa nos extratos: ${error}`, "warning");
   }
 }
 
@@ -2598,6 +2691,7 @@ function limparFormularioExtratos() {
 
   limparErroExtrato();
   resetarResultadosExtrato();
+  limparCheckpointExtrato();
   atualizarPreviewExtrato();
   setStatus("Baixar extratos", "idle");
 }
