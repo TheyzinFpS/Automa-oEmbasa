@@ -417,10 +417,17 @@ class ChromeTab:
             "eventsEnabled": True,
         }
 
+        browser_error = None
         try:
             self.call("Browser.setDownloadBehavior", params, timeout=5)
-        except Exception:
+        except Exception as exc:
+            browser_error = exc
+
+        try:
             self.call("Page.setDownloadBehavior", params, timeout=5)
+        except Exception:
+            if browser_error is not None:
+                raise browser_error
 
 
 def _selecionar_aba_caixa() -> ChromeTab:
@@ -907,11 +914,18 @@ def _listar_contas(tab: ChromeTab) -> list[str]:
     return normalizadas
 
 
-def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str | None = None) -> str:
+def _preparar_consulta(
+    tab: ChromeTab,
+    mes_label: str,
+    ano: str,
+    conta_alvo: str | None = None,
+    selecionar_periodo: bool = True,
+) -> str:
     script = f"""
 (async () => {{
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const contaAlvo = {_js_string(conta_alvo or '')};
+  const selecionarPeriodo = {json.dumps(bool(selecionar_periodo))};
   const normalize = (value) => String(value || '')
     .normalize('NFD')
     .replace(/[\\u0300-\\u036f]/g, '')
@@ -930,7 +944,7 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
     while (Date.now() < until) {{
       const value = fn();
       if (value) return value;
-      await sleep(250);
+      await sleep(180);
     }}
     throw new Error(`${{label}} nao encontrado.`);
   }};
@@ -997,7 +1011,7 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
 
   const forceClick = async (element) => {{
     element.scrollIntoView({{ block: 'center', inline: 'nearest' }});
-    await sleep(120);
+    await sleep(80);
     const rect = element.getBoundingClientRect();
     const clientX = rect.left + Math.min(Math.max(rect.width / 2, 8), Math.max(rect.width - 8, 8));
     const clientY = rect.top + Math.min(Math.max(rect.height / 2, 8), Math.max(rect.height - 8, 8));
@@ -1036,7 +1050,7 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
     const opener = accountSelect.querySelector('.input-wrapper') || currentInput || accountSelect;
     if (!accountButtons().length) {{
       await forceClick(opener);
-      await sleep(500);
+      await sleep(320);
     }}
 
     const viewport = document.querySelector('.cdk-virtual-scroll-viewport.dropdown-wrapper')
@@ -1044,7 +1058,7 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
     if (viewport) {{
       viewport.scrollTop = 0;
       viewport.dispatchEvent(new Event('scroll', {{ bubbles: true }}));
-      await sleep(180);
+      await sleep(120);
     }}
   }};
 
@@ -1054,11 +1068,11 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
     currentInput.value = '';
     currentInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
     currentInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
-    await sleep(160);
+    await sleep(100);
     currentInput.value = conta;
     currentInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
     currentInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
-    await sleep(650);
+    await sleep(420);
   }};
 
   const confirmarCamposPeriodo = async (conta, timeout = 9000) => {{
@@ -1088,7 +1102,7 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
 
     const textoSelecionado = option.textContent.trim();
     await forceClick(option);
-    await sleep(850);
+    await sleep(560);
 
     if (await confirmarCamposPeriodo(conta, 4500)) {{
       return textoSelecionado;
@@ -1117,11 +1131,11 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
       bubbles: true,
       cancelable: true,
     }}));
-    await sleep(500);
+    await sleep(320);
 
     if (!(await confirmarCamposPeriodo(conta, 4500))) {{
       await forceClick(option);
-      await sleep(850);
+      await sleep(560);
     }}
 
     if (!(await confirmarCamposPeriodo(conta, 6500))) {{
@@ -1167,23 +1181,45 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
     const matSelect = component.querySelector('mat-select');
     if (!matSelect) throw new Error(`Combo ${{label}} nao possui mat-select.`);
     matSelect.click();
-    await sleep(450);
+    await sleep(280);
     const option = await waitFor(
       () => [...document.querySelectorAll('mat-option')]
         .find((item) => normalize(item.textContent) === normalize(optionText)),
       `Opcao ${{optionText}}`
     );
     option.click();
-    await sleep(650);
+    await sleep(360);
   }};
 
-  await selectDsc('Mes', {_js_string(mes_label)});
-  await selectDsc('Ano', {_js_string(ano)});
+  const dscSelecionado = (label, optionText) => {{
+    const component = campoDsc(label);
+    if (!component) return false;
+    return normalize(component.textContent).includes(normalize(optionText));
+  }};
+
+  const periodoSelecionado = () => (
+    dscSelecionado('Mes', {_js_string(mes_label)})
+    && dscSelecionado('Ano', {_js_string(ano)})
+  );
+
+  const garantirPeriodo = async () => {{
+    await selectDsc('Mes', {_js_string(mes_label)});
+    await selectDsc('Ano', {_js_string(ano)});
+  }};
+
+  if (selecionarPeriodo || !periodoSelecionado()) {{
+    await garantirPeriodo();
+  }}
 
   const searchButton = await waitFor(
     () => document.querySelector('dsc-button[label="Pesquisar"] button'),
     'Botao Pesquisar'
   );
+
+  if (searchButton.disabled && !selecionarPeriodo) {{
+    await garantirPeriodo();
+    await sleep(280);
+  }}
 
   if (searchButton.disabled) {{
     throw new Error('Botao Pesquisar ainda esta desabilitado apos selecionar mes e ano.');
@@ -1197,7 +1233,7 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
   const contaPesquisa = contaSelecionada || contaAlvo || '';
 
   await forceClick(searchButton);
-  await sleep(900);
+  await sleep(520);
 
   await waitFor(
     () => document.querySelector('app-exportar-arquivo img[alt="icone-pdf"]')
@@ -1211,7 +1247,7 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
   await waitFor(
     () => {{
       const tempoDecorrido = Date.now() - inicioPesquisa;
-      if (tempoDecorrido < 2600) return false;
+      if (tempoDecorrido < 1500) return false;
       if (!contaReferenciaAtualizada(contaPesquisa)) return false;
 
       const textoPagina = document.body.textContent || '';
@@ -1229,7 +1265,7 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
       ).length;
       const pdfButton = document.querySelector('app-exportar-arquivo img[alt="icone-pdf"]')
         ?.closest('button');
-      if (pdfButton && !pdfButton.disabled && tempoDecorrido > 3600) {{
+      if (pdfButton && !pdfButton.disabled && tempoDecorrido > 2200) {{
         return 'pdf-disponivel-apos-pesquisa';
       }}
 
@@ -1237,7 +1273,7 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
         && (
           textoResultadoAtual !== textoResultadoAntes
           || linhasAtual !== linhasAntes
-          || tempoDecorrido > 5200
+          || tempoDecorrido > 3600
         );
 
       if (listagem && resultadoMudou && pdfButton && !pdfButton.disabled) {{
@@ -1250,7 +1286,7 @@ def _preparar_consulta(tab: ChromeTab, mes_label: str, ano: str, conta_alvo: str
     45000
   );
 
-  await sleep(600);
+  await sleep(250);
   return contaSelecionada;
 }})()
 """
@@ -1415,6 +1451,7 @@ def executar_download_extrato_atual(
 
         resultados = []
         total = max(1, len(contas))
+        periodo_configurado = False
 
         for indice, conta_alvo in enumerate(contas, start=1):
             if cancel_event is not None and cancel_event.is_set():
@@ -1429,7 +1466,14 @@ def executar_download_extrato_atual(
 
             try:
                 progress(f"Conta {indice}/{total}: selecionando dados.", percentual_base)
-                conta_site = _preparar_consulta(tab, mes_label, ano, conta_alvo)
+                conta_site = _preparar_consulta(
+                    tab,
+                    mes_label,
+                    ano,
+                    conta_alvo,
+                    selecionar_periodo=not periodo_configurado,
+                )
+                periodo_configurado = True
                 log(f"Conta preparada na Caixa ({indice}/{total}): {conta_site or conta_alvo}.")
 
                 nome_final = _nome_final(dados, conta_site or conta_alvo)

@@ -1,5 +1,22 @@
 # Registro técnico de alterações
 
+## Terca-feira, 28/07/2026 - Versao 1.4.53
+
+**Ajuste aplicado**
+
+- Otimizada a rotina de extratos Caixa para selecionar `Mes` e `Ano` apenas na primeira conta do lote.
+- Nas contas seguintes, a automacao reutiliza o periodo ja escolhido, troca somente a conta e clica em `Pesquisar`.
+- Se a Caixa limpar ou desabilitar o periodo em alguma troca de conta, o sistema preenche `Mes` e `Ano` novamente como fallback.
+- Reduzidas esperas internas de clique, selecao e pesquisa sem remover as validacoes de conta selecionada, `Conta referencia` e botao PDF ativo.
+- O caminho de download agora tenta aplicar a pasta destino tanto via `Browser.setDownloadBehavior` quanto via `Page.setDownloadBehavior`, aumentando a chance de o arquivo cair direto no local monitorado para renomeacao padrao.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\extratos_caixa_chrome.py`
+- `node --check interface\app.js`
+- `git diff --check`
+- Rebuild empresarial concluido em `dist\EmbasaPedidosSAP\EmbasaPedidosSAP.exe`, com versao `1.4.53`.
+
 ## Quarta-feira, 22/07/2026 - Versao 1.4.52
 
 **Ajuste aplicado**
