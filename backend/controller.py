@@ -1054,6 +1054,7 @@ class SAPController:
                 notice_callback=notice_callback,
                 aguardar_apos_copia_segundos=7,
                 confirmar_entre_boletos=True,
+                reabrir_sp02_entre_boletos=True,
             )
             self._garantir_janela_unica_sap(session, origem="SP02 Água + Esgoto")
 

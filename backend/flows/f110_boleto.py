@@ -1511,6 +1511,7 @@ def selecionar_boletos_sp02(
     notice_callback=None,
     aguardar_apos_copia_segundos=_PDF_COPY_WAIT_SECONDS,
     confirmar_entre_boletos=False,
+    reabrir_sp02_entre_boletos=False,
 ):
     boletos = list(boletos or [])
 
@@ -1527,10 +1528,13 @@ def selecionar_boletos_sp02(
         )
     )
 
-    linhas = sorted(
-        [linha for linha in _coletar_linhas_sp02(session) if _linha_e_boleto(linha)],
-        key=lambda linha: int(linha.get("linha") or 0),
-    )
+    def coletar_boletos_visuais():
+        return sorted(
+            [linha for linha in _coletar_linhas_sp02(session) if _linha_e_boleto(linha)],
+            key=lambda linha: int(linha.get("linha") or 0),
+        )
+
+    linhas = coletar_boletos_visuais()
 
     if len(linhas) < len(boletos):
         raise RuntimeError(
@@ -1542,11 +1546,14 @@ def selecionar_boletos_sp02(
     linha_anterior = -1
 
     for indice, boleto in enumerate(boletos):
-        candidatos = [
-            linha
-            for linha in linhas
-            if int(linha.get("linha") or 0) > linha_anterior
-        ]
+        if reabrir_sp02_entre_boletos:
+            candidatos = linhas[indice:indice + 1]
+        else:
+            candidatos = [
+                linha
+                for linha in linhas
+                if int(linha.get("linha") or 0) > linha_anterior
+            ]
 
         if not candidatos:
             raise RuntimeError(
@@ -1643,6 +1650,41 @@ def selecionar_boletos_sp02(
                 99,
             )
             time.sleep(max(0, float(aguardar_apos_copia_segundos or 0)))
+
+        if indice < len(boletos) - 1 and reabrir_sp02_entre_boletos:
+            _notificar(
+                progress_callback,
+                f"Reabrindo SP02 para selecionar o boleto de {proximo_tipo_label}...",
+                99,
+            )
+            fechar_popups_se_existirem(session)
+            voltar_tela_inicial_com_f3(
+                session,
+                logger=logger,
+                progress_callback=progress_callback,
+            )
+            fechar_popups_se_existirem(session)
+            resultado.update(
+                abrir_ordens_spool_boleto(
+                    session,
+                    logger=logger,
+                    progress_callback=progress_callback,
+                )
+            )
+            _limpar_selecao_sp02_com_shift_f6(session, logger=logger)
+            linhas = coletar_boletos_visuais()
+            linha_anterior = -1
+
+            if logger:
+                logger.add(
+                    6,
+                    "SP02 reaberta para Agua + Esgoto. "
+                    "O primeiro BOLETO da lista ja foi usado; "
+                    "a proxima selecao seguira para o BOLETO seguinte.",
+                    publico=True,
+                )
+
+            continue
 
         if indice < len(boletos) - 1:
             _notificar(

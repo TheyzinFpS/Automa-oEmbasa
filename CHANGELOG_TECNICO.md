@@ -1,5 +1,20 @@
 # Registro técnico de alterações
 
+## Terca-feira, 28/07/2026 - Versao 1.4.55
+
+**Ajuste aplicado**
+
+- Corrigido o fluxo `Agua + Esgoto` na etapa final de selecao dos boletos na SP02.
+- Apos a confirmacao do boleto de Esgoto, o sistema fecha popups, retorna ao ponto seguro e reabre a SP02 antes de selecionar o boleto de Agua.
+- No modo composto, a segunda selecao passa a ignorar o BOLETO mais recente ja usado e pega o proximo BOLETO da lista atualizada.
+- Mantido o comportamento antigo para fluxos simples, sem alterar a selecao normal de boleto unico.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\controller.py backend\flows\f110_boleto.py`
+- `node --check interface\app.js`
+- `git diff --check`
+
 ## Terca-feira, 28/07/2026 - Versao 1.4.54
 
 **Ajuste aplicado**
