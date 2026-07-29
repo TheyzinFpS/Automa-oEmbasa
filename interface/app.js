@@ -77,7 +77,7 @@ const BASE_STATUS = {
 
 const MAX_VALOR_CENTAVOS = 1000000;
 const MAX_CONTACT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const APP_VERSION = "1.4.55";
+const APP_VERSION = "1.4.58";
 const CEP_API_BASE_URL = "https://viacep.com.br/ws";
 const CEP_DEBOUNCE_MS = 450;
 const CEP_UF_PERMITIDA = "BA";
@@ -198,10 +198,19 @@ const state = {
   extratoRunning: false,
   extratoPauseRequested: false,
   extratoCheckpoint: null,
+  extratoPastaBase: "",
+  extratoPastaCarregada: false,
   currentPdfNameNotice: "",
   lastPdfNameNotice: "",
   currentPdfNoticeId: "",
   currentPdfRequiresConfirmation: false,
+  currentPdfUsesLocalSignal: false,
+  currentPdfMode: "",
+  operationalLocalSignals: {},
+  aguaEsgotoPdfPayload: null,
+  aguaEsgotoPdfPending: false,
+  aguaEsgotoAutoFinalPending: false,
+  aguaEsgotoLimparFormularioAoFinalizar: false,
   currentPaymentFileNotice: "",
   lastPaymentFileNotice: "",
   paymentFileCopiedTimer: 0,
@@ -2131,6 +2140,109 @@ function normalizarPastaBaseExtrato(valor) {
   return String(valor || "").trim().replace(/[\\\/]+$/, "");
 }
 
+function resumirPastaBaseExtrato(valor) {
+  const pasta = normalizarPastaBaseExtrato(valor);
+  const partes = pasta.split(/[\\\/]/).filter(Boolean);
+
+  if (partes.length <= 2) {
+    return pasta;
+  }
+
+  return `...\\${partes.slice(-2).join("\\")}`;
+}
+
+function atualizarPastaBaseExtratosUI() {
+  const pastaBase = normalizarPastaBaseExtrato(state.extratoPastaBase);
+  const label = el("extratoPastaBaseLabel");
+
+  if (label) {
+    label.textContent = pastaBase
+      ? resumirPastaBaseExtrato(pastaBase)
+      : "Nenhuma pasta selecionada";
+    label.title = pastaBase;
+  }
+
+  atualizarPreviewExtrato();
+}
+
+async function carregarPastaPadraoExtratos() {
+  if (state.extratoPastaCarregada) {
+    return state.extratoPastaBase;
+  }
+
+  if (!window.pywebview?.api?.obter_pasta_padrao_extratos) {
+    state.extratoPastaCarregada = false;
+    atualizarPastaBaseExtratosUI();
+    return "";
+  }
+
+  try {
+    const resposta = await window.pywebview.api.obter_pasta_padrao_extratos();
+    state.extratoPastaBase = normalizarPastaBaseExtrato(resposta?.pasta_base);
+    state.extratoPastaCarregada = true;
+  } catch (error) {
+    state.extratoPastaBase = "";
+    state.extratoPastaCarregada = false;
+  }
+
+  atualizarPastaBaseExtratosUI();
+  return state.extratoPastaBase;
+}
+
+async function selecionarPastaBaseExtratos(options = {}) {
+  limparErroExtrato();
+
+  if (!window.pywebview?.api?.selecionar_pasta_base_extratos) {
+    mostrarErroExtrato("Backend indisponivel para selecionar a pasta dos extratos.");
+    return "";
+  }
+
+  const button = el("extratoFolderButton");
+  const definirPadrao = el("extratoFolderDefault")?.checked !== false;
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Selecionando...";
+  }
+
+  try {
+    const resposta = await window.pywebview.api.selecionar_pasta_base_extratos(
+      state.extratoPastaBase,
+      definirPadrao
+    );
+
+    if (!resposta?.ok) {
+      if (!resposta?.cancelado && !options.silencioso) {
+        mostrarErroExtrato(resposta?.msg || "Nao foi possivel selecionar a pasta.");
+      }
+      return "";
+    }
+
+    state.extratoPastaBase = normalizarPastaBaseExtrato(resposta.pasta_base);
+    state.extratoPastaCarregada = true;
+    limparCheckpointExtrato();
+    atualizarPastaBaseExtratosUI();
+    showSimpleOperationalToast(
+      resposta.salva_como_padrao
+        ? "Pasta dos extratos definida como padrao."
+        : "Pasta selecionada para esta sessao."
+    );
+    return state.extratoPastaBase;
+  } catch (error) {
+    if (!options.silencioso) {
+      mostrarErroExtrato(`Falha ao selecionar a pasta: ${error}`);
+    }
+    return "";
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Selecionar pasta";
+    }
+  }
+}
+
+window.selecionarPastaBaseExtratos = selecionarPastaBaseExtratos;
+
 function normalizarContaExtrato(input) {
   input.value = String(input.value || "")
     .toUpperCase()
@@ -2171,11 +2283,19 @@ function atualizarPreviewExtrato() {
   const mes = el("extratoMes")?.value || "";
   const ano = String(el("extratoAno")?.value || "").replace(/\D/g, "").slice(0, 4);
   const periodoPreview = el("extratoPeriodoPreview") || preview.querySelector("strong");
+  const destinoPreview = el("extratoDestinoPreview");
 
   if (periodoPreview) {
     periodoPreview.textContent = mes && ano.length === 4
       ? `${MESES_EXTRATO[mes] || mes}/${ano}`
       : "--";
+  }
+
+  if (destinoPreview) {
+    const sigla = MESES_EXTRATO_SIGLA[mes] || "MES";
+    destinoPreview.textContent = state.extratoPastaBase && mes && ano.length === 4
+      ? `${ano}\\${mes}.${sigla}\\CEF`
+      : "Selecione a pasta-base";
   }
 }
 
@@ -2208,7 +2328,10 @@ function checkpointExtratoCompativel(checkpoint, payload) {
   }
 
   return String(checkpoint.mes || "") === String(payload.mes || "")
-    && String(checkpoint.ano || "") === String(payload.ano || "");
+    && String(checkpoint.ano || "") === String(payload.ano || "")
+    && normalizarPastaBaseExtrato(checkpoint.pasta_base || checkpoint.pasta_destino)
+      .toLowerCase()
+      .startsWith(normalizarPastaBaseExtrato(payload.pasta_base).toLowerCase());
 }
 
 function limparCheckpointExtrato() {
@@ -2222,7 +2345,9 @@ function montarPayloadExtratos() {
   const navegador = el("extratoNavegador")?.value || "opera";
   const mes = el("extratoMes")?.value || "";
   const ano = String(el("extratoAno")?.value || "").replace(/\D/g, "").slice(0, 4);
-  const pastaBase = normalizarPastaBaseExtrato(EXTRATO_PASTA_BASE_PADRAO);
+  const pastaBase = normalizarPastaBaseExtrato(
+    state.extratoPastaBase || EXTRATO_PASTA_BASE_PADRAO
+  );
 
   limparErroExtrato();
 
@@ -2238,6 +2363,11 @@ function montarPayloadExtratos() {
 
   if (ano.length !== 4) {
     mostrarErroExtrato("Informe o ano com 4 digitos.");
+    return null;
+  }
+
+  if (!pastaBase) {
+    mostrarErroExtrato("Selecione a pasta-base dos extratos.");
     return null;
   }
 
@@ -2424,6 +2554,7 @@ function showExtratosWorkspace(options = {}) {
   hideCadastroClienteFeedback();
   setSidebarExpanded(false);
   preencherMesAnoExtratosPadrao();
+  carregarPastaPadraoExtratos();
 
   if (options.status !== false) {
     setStatus("Baixar extratos", "idle");
@@ -2455,6 +2586,7 @@ function setExtratoChromeBusy(busy) {
   const chromeButton = el("extratoChromeButton");
   const openButton = el("extratoOpenBrowserButton");
   const pauseButton = el("extratoPauseButton");
+  const folderButton = el("extratoFolderButton");
 
   if (openButton) {
     openButton.disabled = Boolean(busy);
@@ -2463,6 +2595,10 @@ function setExtratoChromeBusy(busy) {
   if (pauseButton) {
     pauseButton.disabled = !busy || !state.extratoRunning || state.extratoPauseRequested;
     pauseButton.textContent = state.extratoPauseRequested ? "Pausando..." : "Pausar";
+  }
+
+  if (folderButton) {
+    folderButton.disabled = Boolean(busy);
   }
 
   if (chromeButton) {
@@ -2560,6 +2696,17 @@ async function testarChromeCaixa() {
 }
 
 async function baixarExtratoAtualChrome() {
+  await carregarPastaPadraoExtratos();
+
+  if (!state.extratoPastaBase) {
+    const pastaSelecionada = await selecionarPastaBaseExtratos();
+
+    if (!pastaSelecionada) {
+      setStatus("Selecione a pasta", "idle");
+      return;
+    }
+  }
+
   const payload = montarPayloadExtratos();
 
   if (!payload) {
@@ -3661,15 +3808,42 @@ function openPdfNameModal(nomePdf, options = {}) {
   state.lastPdfNameNotice = nomeLimpo;
   state.currentPdfNoticeId = String(options.notice_id || "");
   state.currentPdfRequiresConfirmation = exigeConfirmacao;
+  state.currentPdfUsesLocalSignal = Boolean(options.confirmacao_local);
+  state.currentPdfMode = String(options.modo || "");
 
   prepararInterfaceParaAvisoOperacional();
 
   const value = el("pdfNameValue");
+  const title = el("pdfNameTitle");
+  const instruction = el("pdfNameInstruction");
   const warning = el("pdfNameWarning");
   const button = el("pdfNameActionButton");
+  const modoAutomaticoEsgoto = state.currentPdfMode === "agua_esgoto_automatico";
+  const modoAutomaticoAgua = state.currentPdfMode === "agua_esgoto_agua_automatica";
 
   if (value) {
     value.textContent = nomeLimpo;
+  }
+
+  if (title) {
+    title.textContent = modoAutomaticoEsgoto
+      ? "Boleto de Esgoto selecionado"
+      : modoAutomaticoAgua
+        ? "Boleto de Água selecionado"
+        : "Linha de boleto selecionada";
+  }
+
+  if (instruction) {
+    instruction.innerHTML = modoAutomaticoAgua
+      ? (
+        "A linha do boleto de <strong>Água</strong> foi selecionada automaticamente. " +
+        "Gere o PDF no SAP. O nome abaixo já foi copiado para o PDFCreator."
+      )
+      : (
+        "Dê o comando <strong>Shift + F5 / Ctrl + Shift + F8</strong> " +
+        "ou selecione o ícone de impressão no SAP para imprimir o boleto. " +
+        "O nome abaixo já foi copiado automaticamente. Cole no PDFCreator."
+      );
   }
 
   if (warning) {
@@ -3690,6 +3864,144 @@ function openPdfNameModalComConfirmacao(nomePdf, options = {}) {
   state.lastPdfNameNotice = "";
   openPdfNameModal(nomePdf, { ...options, forceOpen: true });
 }
+
+function openAguaEsgotoPdfModal(payload = {}) {
+  const esgoto = payload.esgoto || {};
+  const agua = payload.agua || {};
+  const nomeEsgoto = String(esgoto.nome || esgoto.nome_pdf || "").trim();
+  const nomeAgua = String(agua.nome || agua.nome_pdf || "").trim();
+
+  if (!nomeEsgoto || !nomeAgua) {
+    showSimpleOperationalToast("Nao foi possivel preparar os nomes de Agua e Esgoto.");
+    return;
+  }
+
+  state.aguaEsgotoPdfPayload = {
+    esgoto: { ...esgoto, nome: nomeEsgoto },
+    agua: { ...agua, nome: nomeAgua }
+  };
+  state.aguaEsgotoPdfPending = true;
+
+  const cards = el("aguaEsgotoPdfCards");
+  const esgotoCard = el("aguaEsgotoEsgotoCard");
+  const aguaCard = el("aguaEsgotoAguaCard");
+  const aguaButton = el("aguaEsgotoAguaCopyButton");
+  const fallbackWarning = el("aguaEsgotoFallbackWarning");
+  const esgotoInstruction = el("aguaEsgotoEsgotoInstruction");
+  const aguaInstruction = el("aguaEsgotoAguaInstruction");
+  const motivoFallback = String(payload.motivo_fallback || "").trim();
+
+  el("aguaEsgotoEsgotoNome").textContent = nomeEsgoto;
+  el("aguaEsgotoAguaNome").textContent = nomeAgua;
+  if (fallbackWarning) {
+    fallbackWarning.textContent = motivoFallback
+      ? "A seleção automática de Água não pôde ser validada. O modo manual seguro foi ativado."
+      : "";
+    fallbackWarning.classList.toggle("hidden", !motivoFallback);
+    fallbackWarning.title = motivoFallback;
+  }
+  if (esgotoInstruction) {
+    esgotoInstruction.textContent = String(payload.instrucao_esgoto || "").trim()
+      || "A linha mais recente de BOLETO já está selecionada no SAP. Gere o PDF e use o nome abaixo.";
+  }
+  if (aguaInstruction) {
+    aguaInstruction.innerHTML = (
+      "No SAP, desmarque Esgoto caso a linha continue selecionada e marque a linha " +
+      "<strong>BOLETO</strong> logo abaixo. Gere o PDF e depois copie o nome abaixo."
+    );
+  }
+  cards?.classList.remove("esgoto-copiado");
+  esgotoCard?.classList.remove("hidden", "concluido");
+  aguaCard?.classList.remove("hidden", "concluido");
+  aguaCard?.classList.add("bloqueado");
+
+  if (aguaButton) {
+    aguaButton.disabled = true;
+  }
+
+  prepararInterfaceParaAvisoOperacional();
+  openModal("aguaEsgotoPdfModal");
+  setStatus(motivoFallback ? "Modo manual seguro" : "Finalize os dois boletos", "running");
+
+  if (motivoFallback) {
+    showSimpleOperationalToast("Modo manual seguro ativado para Água + Esgoto.");
+  }
+}
+
+function closeAguaEsgotoPdfModal() {
+  closeModal("aguaEsgotoPdfModal");
+  state.aguaEsgotoPdfPayload = null;
+  state.aguaEsgotoPdfPending = false;
+}
+
+async function copiarNomePdfAguaEsgoto(tipo) {
+  const chave = String(tipo || "").toLowerCase();
+  const item = state.aguaEsgotoPdfPayload?.[chave];
+
+  if (!item?.nome) {
+    return;
+  }
+
+  await copiarTextoParaAreaTransferencia(item.nome);
+
+  if (chave === "esgoto") {
+    const cards = el("aguaEsgotoPdfCards");
+    const esgotoCard = el("aguaEsgotoEsgotoCard");
+    const aguaCard = el("aguaEsgotoAguaCard");
+    const aguaButton = el("aguaEsgotoAguaCopyButton");
+
+    esgotoCard?.classList.add("concluido");
+    aguaCard?.classList.remove("bloqueado");
+    cards?.classList.add("esgoto-copiado");
+
+    if (aguaButton) {
+      aguaButton.disabled = false;
+      window.setTimeout(() => aguaButton.focus(), 340);
+    }
+
+    window.setTimeout(() => esgotoCard?.classList.add("hidden"), 300);
+    showSimpleOperationalToast("Nome do boleto de Esgoto copiado.");
+    setStatus("Selecione o boleto de Agua", "running");
+    return;
+  }
+
+  showSimpleOperationalToast("Nome do boleto de Agua copiado. Processo finalizado.");
+  el("aguaEsgotoAguaCard")?.classList.add("concluido");
+  window.setTimeout(() => {
+    closeAguaEsgotoPdfModal();
+    setStatus("Concluido", "success");
+    if (state.aguaEsgotoLimparFormularioAoFinalizar) {
+      limparFormularioCriacaoBoleto();
+    }
+    state.aguaEsgotoLimparFormularioAoFinalizar = false;
+    processarProximoAvisoOperacional();
+  }, 320);
+}
+
+window.copiarNomePdfAguaEsgoto = copiarNomePdfAguaEsgoto;
+
+function registrarSinalAvisoOperacional(noticeId, resultado) {
+  const chave = String(noticeId || "");
+
+  if (!chave) {
+    return;
+  }
+
+  state.operationalLocalSignals[chave] = String(resultado || "confirmado");
+}
+
+function consumirSinalAvisoOperacional(noticeId) {
+  const chave = String(noticeId || "");
+  const resultado = state.operationalLocalSignals[chave] || null;
+
+  if (resultado) {
+    delete state.operationalLocalSignals[chave];
+  }
+
+  return resultado;
+}
+
+window.consumirSinalAvisoOperacional = consumirSinalAvisoOperacional;
 
 function closePdfNameModal() {
   closeModal("pdfNameModal");
@@ -3715,18 +4027,34 @@ function closePdfNameNotice() {
     modalEstaAberto("batchConfirmModal");
   const noticeId = state.currentPdfNoticeId;
   const deveConfirmar = state.currentPdfRequiresConfirmation;
+  const usaSinalLocal = state.currentPdfUsesLocalSignal;
+  const modoAtual = state.currentPdfMode;
 
   state.currentPdfNoticeId = "";
   state.currentPdfRequiresConfirmation = false;
+  state.currentPdfUsesLocalSignal = false;
+  state.currentPdfMode = "";
 
   closePdfNameModal();
 
-  if (deveConfirmar && noticeId) {
+  if (deveConfirmar && usaSinalLocal && noticeId) {
+    registrarSinalAvisoOperacional(noticeId, "prosseguir_agua");
+    setStatus("Selecionando boleto de Água", "running");
+  } else if (deveConfirmar && noticeId) {
     try {
       window.pywebview?.api?.confirmar_aviso_operacional?.(noticeId)?.catch?.(() => {});
     } catch (error) {
       // A confirmacao e opcional para a interface, mas exigida pelo backend neste aviso.
     }
+  }
+
+  if (modoAtual === "agua_esgoto_agua_automatica") {
+    state.aguaEsgotoAutoFinalPending = false;
+    setStatus("Concluído", "success");
+    if (state.aguaEsgotoLimparFormularioAoFinalizar) {
+      limparFormularioCriacaoBoleto();
+    }
+    state.aguaEsgotoLimparFormularioAoFinalizar = false;
   }
 
   if (estavaEmpilhado) {
@@ -3737,7 +4065,8 @@ function closePdfNameNotice() {
 }
 
 function algumAvisoOperacionalAberto() {
-  return modalEstaAberto("pdfNameModal");
+  return modalEstaAberto("pdfNameModal")
+    || modalEstaAberto("aguaEsgotoPdfModal");
 }
 
 function processarProximoAvisoOperacional() {
@@ -3752,6 +4081,28 @@ function processarProximoAvisoOperacional() {
 }
 
 function mostrarAvisoOperacionalAgora(tipo, payload = {}) {
+  if (tipo === "pdf_agua_esgoto") {
+    openAguaEsgotoPdfModal(payload);
+    return;
+  }
+
+  if (tipo === "pdf_agua_esgoto_agua_auto") {
+    state.aguaEsgotoAutoFinalPending = true;
+    openPdfNameModalComConfirmacao(
+      payload.nome || payload.nome_pdf || "",
+      {
+        ...payload,
+        modo: "agua_esgoto_agua_automatica",
+        aguardar_confirmacao: false,
+        exigir_confirmacao: false,
+        confirmacao_local: false,
+        forceOpen: true
+      }
+    );
+    setStatus("Finalize o boleto de Água", "running");
+    return;
+  }
+
   const nome = String(payload.nome || payload.nome_arquivo || payload.nome_pdf || "").trim();
 
   if (!nome) {
@@ -4775,6 +5126,7 @@ const MODAL_IDS = [
   "contactModal",
   "contactSuccessModal",
   "pdfNameModal",
+  "aguaEsgotoPdfModal",
   "extratoResumoModal",
   "historyModal",
   "aboutModal",
@@ -5183,6 +5535,13 @@ function limparPainel() {
   state.lastPdfNameNotice = "";
   state.currentPaymentFileNotice = "";
   state.lastPaymentFileNotice = "";
+  state.aguaEsgotoPdfPayload = null;
+  state.aguaEsgotoPdfPending = false;
+  state.aguaEsgotoAutoFinalPending = false;
+  state.aguaEsgotoLimparFormularioAoFinalizar = false;
+  state.currentPdfUsesLocalSignal = false;
+  state.currentPdfMode = "";
+  state.operationalLocalSignals = {};
   window.clearTimeout(state.paymentFileCopiedTimer);
   state.operationalNoticeQueue = [];
   state.pendingSapAction = null;
@@ -5190,6 +5549,7 @@ function limparPainel() {
   state.clientRegistrationSource = "";
   const workspaceAtual = state.currentWorkspace;
   closePdfNameModal();
+  closeModal("aguaEsgotoPdfModal");
   closeSapActionModal();
   fecharAbaCadastroCliente({ mostrarBoleto: false });
   if (workspaceAtual === "multa") {
@@ -6020,8 +6380,28 @@ async function executarFluxo(payload, options = {}) {
     }
 
     preencherResultado(res.resultado || {});
-    setStatus("Concluído", "success");
-    if (clearFormOnSuccess) {
+    const finalizacaoManualPendente = Boolean(
+      res.resultado?.finalizacao_pdf_manual_pendente
+      && state.aguaEsgotoPdfPending
+    );
+    const finalizacaoInterfacePendente = Boolean(
+      res.resultado?.finalizacao_pdf_interface_pendente
+      && state.aguaEsgotoAutoFinalPending
+    );
+    const finalizacaoPdfPendente =
+      finalizacaoManualPendente || finalizacaoInterfacePendente;
+
+    if (finalizacaoPdfPendente) {
+      state.aguaEsgotoLimparFormularioAoFinalizar = Boolean(clearFormOnSuccess);
+      setStatus(
+        finalizacaoManualPendente ? "Finalize os dois boletos" : "Finalize o boleto de Água",
+        "running"
+      );
+    } else {
+      setStatus("Concluído", "success");
+    }
+
+    if (clearFormOnSuccess && !finalizacaoPdfPendente) {
       limparFormularioCriacaoBoleto();
     }
     return res;

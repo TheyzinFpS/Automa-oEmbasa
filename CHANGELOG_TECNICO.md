@@ -1,5 +1,65 @@
 # Registro técnico de alterações
 
+## Terca-feira, 28/07/2026 - Versao 1.4.58
+
+**Ajustes aplicados**
+
+- Reintroduzida a tentativa automatica de continuar do boleto de Esgoto para o boleto de Agua na SP02.
+- A confirmacao `Prosseguir para Agua` agora e local ao JavaScript e nao executa uma segunda chamada `pywebview.api` enquanto o fluxo principal esta em andamento.
+- A thread SAP monitora o sinal local da interface, mantendo a operacao no mesmo worker e removendo a dependencia circular que travava o fluxo anterior.
+- Antes de selecionar Agua, o sistema localiza novamente a sessao SAP, valida a SP02, limpa a selecao anterior, rele as linhas BOLETO e confirma que a checkbox de Agua permaneceu marcada.
+- Se qualquer validacao da continuidade automatica falhar, o erro e tratado como uma condicao inesperada recuperavel: o sistema tenta restaurar a selecao de Esgoto e abre automaticamente os dois cartoes manuais de copia.
+- O fallback manual continua sem confirmacao de backend. Esgoto e Agua sao finalizados pelos cartoes flutuantes, preservando os nomes ja preparados.
+- Depois da selecao automatica de Agua, o modal final permanece apenas informativo; fechar esse modal nao executa novos comandos SAP.
+- Falhas na verificacao final de janelas SAP deixaram de invalidar um processo cujos PDFs ja estavam preparados.
+
+**Validacao realizada**
+
+- `python -m py_compile interface.py backend\controller.py backend\flows\f110_boleto.py`
+- `node --check interface\app.js`
+- Simulacao do caminho automatico confirmando a ordem `BOL02/Esgoto` e `BOL01/Agua`.
+- Simulacao de falha na confirmacao da checkbox de Agua, com ativacao automatica do fallback manual e recuperacao da selecao de Esgoto.
+- Teste do sinal local `prosseguir_agua`, incluindo consumo unico e limpeza da confirmacao.
+- `git diff --check`
+
+## Terca-feira, 28/07/2026 - Versao 1.4.57
+
+**Ajustes aplicados**
+
+- Removido o caminho corporativo fixo da rotina de extratos Caixa.
+- Adicionada selecao nativa da pasta-base na interface, com opcao para grava-la como padrao deste computador em `%LOCALAPPDATA%\EMBASA\extratos_caixa.json`.
+- Quando nao existe pasta salva, `Baixar extratos` abre automaticamente o seletor antes de iniciar.
+- O destino e montado no padrao `PASTA_BASE\ANO\MM.SIGLA\CEF`; a estrutura mensal e verificada uma vez antes do lote e criada automaticamente quando estiver ausente.
+- Selecionar uma pasta `CEF`, `MM.SIGLA` ou `ANO` ja existente normaliza o caminho para a raiz `EXTRATOS`, evitando duplicacao de subpastas.
+- Reformulado o encerramento de `Agua + Esgoto` na SP02: somente o BOLETO mais recente de Esgoto e marcado automaticamente.
+- Removidas a confirmacao bloqueante, a reabertura da SP02 e a tentativa automatica de marcar o segundo boleto.
+- A interface mostra dois cartoes flutuantes, Esgoto e Agua. Ao copiar Esgoto, o primeiro cartao desaparece e Agua fica centralizado com a orientacao para selecionar manualmente o BOLETO logo abaixo no SAP.
+- O processo visual so muda para concluido depois da copia do nome de Agua; nenhuma acao dos cartoes retorna ao backend SAP.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\controller.py backend\flows\f110_boleto.py backend\flows\extratos_caixa_chrome.py`
+- `node --check interface\app.js`
+- Simulacao da criacao e reutilizacao de `ANO\MM.SIGLA\CEF`.
+- Simulacao da SP02 confirmando uma unica marcacao SAP (`BOL02` Esgoto) e identificacao manual do `BOL01` Agua.
+- Revisao visual dos estados inicial e apos copia dos cartoes Esgoto/Agua em desktop e viewport estreita.
+- `git diff --check`
+
+## Terca-feira, 28/07/2026 - Versao 1.4.56
+
+**Ajuste aplicado**
+
+- Configurada a pasta corporativa dos extratos Caixa em `N:\DF\FAFT\documentos\FFAM\Documentos\Documentos Diversos\EQUIPE FAFF\DANIEL\EXTRATOS`.
+- O destino mensal continua sendo montado automaticamente no formato `ANO\MM.SIGLA\CEF`.
+- Para o extrato de julho de 2026, o destino passa a ser `...\EXTRATOS\2026\07.JUL\CEF`; para agosto, `...\EXTRATOS\2026\08.AGO\CEF`.
+- As pastas ausentes continuam sendo criadas automaticamente antes do download.
+
+**Validacao realizada**
+
+- `python -m py_compile main.py interface.py backend\settings.py backend\flows\extratos_caixa_chrome.py`
+- `node --check interface\app.js`
+- `git diff --check`
+
 ## Terca-feira, 28/07/2026 - Versao 1.4.55
 
 **Ajuste aplicado**

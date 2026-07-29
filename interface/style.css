@@ -699,7 +699,7 @@ video {
 }
 
 .bank-statement-preview {
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .bank-statement-preview span {
@@ -722,6 +722,72 @@ video {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+}
+
+.bank-folder-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 14px 16px;
+  border: 1px solid rgba(11, 79, 159, 0.12);
+  border-radius: 16px;
+  background: var(--field-bg);
+}
+
+.bank-folder-copy {
+  min-width: 0;
+}
+
+.bank-folder-copy span,
+.bank-folder-copy strong,
+.bank-folder-copy small {
+  display: block;
+}
+
+.bank-folder-copy span {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bank-folder-copy strong {
+  color: var(--ink);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.bank-folder-copy small {
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.bank-folder-button {
+  width: auto;
+  min-width: 148px;
+  margin: 0;
+}
+
+.bank-folder-default {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.bank-folder-default input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 .bank-statement-actions {
@@ -2436,7 +2502,7 @@ input.is-loading {
   position: fixed;
   right: clamp(14px, 2vw, 28px);
   bottom: clamp(14px, 2vw, 28px);
-  z-index: 45;
+  z-index: 65;
   max-width: min(430px, calc(100vw - 28px));
   padding: 15px 18px;
   border: 1px solid var(--line);
@@ -2815,6 +2881,81 @@ input.is-loading {
   justify-content: flex-end;
 }
 
+.dual-pdf-modal {
+  z-index: 60;
+}
+
+.dual-pdf-cards {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  width: min(1180px, calc(100vw - 48px));
+  max-height: calc(100dvh - 32px);
+  margin: 16px auto;
+  align-items: center;
+}
+
+.dual-pdf-card {
+  width: auto;
+  max-height: calc(100dvh - 48px);
+  margin: 0;
+  overflow: auto;
+  transition:
+    opacity 260ms ease,
+    transform 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 260ms ease;
+}
+
+.dual-pdf-card.esgoto {
+  border-color: rgba(201, 87, 74, 0.28);
+}
+
+.dual-pdf-card.agua {
+  border-color: rgba(0, 143, 208, 0.3);
+}
+
+.dual-pdf-card.bloqueado {
+  opacity: 0.72;
+  filter: saturate(0.75);
+}
+
+.dual-pdf-card.concluido {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-46px) scale(0.97);
+}
+
+.dual-pdf-cards.esgoto-copiado {
+  grid-template-columns: minmax(0, 620px);
+  justify-content: center;
+}
+
+.dual-pdf-cards.esgoto-copiado .dual-pdf-card.agua {
+  opacity: 1;
+  filter: none;
+  transform: translateX(0);
+}
+
+.dual-pdf-instruction strong {
+  color: #fbbf24;
+}
+
+.dual-pdf-card .dual-pdf-fallback-warning {
+  padding: 10px 12px;
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  border-radius: 8px;
+  background: rgba(251, 191, 36, 0.08);
+  color: #fbbf24;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.dual-pdf-card .primary-action {
+  width: 100%;
+}
+
 .batch-confirm-actions {
   display: flex;
   gap: 12px;
@@ -3033,6 +3174,14 @@ body.operational-modals-split #batchConfirmModal .contact-success-card {
     grid-template-columns: 1fr;
   }
 
+  .bank-folder-picker {
+    grid-template-columns: 1fr;
+  }
+
+  .bank-folder-button {
+    width: 100%;
+  }
+
   .hero-bottom-meta {
     grid-template-columns: 1fr;
     justify-items: start;
@@ -3139,6 +3288,16 @@ body.operational-modals-split #batchConfirmModal .contact-success-card {
 
   body.operational-modals-split #batchConfirmModal .contact-success-card {
     transform: translateY(24dvh);
+  }
+
+  .dual-pdf-cards {
+    grid-template-columns: 1fr;
+    width: min(620px, calc(100vw - 24px));
+    overflow: auto;
+  }
+
+  .dual-pdf-card {
+    max-height: none;
   }
 }
 

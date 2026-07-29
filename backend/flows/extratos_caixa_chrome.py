@@ -610,6 +610,30 @@ def _resolver_pasta_destino_extrato(dados: dict) -> Path:
     return base
 
 
+def _garantir_pasta_destino_extrato(pasta_destino: Path, log_callback=None) -> bool:
+    ja_existia = pasta_destino.is_dir()
+
+    try:
+        pasta_destino.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise CaixaChromeError(
+            "Nao foi possivel acessar ou criar a pasta mensal dos extratos: "
+            f"{pasta_destino}. Verifique a unidade de rede e a permissao da pasta. "
+            f"Detalhe: {exc}"
+        ) from exc
+
+    if callable(log_callback):
+        if ja_existia:
+            log_callback(f"Pasta mensal localizada: {pasta_destino}.")
+        else:
+            log_callback(
+                "Pasta mensal ausente; estrutura criada automaticamente: "
+                f"{pasta_destino}."
+            )
+
+    return ja_existia
+
+
 def _pastas_monitoradas_download(pasta_destino: Path) -> list[Path]:
     candidatos = [pasta_destino]
 
@@ -1481,7 +1505,7 @@ def executar_download_extrato_atual(
         if not pasta_destino:
             raise CaixaChromeError("Pasta destino nao informada.")
 
-        pasta_destino.mkdir(parents=True, exist_ok=True)
+        _garantir_pasta_destino_extrato(pasta_destino, log_callback=log)
         pastas_monitoradas = _pastas_monitoradas_download(pasta_destino)
 
         progress(f"Conectando ao {rotulo_navegador} controlavel.", 10)

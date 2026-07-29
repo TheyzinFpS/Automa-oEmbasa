@@ -275,6 +275,14 @@ class SAPController:
             "nomes_pdf_sugeridos": contexto.get("nomes_pdf_sugeridos"),
             "nome_pdf_sugerido": contexto.get("nome_pdf_sugerido"),
             "spools_boletos": contexto.get("spools_boletos"),
+            "finalizacao_pdf_manual_pendente": contexto.get(
+                "finalizacao_pdf_manual_pendente"
+            ),
+            "finalizacao_pdf_interface_pendente": contexto.get(
+                "finalizacao_pdf_interface_pendente"
+            ),
+            "fallback_automatico_sp02": contexto.get("fallback_automatico_sp02"),
+            "motivo_fallback_sp02": contexto.get("motivo_fallback_sp02"),
             "documento": dados["doc"],
             "tipo_documento": dados["doc_info"]["rotulo"],
             "tipo": dados.get("tipo"),
@@ -1053,10 +1061,25 @@ class SAPController:
                 progress_callback=progress_callback,
                 notice_callback=notice_callback,
                 aguardar_apos_copia_segundos=7,
-                confirmar_entre_boletos=True,
-                reabrir_sp02_entre_boletos=True,
+                confirmar_entre_boletos=False,
+                reabrir_sp02_entre_boletos=False,
+                segundo_boleto_automatico_com_fallback=True,
+                session_refresh_callback=conectar_sap,
             )
-            self._garantir_janela_unica_sap(session, origem="SP02 Água + Esgoto")
+
+            try:
+                self._garantir_janela_unica_sap(
+                    session,
+                    origem="SP02 Agua + Esgoto",
+                )
+            except Exception as exc:
+                self.logger.add(
+                    6,
+                    "A verificacao final de janelas SAP foi ignorada para preservar "
+                    f"a finalizacao dos PDFs: {exc}",
+                    nivel="AVISO",
+                    publico=False,
+                )
 
             for spool in resultado_sp02.get("spools_boletos") or []:
                 item = itens_por_tipo.get(str(spool.get("tipo") or ""))
@@ -1104,6 +1127,18 @@ class SAPController:
             }
             contexto["spools_boletos"] = resultado_sp02.get("spools_boletos") or []
             contexto["agua_esgoto"] = itens
+            contexto["finalizacao_pdf_manual_pendente"] = bool(
+                resultado_sp02.get("finalizacao_pdf_manual_pendente")
+            )
+            contexto["finalizacao_pdf_interface_pendente"] = bool(
+                resultado_sp02.get("finalizacao_pdf_interface_pendente")
+            )
+            contexto["fallback_automatico_sp02"] = bool(
+                resultado_sp02.get("fallback_automatico_sp02")
+            )
+            contexto["motivo_fallback_sp02"] = (
+                resultado_sp02.get("motivo_fallback_sp02") or ""
+            )
 
             return resultado_padrao(
                 ok=True,

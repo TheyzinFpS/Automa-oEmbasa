@@ -278,7 +278,7 @@ def _aguardar_copia_interface(
         evento = notice_callback("pdf", payload)
 
         if hasattr(evento, "wait"):
-            evento.wait()
+            return evento.wait()
 
         return True
 
@@ -1512,6 +1512,9 @@ def selecionar_boletos_sp02(
     aguardar_apos_copia_segundos=_PDF_COPY_WAIT_SECONDS,
     confirmar_entre_boletos=False,
     reabrir_sp02_entre_boletos=False,
+    segundo_boleto_manual=False,
+    segundo_boleto_automatico_com_fallback=False,
+    session_refresh_callback=None,
 ):
     boletos = list(boletos or [])
 
@@ -1535,6 +1538,390 @@ def selecionar_boletos_sp02(
         )
 
     linhas = coletar_boletos_visuais()
+
+    if segundo_boleto_manual or segundo_boleto_automatico_com_fallback:
+        if len(boletos) < 2:
+            raise RuntimeError(
+                "O fluxo de Agua + Esgoto exige os dois boletos informados."
+            )
+
+        if len(linhas) < 2:
+            raise RuntimeError(
+                "Nao foi possivel localizar as duas linhas de BOLETO na SP02. "
+                f"Encontrado: {len(linhas)}."
+            )
+
+        boleto_esgoto = boletos[0]
+        boleto_agua = boletos[1]
+        linha_esgoto = linhas[0]
+        linha_agua = linhas[1]
+
+        _notificar(
+            progress_callback,
+            "Selecionando somente o boleto mais recente de Esgoto na SP02...",
+            98,
+        )
+        dados_esgoto = _marcar_boleto_sp02_sem_validar(
+            session,
+            linha_esgoto,
+            selecionado=True,
+            logger=logger,
+        )
+        nome_esgoto = montar_nome_pdf_sugerido(
+            boleto_esgoto.get("doc_fat"),
+            dados=boleto_esgoto.get("dados"),
+            cliente=boleto_esgoto.get("cliente"),
+        )
+        nome_agua = montar_nome_pdf_sugerido(
+            boleto_agua.get("doc_fat"),
+            dados=boleto_agua.get("dados"),
+            cliente=boleto_agua.get("cliente"),
+        )
+
+        def finalizar_em_modo_manual(
+            motivo_fallback="",
+            selecao_esgoto_confirmada=True,
+        ):
+            spools_manual = [
+                {
+                    "tipo": boleto_esgoto.get("tipo"),
+                    "doc_fat": boleto_esgoto.get("doc_fat"),
+                    "nome_pdf_sugerido": nome_esgoto,
+                    **dados_esgoto,
+                },
+                {
+                    "tipo": boleto_agua.get("tipo"),
+                    "doc_fat": boleto_agua.get("doc_fat"),
+                    "nome_pdf_sugerido": nome_agua,
+                    "linha": linha_agua.get("linha"),
+                    "spool": linha_agua.get("spool"),
+                    "titulo": linha_agua.get("titulo"),
+                    "data": linha_agua.get("data"),
+                    "hora": linha_agua.get("hora"),
+                    "status": linha_agua.get("status"),
+                    "paginas": linha_agua.get("paginas"),
+                    "selecao_manual": True,
+                },
+            ]
+
+            if logger:
+                logger.add(
+                    6,
+                    (
+                        "Modo manual seguro ativado para Agua + Esgoto. "
+                        f"Motivo da troca: {motivo_fallback}"
+                        if motivo_fallback
+                        else (
+                            "Boleto de Esgoto marcado na SP02. O boleto de Agua "
+                            "sera selecionado manualmente pelo usuario."
+                        )
+                    ),
+                    nivel="AVISO" if motivo_fallback else "INFO",
+                    publico=True,
+                )
+
+            if callable(notice_callback):
+                notice_callback(
+                    "pdf_agua_esgoto",
+                    {
+                        "modo": (
+                            "agua_esgoto_fallback"
+                            if motivo_fallback
+                            else "agua_esgoto_manual"
+                        ),
+                        "motivo_fallback": motivo_fallback,
+                        "selecao_esgoto_confirmada": selecao_esgoto_confirmada,
+                        "esgoto": {
+                            "nome": nome_esgoto,
+                            "doc_fat": boleto_esgoto.get("doc_fat"),
+                        },
+                        "agua": {
+                            "nome": nome_agua,
+                            "doc_fat": boleto_agua.get("doc_fat"),
+                        },
+                        "instrucao_esgoto": (
+                            "A linha mais recente de BOLETO esta selecionada."
+                            if selecao_esgoto_confirmada
+                            else (
+                                "Confirme ou selecione manualmente a primeira linha "
+                                "BOLETO da lista antes de gerar o PDF de Esgoto."
+                            )
+                        ),
+                        "instrucao_agua": (
+                            "Selecione manualmente a linha BOLETO logo abaixo da linha "
+                            "de Esgoto, gere o PDF e copie o nome de Agua."
+                        ),
+                    },
+                )
+
+            _notificar(
+                progress_callback,
+                "Modo manual seguro: finalize Esgoto e Agua pelas janelas de copia.",
+                99,
+                status="processando",
+            )
+
+            resultado.update(
+                {
+                    "pdf_boleto": "ESGOTO_SELECIONADO_AGUA_MANUAL",
+                    "spool_boleto": "ESGOTO_SELECIONADO_AGUA_MANUAL",
+                    "impressao_manual": True,
+                    "spools_boletos": spools_manual,
+                    "nomes_pdf_sugeridos": {
+                        "esgoto": nome_esgoto,
+                        "agua": nome_agua,
+                    },
+                    "finalizacao_pdf_manual_pendente": True,
+                    "fallback_automatico_sp02": bool(motivo_fallback),
+                    "motivo_fallback_sp02": motivo_fallback,
+                }
+            )
+            return resultado
+
+        if segundo_boleto_manual:
+            return finalizar_em_modo_manual()
+
+        try:
+            _notificar(
+                progress_callback,
+                "Boleto de Esgoto selecionado. Aguardando finalizacao no PDFCreator...",
+                99,
+            )
+            confirmacao = _aguardar_copia_interface(
+                "pdf",
+                nome_esgoto,
+                notice_callback=notice_callback,
+                progress_callback=progress_callback,
+                mensagem="Finalize o boleto de Esgoto antes de seguir para Agua.",
+                percentual=99,
+                contexto_confirmacao={
+                    "botao_confirmacao": "Prosseguir para Água",
+                    "aviso_confirmacao": (
+                        "Clique em Prosseguir somente depois de gerar e salvar "
+                        "o boleto de Esgoto no PDFCreator."
+                    ),
+                    "modo": "agua_esgoto_automatico",
+                    "confirmacao_local": True,
+                    "proximo_tipo_label": "Projeto Água",
+                },
+            )
+
+            if str(confirmacao or "").lower() not in {
+                "confirmado",
+                "prosseguir",
+                "prosseguir_agua",
+                "true",
+            }:
+                raise RuntimeError(
+                    "A interface nao confirmou a continuacao automatica para Agua."
+                )
+
+            _notificar(
+                progress_callback,
+                "Confirmacao recebida. Revalidando SAP e SP02...",
+                99,
+            )
+
+            session_automatica = session
+
+            if callable(session_refresh_callback):
+                session_automatica = session_refresh_callback()
+
+            if session_automatica is None:
+                raise RuntimeError("A sessao SAP nao foi localizada novamente.")
+
+            wait_for_element(session_automatica, "wnd[0]", timeout=10)
+            wait_until_ready(session_automatica, timeout=10)
+
+            if not _esta_na_sp02(session_automatica):
+                abrir_ordens_spool_boleto(
+                    session_automatica,
+                    logger=logger,
+                    progress_callback=progress_callback,
+                )
+
+            if not _esta_na_sp02(session_automatica):
+                raise RuntimeError("A transacao SP02 nao ficou ativa apos a reabertura.")
+
+            if not _limpar_selecao_sp02_com_shift_f6(
+                session_automatica,
+                logger=logger,
+            ):
+                raise RuntimeError("A selecao anterior da SP02 nao foi limpa.")
+
+            linhas_automaticas = sorted(
+                [
+                    linha
+                    for linha in _coletar_linhas_sp02(session_automatica)
+                    if _linha_e_boleto(linha)
+                ],
+                key=lambda linha: int(linha.get("linha") or 0),
+            )
+
+            if len(linhas_automaticas) < 2:
+                raise RuntimeError(
+                    "A SP02 nao apresentou as duas linhas BOLETO esperadas "
+                    f"apos a confirmacao. Encontrado: {len(linhas_automaticas)}."
+                )
+
+            linha_esgoto_atual = linhas_automaticas[0]
+            linha_agua_atual = linhas_automaticas[1]
+
+            if (
+                linha_esgoto_atual.get("spool")
+                and linha_agua_atual.get("spool")
+                and linha_esgoto_atual.get("spool") == linha_agua_atual.get("spool")
+            ):
+                raise RuntimeError(
+                    "As linhas de Esgoto e Agua apontaram para o mesmo numero de spool."
+                )
+
+            dados_agua = _marcar_boleto_sp02_sem_validar(
+                session_automatica,
+                linha_agua_atual,
+                selecionado=True,
+                logger=logger,
+            )
+            y_agua = int(linha_agua_atual.get("linha") or 0)
+            checkbox_agua = wait_for_element(
+                session_automatica,
+                f"wnd[0]/usr/chk[1,{y_agua}]",
+                timeout=8,
+            )
+            agua_selecionada = bool(
+                _safe_getattr(
+                    checkbox_agua,
+                    "selected",
+                    "Selected",
+                    default=False,
+                )
+            )
+
+            if not agua_selecionada:
+                raise RuntimeError(
+                    "O comando foi enviado, mas a linha do boleto de Agua "
+                    "nao permaneceu marcada na SP02."
+                )
+
+            spools_automaticos = [
+                {
+                    "tipo": boleto_esgoto.get("tipo"),
+                    "doc_fat": boleto_esgoto.get("doc_fat"),
+                    "nome_pdf_sugerido": nome_esgoto,
+                    **dados_esgoto,
+                },
+                {
+                    "tipo": boleto_agua.get("tipo"),
+                    "doc_fat": boleto_agua.get("doc_fat"),
+                    "nome_pdf_sugerido": nome_agua,
+                    **dados_agua,
+                },
+            ]
+
+            if logger:
+                logger.add(
+                    6,
+                    "Continuidade automatica validada: boleto de Agua marcado "
+                    "na SP02 sem chamada adicional do frontend ao backend.",
+                    publico=True,
+                )
+
+            if callable(notice_callback):
+                notice_callback(
+                    "pdf_agua_esgoto_agua_auto",
+                    {
+                        "modo": "agua_esgoto_agua_automatica",
+                        "nome": nome_agua,
+                        "nome_pdf": nome_agua,
+                        "doc_fat": boleto_agua.get("doc_fat"),
+                        "botao_confirmacao": "Fechar",
+                    },
+                )
+
+            _notificar(
+                progress_callback,
+                "Boleto de Agua selecionado automaticamente. Finalize o PDF.",
+                100,
+                status="processando",
+            )
+
+            resultado.update(
+                {
+                    "pdf_boleto": "AGUA_SELECIONADA_AUTOMATICAMENTE",
+                    "spool_boleto": dados_agua.get("spool"),
+                    "impressao_manual": True,
+                    "spools_boletos": spools_automaticos,
+                    "nomes_pdf_sugeridos": {
+                        "esgoto": nome_esgoto,
+                        "agua": nome_agua,
+                    },
+                    "finalizacao_pdf_interface_pendente": True,
+                    "fallback_automatico_sp02": False,
+                }
+            )
+            return resultado
+
+        except Exception as exc:
+            motivo_fallback = str(exc) or "Falha nao detalhada na continuidade automatica."
+            selecao_esgoto_confirmada = False
+
+            if logger:
+                logger.add(
+                    6,
+                    "A continuidade automatica para Agua foi interrompida de forma "
+                    f"segura: {motivo_fallback}",
+                    nivel="AVISO",
+                    publico=True,
+                )
+
+            try:
+                session_recuperacao = session
+
+                if callable(session_refresh_callback):
+                    session_recuperacao = session_refresh_callback()
+
+                if not _esta_na_sp02(session_recuperacao):
+                    abrir_ordens_spool_boleto(
+                        session_recuperacao,
+                        logger=logger,
+                        progress_callback=progress_callback,
+                    )
+
+                linhas_recuperacao = sorted(
+                    [
+                        linha
+                        for linha in _coletar_linhas_sp02(session_recuperacao)
+                        if _linha_e_boleto(linha)
+                    ],
+                    key=lambda linha: int(linha.get("linha") or 0),
+                )
+
+                if linhas_recuperacao:
+                    _limpar_selecao_sp02_com_shift_f6(
+                        session_recuperacao,
+                        logger=logger,
+                    )
+                    _marcar_boleto_sp02_sem_validar(
+                        session_recuperacao,
+                        linhas_recuperacao[0],
+                        selecionado=True,
+                        logger=logger,
+                    )
+                    selecao_esgoto_confirmada = True
+            except Exception as recuperacao_exc:
+                if logger:
+                    logger.add(
+                        6,
+                        "O fallback foi aberto sem alterar novamente a SP02. "
+                        f"Detalhe da tentativa de recuperacao: {recuperacao_exc}",
+                        nivel="AVISO",
+                        publico=False,
+                    )
+
+            return finalizar_em_modo_manual(
+                motivo_fallback=motivo_fallback,
+                selecao_esgoto_confirmada=selecao_esgoto_confirmada,
+            )
 
     if len(linhas) < len(boletos):
         raise RuntimeError(

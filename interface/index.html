@@ -125,7 +125,7 @@
           <div class="hero-runtime">
             <span id="footerDate">Data --/--/----</span>
             <span id="footerTime">Hora --:--:--</span>
-            <span id="footerVersion">Vers&atilde;o da API 1.4.55</span>
+            <span id="footerVersion">Vers&atilde;o da API 1.4.58</span>
           </div>
         </div>
       </div>
@@ -654,7 +654,32 @@
             <span>Per&iacute;odo</span>
             <strong id="extratoPeriodoPreview">--</strong>
           </div>
+          <div>
+            <span>Destino mensal</span>
+            <strong id="extratoDestinoPreview">Selecione a pasta-base</strong>
+          </div>
         </div>
+
+        <div class="bank-folder-picker">
+          <div class="bank-folder-copy">
+            <span>Pasta-base dos extratos</span>
+            <strong id="extratoPastaBaseLabel">Nenhuma pasta selecionada</strong>
+            <small>Selecione a pasta EXTRATOS. O app organiza ANO, M&Ecirc;S e CEF.</small>
+          </div>
+          <button
+            id="extratoFolderButton"
+            class="ghost-action bank-folder-button"
+            type="button"
+            onclick="selecionarPastaBaseExtratos()"
+          >
+            Selecionar pasta
+          </button>
+        </div>
+
+        <label class="bank-folder-default">
+          <input id="extratoFolderDefault" type="checkbox" checked />
+          <span>Definir como caminho padr&atilde;o neste computador</span>
+        </label>
 
         <p id="extratoFormError" class="field-message hidden"></p>
 
@@ -1136,7 +1161,7 @@
 
     <div class="contact-success-card pdf-name-card">
       <p class="section-kicker">PDFCreator</p>
-      <h2>Linha de boleto selecionada</h2>
+      <h2 id="pdfNameTitle">Linha de boleto selecionada</h2>
       <p id="pdfNameInstruction">
         D&ecirc; o comando <strong>Shift + F5 / Ctrl + Shift + F8</strong>
         ou selecione o &iacute;cone de impress&atilde;o no SAP para imprimir o boleto.
@@ -1156,6 +1181,49 @@
           Fechar
         </button>
       </div>
+    </div>
+  </div>
+
+  <div id="aguaEsgotoPdfModal" class="contact-success-modal dual-pdf-modal hidden" aria-live="polite">
+    <div class="contact-backdrop"></div>
+
+    <div id="aguaEsgotoPdfCards" class="dual-pdf-cards">
+      <article id="aguaEsgotoEsgotoCard" class="contact-success-card dual-pdf-card esgoto">
+        <p class="section-kicker">PDFCreator &middot; Esgoto</p>
+        <h2>Boleto de Esgoto</h2>
+        <p id="aguaEsgotoFallbackWarning" class="dual-pdf-fallback-warning hidden"></p>
+        <p id="aguaEsgotoEsgotoInstruction">
+          A linha mais recente de <strong>BOLETO</strong> j&aacute; est&aacute; selecionada no SAP.
+          Gere o PDF e use o nome abaixo.
+        </p>
+        <div id="aguaEsgotoEsgotoNome" class="pdf-name-value"></div>
+        <button
+          type="button"
+          class="primary-action"
+          onclick="copiarNomePdfAguaEsgoto('esgoto')"
+        >
+          Copiar nome de Esgoto
+        </button>
+      </article>
+
+      <article id="aguaEsgotoAguaCard" class="contact-success-card dual-pdf-card agua bloqueado">
+        <p class="section-kicker">PDFCreator &middot; &Aacute;gua</p>
+        <h2>Boleto de &Aacute;gua</h2>
+        <p id="aguaEsgotoAguaInstruction" class="dual-pdf-instruction">
+          No SAP, desmarque Esgoto caso a linha continue selecionada e marque a linha
+          <strong>BOLETO</strong> logo abaixo. Gere o PDF e depois copie o nome abaixo.
+        </p>
+        <div id="aguaEsgotoAguaNome" class="pdf-name-value"></div>
+        <button
+          id="aguaEsgotoAguaCopyButton"
+          type="button"
+          class="primary-action"
+          onclick="copiarNomePdfAguaEsgoto('agua')"
+          disabled
+        >
+          Copiar nome de &Aacute;gua
+        </button>
+      </article>
     </div>
   </div>
 

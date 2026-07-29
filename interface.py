@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 import traceback
@@ -36,7 +37,7 @@ from backend.logger import Logger
 from backend.sap_connection import conectar_sap
 from backend.utils.sap_waits import SapKeepAlive
 from backend.support_mail import process_support_request
-from backend.settings import SETTINGS
+from backend.settings import SETTINGS, get_runtime_root
 from backend.validators import validar_dados, validar_dados_multa_contratual
 from backend.valores import analisar_valor, analisar_valor_sem_limite
 
@@ -56,6 +57,50 @@ def _serializar_para_front(valor):
         return [_serializar_para_front(item) for item in valor]
 
     return valor
+
+
+_EXTRATOS_PREFERENCIAS_ARQUIVO = "extratos_caixa.json"
+_PASTA_MES_EXTRATO_RE = re.compile(r"^\d{2}\.[A-Z]{3}$", re.IGNORECASE)
+
+
+class _ConfirmacaoOperacional:
+    def __init__(self):
+        self._evento = threading.Event()
+        self._resultado = None
+
+    def concluir(self, resultado="confirmado"):
+        self._resultado = resultado
+        self._evento.set()
+
+    def set(self):
+        self.concluir()
+
+    def wait(self, timeout=None):
+        if not self._evento.wait(timeout):
+            return False
+
+        return self._resultado
+
+    def is_set(self):
+        return self._evento.is_set()
+
+
+def _normalizar_pasta_base_extratos(caminho) -> Path:
+    pasta = Path(str(caminho or "").strip()).expanduser()
+
+    if not str(pasta):
+        return pasta
+
+    nome = pasta.name.upper()
+
+    if nome == "CEF" and _PASTA_MES_EXTRATO_RE.fullmatch(pasta.parent.name):
+        pasta = pasta.parent.parent.parent
+    elif _PASTA_MES_EXTRATO_RE.fullmatch(nome) and pasta.parent.name.isdigit():
+        pasta = pasta.parent.parent
+    elif nome.isdigit() and len(nome) == 4 and pasta.parent.name.upper() == "EXTRATOS":
+        pasta = pasta.parent
+
+    return pasta
 
 
 # API exposta ao frontend pelo pywebview: o JS chama estes metodos.
@@ -123,6 +168,45 @@ class API:
             return True
         except Exception:
             return False
+
+    def _evaluate_js_value(self, script: str, default=None):
+        window = self._get_window()
+
+        if window is None:
+            return default
+
+        try:
+            with self._ui_lock:
+                return window.evaluate_js(script)
+        except Exception:
+            return default
+
+    def _monitorar_confirmacao_local(self, notice_id, confirmacao):
+        notice_id_js = json.dumps(str(notice_id or ""))
+
+        while not confirmacao.is_set():
+            if self._cancel_event.is_set():
+                confirmacao.concluir("cancelado")
+                break
+
+            resultado = self._evaluate_js_value(
+                "window.consumirSinalAvisoOperacional"
+                f" ? window.consumirSinalAvisoOperacional({notice_id_js})"
+                " : null",
+                default=None,
+            )
+
+            if resultado:
+                confirmacao.concluir(str(resultado))
+                break
+
+            time.sleep(0.2)
+
+        with self._notice_lock:
+            atual = self._notice_events.get(str(notice_id or ""))
+
+            if atual is confirmacao:
+                self._notice_events.pop(str(notice_id or ""), None)
 
     def _emitir_reset_progresso(self):
         self._emitir_funcao_js("resetarProgresso")
@@ -227,26 +311,40 @@ class API:
         payload = dict(payload or {})
         payload["tipo"] = str(tipo or "")
         evento = None
+        tipo_aviso = str(tipo or "")
+
+        if tipo_aviso in {"pdf_agua_esgoto", "pdf_agua_esgoto_agua_auto"}:
+            self._trazer_interface_para_frente(maximizar=True)
+
+        confirmacao_local = bool(payload.get("confirmacao_local"))
 
         if payload.get("aguardar_confirmacao") or payload.get("exigir_confirmacao"):
             notice_id = f"{time.time_ns()}-{threading.get_ident()}"
-            evento = threading.Event()
+            evento = _ConfirmacaoOperacional()
             payload["notice_id"] = notice_id
 
             with self._notice_lock:
                 self._notice_events[notice_id] = evento
 
-            if str(tipo or "") == "pdf":
+            if confirmacao_local:
+                threading.Thread(
+                    target=self._monitorar_confirmacao_local,
+                    args=(notice_id, evento),
+                    daemon=True,
+                    name=f"AvisoOperacional-{notice_id}",
+                ).start()
+
+            if tipo_aviso == "pdf":
                 self._trazer_interface_para_frente(maximizar=True)
 
         emitido = self._emitir_funcao_js(
             "mostrarAvisoOperacional",
-            str(tipo or ""),
+            tipo_aviso,
             _serializar_para_front(payload),
         )
 
         if evento is not None and not emitido:
-            evento.set()
+            evento.concluir("interface_indisponivel")
 
         return evento or True
 
@@ -302,7 +400,7 @@ class API:
         if evento is None:
             return {"ok": False, "msg": "Aviso operacional não encontrado."}
 
-        evento.set()
+        evento.concluir("confirmado")
         return {"ok": True}
 
     # Entrada principal chamada pelo botao Gerar Boleto.
@@ -728,7 +826,10 @@ class API:
 
                 resultado_final.update(_serializar_para_front(payload_sucesso))
                 self._emitir_preencher_resultado(resultado["dados"] or {})
-                self._emitir_status("ConcluÃ­do", "success")
+                if dados_resultado.get("finalizacao_pdf_manual_pendente"):
+                    self._emitir_status("Finalize os dois boletos", "running")
+                else:
+                    self._emitir_status("ConcluÃ­do", "success")
 
             except Exception as e:
                 erro_publico = (
@@ -791,6 +892,89 @@ class API:
             adicionar_setores_cliente,
             "Cadastrando setores no SAP",
         )
+
+    def _arquivo_preferencias_extratos(self) -> Path:
+        return get_runtime_root() / _EXTRATOS_PREFERENCIAS_ARQUIVO
+
+    def obter_pasta_padrao_extratos(self):
+        arquivo = self._arquivo_preferencias_extratos()
+
+        if not arquivo.exists():
+            return {"ok": True, "pasta_base": ""}
+
+        try:
+            payload = json.loads(arquivo.read_text(encoding="utf-8-sig"))
+        except Exception:
+            return {"ok": True, "pasta_base": ""}
+
+        pasta_base = str((payload or {}).get("pasta_base") or "").strip()
+        return {"ok": True, "pasta_base": pasta_base}
+
+    def selecionar_pasta_base_extratos(self, pasta_inicial="", definir_padrao=True):
+        window = self._get_window()
+
+        if window is None:
+            return {
+                "ok": False,
+                "msg": "A janela do aplicativo nao esta disponivel para selecionar a pasta.",
+            }
+
+        pasta_inicial = str(pasta_inicial or "").strip()
+
+        try:
+            selecionadas = window.create_file_dialog(
+                webview.FileDialog.FOLDER,
+                directory=pasta_inicial,
+                allow_multiple=False,
+            )
+        except Exception as exc:
+            return {
+                "ok": False,
+                "msg": f"Nao foi possivel abrir a selecao de pasta: {exc}",
+            }
+
+        if not selecionadas:
+            return {"ok": False, "cancelado": True, "msg": "Selecao de pasta cancelada."}
+
+        selecionada = (
+            selecionadas[0]
+            if isinstance(selecionadas, (list, tuple))
+            else selecionadas
+        )
+        pasta_base = _normalizar_pasta_base_extratos(selecionada)
+
+        if not pasta_base.exists() or not pasta_base.is_dir():
+            return {
+                "ok": False,
+                "msg": "A pasta selecionada nao esta disponivel.",
+            }
+
+        if definir_padrao:
+            arquivo = self._arquivo_preferencias_extratos()
+            temporario = arquivo.with_suffix(".tmp")
+            payload = {
+                "pasta_base": str(pasta_base),
+                "atualizado_em": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+
+            try:
+                arquivo.parent.mkdir(parents=True, exist_ok=True)
+                temporario.write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                temporario.replace(arquivo)
+            except Exception as exc:
+                return {
+                    "ok": False,
+                    "msg": f"A pasta foi selecionada, mas nao foi possivel salva-la como padrao: {exc}",
+                }
+
+        return {
+            "ok": True,
+            "pasta_base": str(pasta_base),
+            "salva_como_padrao": bool(definir_padrao),
+        }
 
     def abrir_navegador_caixa(self, navegador="opera"):
         return _serializar_para_front(abrir_navegador_caixa(navegador))
